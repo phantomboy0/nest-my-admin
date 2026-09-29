@@ -66,19 +66,26 @@ export class AdminHttpServer implements OnModuleInit {
       title: this.options.title,
     });
     adapter.use(this.options.path, (req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void) => {
-      void this.handle(req, res, next);
+      this.handle(req, res, next).catch((error: unknown) => {
+        this.logger.error(`unhandled admin error: ${String(error)}`);
+        if (!res.headersSent) res.statusCode = 500;
+        res.end();
+      });
     });
     this.logger.log(`Admin mounted at ${this.options.path}`);
   }
 
   private async handle(req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void): Promise<void> {
-    const url = new URL(req.url ?? '/', 'http://admin.local');
-    const ctx = createAdminContext(req);
+    let ctx: AdminContext | undefined;
     let resourceName: string | undefined;
     try {
-      if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-        const match = this.router.match(req.method ?? 'GET', url.pathname);
-        if (!match) throw new AdminNotFoundError(`No admin API route for ${req.method} ${url.pathname}`);
+      ctx = createAdminContext(req);
+      // Concatenate rather than resolve so a leading "//" is a path, not a protocol-relative authority.
+      const url = new URL(`http://admin.local${req.url ?? '/'}`);
+      const pathname = url.pathname.replace(/^\/{2,}/, '/');
+      if (pathname === '/api' || pathname.startsWith('/api/')) {
+        const match = this.router.match(req.method ?? 'GET', pathname);
+        if (!match) throw new AdminNotFoundError(`No admin API route for ${req.method} ${pathname}`);
         resourceName = match.params.resource;
         await match.handler({ req, res, url, ctx }, match.params);
         return;
@@ -87,15 +94,16 @@ export class AdminHttpServer implements OnModuleInit {
         next();
         return;
       }
-      this.ui!.serve(url.pathname, req, res);
+      this.ui!.serve(pathname, req, res);
     } catch (error) {
+      const correlationId = ctx?.correlationId ?? 'unknown';
       if (res.headersSent) {
-        this.logger.error(`[${ctx.correlationId}] error after response started: ${String(error)}`);
+        this.logger.error(`[${correlationId}] error after response started: ${String(error)}`);
         res.end();
         return;
       }
       const columns = resourceName ? this.registry.find(resourceName)?.columnProperties : undefined;
-      const { status, body } = toErrorResponse(error, ctx.correlationId, this.logger, columns);
+      const { status, body } = toErrorResponse(error, correlationId, this.logger, columns);
       sendJson(res, status, body);
     }
   }

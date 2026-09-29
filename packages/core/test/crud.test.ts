@@ -117,4 +117,14 @@ describe('routing', () => {
   test('the mount does not swallow sibling paths', async () => {
     expect((await request(app.getHttpServer()).get('/administrator')).status).toBe(404);
   });
+
+  test('double-slash paths neither crash the process nor hit the SPA fallback for the API', async () => {
+    const http = app.getHttpServer();
+    const root = await request(http).get('/admin//');
+    expect([200, 404]).toContain(root.status);
+    const api = await request(http).get('/admin//api/meta');
+    expect(api.status).toBe(200);
+    expect(api.body.schemaVersion).toBe(1);
+    expect((await request(http).get('/admin/api/meta')).status).toBe(200);
+  });
 });
