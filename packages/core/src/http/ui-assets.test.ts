@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import type { ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
+import { mkdtempSync, writeFileSync, chmodSync, unlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import { injectRuntime, resolveStaticFile, UiAssets } from './ui-assets.js';
 
 const root = fileURLToPath(new URL('../../test/fixtures/ui-dist', import.meta.url));
@@ -43,28 +44,74 @@ describe('resolveStaticFile', () => {
 });
 
 describe('UiAssets', () => {
-  test('handles stream errors gracefully without crashing', async () => {
-    const ui = new UiAssets(root, runtime);
-    let errorHandled = false;
+  test('handles file read errors gracefully without crashing', async () => {
+    // Skip if running as root (can't test chmod 000)
+    if (process.getuid?.() === 0) {
+      return;
+    }
 
-    const req = { method: 'GET' } as any;
-    const res = new Writable({
-      write(chunk, encoding, callback) {
-        callback();
-      },
-    }) as any;
-    res.statusCode = 0;
-    res.headersSent = false;
-    res.setHeader = () => {};
-    res.destroy = function(this: any) {
-      errorHandled = true;
+    // Create a temp directory with a file
+    const tempDir = mkdtempSync(join(tmpdir(), 'ui-test-'));
+    const assetFile = join(tempDir, 'test.js');
+    writeFileSync(assetFile, 'console.log("test")');
+
+    const ui = new UiAssets(tempDir, runtime);
+    let uncaughtError: Error | undefined;
+    const errorListener = (err: Error) => {
+      uncaughtError = err;
     };
+    process.on('uncaughtException', errorListener);
 
-    // Serve a file and destroy the response to simulate client disconnect
-    ui.serve('/assets/app.js', req, res);
-    await new Promise((r) => setTimeout(r, 5));
-    res.destroy();
-    // Verify no crash occurred - if an unhandled error was thrown, the test would fail
-    expect(true).toBe(true);
+    try {
+      // Create a real HTTP server
+      const server = createServer((req, res) => {
+        ui.serve('/test.js', req, res);
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        server.listen(0, async () => {
+          try {
+            const addr = server.address();
+            const port = typeof addr === 'object' ? addr?.port : 0;
+
+            // Make the file unreadable (chmod 000)
+            chmodSync(assetFile, 0o000);
+
+            // Make a request - the pipeline will fail on read and destroy the response
+            const response = await fetch(`http://localhost:${port}/test.js`, { method: 'GET' });
+            // The response may be incomplete due to stream error, but should not crash
+            expect(response.status).toBeGreaterThanOrEqual(200);
+
+            resolve();
+          } catch (e) {
+            reject(e);
+          } finally {
+            // Restore permissions for cleanup
+            try {
+              chmodSync(assetFile, 0o644);
+            } catch {
+              // Ignore
+            }
+            server.close();
+          }
+        });
+      });
+
+      // Verify no uncaught exception occurred
+      expect(uncaughtError).toBeUndefined();
+    } finally {
+      process.off('uncaughtException', errorListener);
+      try {
+        chmodSync(assetFile, 0o644);
+        unlinkSync(assetFile);
+      } catch {
+        // Ignore
+      }
+      try {
+        rmSync(tempDir, { recursive: true });
+      } catch {
+        // Ignore
+      }
+    }
   });
 });

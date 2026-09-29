@@ -102,9 +102,16 @@ export class UiAssets {
   }
 
   private sendFile(file: string, pathname: string, req: AdminRequest, res: ServerResponse): void {
+    let size: number;
+    try {
+      size = statSync(file).size;
+    } catch {
+      this.send(req, res, 404, 'text/plain; charset=utf-8', 'Not found', 'no-store');
+      return;
+    }
     res.statusCode = 200;
     res.setHeader('Content-Type', CONTENT_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream');
-    res.setHeader('Content-Length', statSync(file).size);
+    res.setHeader('Content-Length', size);
     res.setHeader('Cache-Control', pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (req.method === 'HEAD') {
@@ -113,14 +120,7 @@ export class UiAssets {
     }
     const stream = createReadStream(file);
     pipeline(stream, res, (error) => {
-      if (!error) return;
-      if (!res.headersSent) {
-        res.statusCode = 500;
-        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.end('Internal error');
-      } else {
-        res.destroy();
-      }
+      if (error) res.destroy();
     });
   }
 
