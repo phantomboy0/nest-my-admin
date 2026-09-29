@@ -1,0 +1,198 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, monospace;
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-primary-shade-5: var(--primary-shade-5);
+  --color-primary-shade-4: var(--primary-shade-4);
+  --color-primary-shade-3: var(--primary-shade-3);
+  --color-primary-shade-2: var(--primary-shade-2);
+  --color-primary-shade-1: var(--primary-shade-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Radix Collapsible ships no animation of its own — it only toggles data-state and (via its
+ * internal Presence) keeps the content mounted for the duration of a `[data-state=closed]`
+ * animation. These keyframes read the `--radix-collapsible-content-height` var Radix sets to
+ * the content's own measured pixel height, so unlike a CSS grid-rows/max-height trick the
+ * animated height target is a real measured number, not something recharts' ResponsiveContainer
+ * (a ResizeObserver-driven child) has to guess at mid-transition.
+ */
+@theme {
+  --animate-collapsible-down: collapsible-down 300ms ease-out;
+  --animate-collapsible-up: collapsible-up 300ms ease-out;
+}
+
+@keyframes collapsible-down {
+  from { height: 0; }
+  to { height: var(--radix-collapsible-content-height); }
+}
+
+@keyframes collapsible-up {
+  from { height: var(--radix-collapsible-content-height); }
+  to { height: 0; }
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.55 0.12 250);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: #19293C;
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.575 0.163 255.5);
+  --chart-2: oklch(0.671 0.175 40.6);
+  --chart-3: oklch(0.669 0.141 162.1);
+  --chart-4: oklch(0.764 0.161 75.1);
+  --chart-5: oklch(0.716 0.141 357.4);
+  /* A sequential ramp of the brand primary (oklch(0.55 0.12 250)), light->dark, for single-hue
+     per-category charts (e.g. leads-by-user pie) — validated against the dataviz
+     skill's ordinal checks (monotone L, >=0.06 adjacent steps, light-end contrast
+     >=2:1 vs the light card surface). Dark mode below is its own selection against
+     the dark card surface, not an automatic flip. */
+  --primary-shade-1: #ff8a84;
+  --primary-shade-2: #ed5352;
+  --primary-shade-3: #c92f35;
+  --primary-shade-4: #a50c1e;
+  --primary-shade-5: #800514;
+  /* Categorical palette for the cheque-status donut chart (7 fixed statuses,
+     never cycled) — validated with the dataviz skill's validator against the
+     light card surface (all six checks pass; the contrast WARN on
+     teal/emerald/amber is covered by the chart's always-visible legend
+     labels). Dark mode below is its own selection (600-step, not a flip),
+     validated against the dark surface #0a0a0a. */
+  --cheque-status-received: #14b8a6;
+  --cheque-status-submitted-to-bank: #3b82f6;
+  --cheque-status-cleared: #10b981;
+  --cheque-status-bounced: #ef4444;
+  --cheque-status-endorsed-out: #8b5cf6;
+  --cheque-status-returned-to-customer: #f59e0b;
+  --cheque-status-cancelled: #d946ef;
+  --radius: 0.625rem;
+  --sidebar: var(--secondary);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: var(--primary);
+  --sidebar-accent: var(--primary);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.55 0.12 250);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: #19293C;
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.622 0.161 255.1);
+  --chart-2: oklch(0.622 0.173 40.1);
+  --chart-3: oklch(0.621 0.128 163.1);
+  --chart-4: oklch(0.670 0.143 73.2);
+  --chart-5: oklch(0.622 0.171 0.8);
+  /* Own dark-mode selection (not a flip of the light ramp) — validated against the
+     dark card surface (#171717). */
+  --primary-shade-1: #ffaea7;
+  --primary-shade-2: #fd736e;
+  --primary-shade-3: #db4143;
+  --primary-shade-4: #b51d28;
+  --primary-shade-5: #960f1c;
+  --cheque-status-received: #0d9488;
+  --cheque-status-submitted-to-bank: #2563eb;
+  --cheque-status-cleared: #059669;
+  --cheque-status-bounced: #dc2626;
+  --cheque-status-endorsed-out: #7c3aed;
+  --cheque-status-returned-to-customer: #d97706;
+  --cheque-status-cancelled: #c026d3;
+  --sidebar: var(--secondary);
+  --sidebar-foreground: oklch(58.612% 0.2249 27.835);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  html {
+    @apply font-sans;
+  }
+}
+

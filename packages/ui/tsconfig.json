@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "types": ["bun", "node", "vite/client"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@nest-my-admin/core/contract": ["../core/src/contract.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}
