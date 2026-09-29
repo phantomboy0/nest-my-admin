@@ -1,3 +1,6 @@
+export { AdminModule } from './admin.module.js';
+export type { AdminModuleOptions } from './options.js';
+export { ResourceRegistry, type RegisteredGroup, type RegisteredResource } from './registry/resource-registry.js';
 export { AdminGroup, type AdminGroupOptions } from './decorators/admin-group.js';
 export { AdminResource, type AdminResourceOptions } from './decorators/admin-resource.js';
 export {
