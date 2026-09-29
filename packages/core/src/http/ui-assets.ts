@@ -2,6 +2,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import type { ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve, sep } from 'node:path';
+import { pipeline } from 'node:stream';
 import type { AdminRuntimeConfig } from '../contract.js';
 import type { AdminRequest } from './http-io.js';
 
@@ -110,7 +111,17 @@ export class UiAssets {
       res.end();
       return;
     }
-    createReadStream(file).pipe(res);
+    const stream = createReadStream(file);
+    pipeline(stream, res, (error) => {
+      if (!error) return;
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.end('Internal error');
+      } else {
+        res.destroy();
+      }
+    });
   }
 
   private send(req: AdminRequest, res: ServerResponse, status: number, contentType: string, body: string, cacheControl: string): void {

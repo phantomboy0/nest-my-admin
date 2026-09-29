@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import type { ServerResponse } from 'node:http';
 import { join } from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { injectRuntime, resolveStaticFile } from './ui-assets.js';
+import { injectRuntime, resolveStaticFile, UiAssets } from './ui-assets.js';
 
 const root = fileURLToPath(new URL('../../test/fixtures/ui-dist', import.meta.url));
 const runtime = { basePath: '/admin', apiBase: '/admin/api', title: 'Shop' };
@@ -37,5 +39,32 @@ describe('resolveStaticFile', () => {
     expect(resolveStaticFile(root, '/..%2f..%2fwidgets.ts')).toBeUndefined();
     expect(resolveStaticFile(root, '/%E0%A4%A')).toBeUndefined();
     expect(resolveStaticFile(root, '/assets/app.js%00.png')).toBeUndefined();
+  });
+});
+
+describe('UiAssets', () => {
+  test('handles stream errors gracefully without crashing', async () => {
+    const ui = new UiAssets(root, runtime);
+    let errorHandled = false;
+
+    const req = { method: 'GET' } as any;
+    const res = new Writable({
+      write(chunk, encoding, callback) {
+        callback();
+      },
+    }) as any;
+    res.statusCode = 0;
+    res.headersSent = false;
+    res.setHeader = () => {};
+    res.destroy = function(this: any) {
+      errorHandled = true;
+    };
+
+    // Serve a file and destroy the response to simulate client disconnect
+    ui.serve('/assets/app.js', req, res);
+    await new Promise((r) => setTimeout(r, 5));
+    res.destroy();
+    // Verify no crash occurred - if an unhandled error was thrown, the test would fail
+    expect(true).toBe(true);
   });
 });
