@@ -36,6 +36,9 @@ An open-source, npm-installable admin panel for **NestJS + TypeORM** that matche
 | D9 | Background work | DB-backed job table + in-process worker; BullMQ adapter optional | Require Redis |
 | D10 | Tooling | Bun workspaces, Bun scripts and test runner; Node 20+ still supported for consumers | pnpm + Node |
 | D11 | Dogfooding | v0.1 (after M3) is adopted in a new real project chosen by the owner at that point; the demo app is used until then | CRM backend; demo only |
+| D12 | Admin HTTP surface | Mounted as an isolated sub-app on the host's HTTP adapter (like Swagger UI / Bull Board / AdminJS), with its own router, error handling and static serving. Host global guards, interceptors, pipes, filters and global prefix do not apply to it | Nest controllers (host `APP_GUARD`s would lock the admin out; response-wrapping interceptors and `setGlobalPrefix` would change its contract) |
+| D13 | Resource registration | Resources are ordinary `providers` of the host's own feature module (so they can inject that module's services); sidebar group defaults to the host module and is customised with `@AdminGroup()` on the module | `AdminModule.forFeature([...])` (its providers cannot inject the feature module's services) |
+| D14 | Platform targets | NestJS 11 and 12, TypeORM 0.3.x and 1.x; packages ship as ESM (Nest 12 is ESM-only; CJS hosts load it via `require(esm)`, Node ≥ 20.19) | Nest 10; CommonJS output |
 
 ## 3. Packages
 
@@ -43,7 +46,7 @@ Monorepo `nest-my-admin` (Bun workspaces):
 
 | Package | Contents | Peer deps |
 |---|---|---|
-| `@nest-my-admin/core` | Nest module, decorators, metadata registry, config resolution, CRUD engine, query parser, policy engine, jobs, storage, events, REST controllers, static serving of the UI | `@nestjs/common`, `@nestjs/core`, `typeorm`, `class-validator`, `class-transformer`, `reflect-metadata` |
+| `@nest-my-admin/core` | Nest module, decorators, metadata registry, config resolution, CRUD engine, query parser, policy engine, jobs, storage, events, isolated HTTP sub-app (API router + static serving of the UI) | `@nestjs/common`, `@nestjs/core`, `@nestjs/typeorm`, `typeorm`, `class-validator`, `class-transformer`, `reflect-metadata`, `rxjs` |
 | `@nest-my-admin/ui` | Prebuilt SPA (static assets only, no runtime JS deps for the host) | — |
 | `@nest-my-admin/auth` | Built-in auth adapter: admin users, password hashing, sessions, 2FA (TOTP), rate limiting | `@nest-my-admin/core` |
 | `@nest-my-admin/testing` | Test utilities for host apps (§13.3) | `@nest-my-admin/core`, `@nestjs/testing` |
@@ -60,11 +63,12 @@ Also `examples/demo-api`: a Nest app with representative entities, used for deve
 2. **Meta:** the SPA loads `GET /admin/api/meta` (light: sidebar, current user, locale, branding, `permissionsVersion`, `schemaVersion`) and lazily `GET /admin/api/meta/resources/:name` (full field/list/form/action schema). Both are **already filtered by the current user's permissions** and cached with ETags.
 3. **Requests:** `auth guard → policy check (entity → record → fields) → DTO validation → resource method (host service override, or repository + hooks) → audit/events → response serialization (field stripping)`.
 4. **Scopes** (row-level and global) are applied inside the query layer for every read path, never in the UI.
-5. **Static UI:** Nest serves `@nest-my-admin/ui` assets at the configured path, with a history fallback, and injects runtime config (`window.__NMA__`: base path, API URL, branding) into `index.html`, so changing `path` needs no rebuild. Assets are resolved with `require.resolve('@nest-my-admin/ui/package.json')` so they survive webpack/`nest build` bundling and monorepos.
+5. **HTTP surface (D12):** during `onModuleInit`, `core` mounts one handler at the configured path on the host's HTTP adapter (Express in v1). It routes `/api/*` itself and serves the UI for everything else. It is registered after host middleware added in `main.ts` (e.g. helmet, rate limiters, which therefore still apply) and before Nest's 404 handler. Host global guards, interceptors, pipes, exception filters and `setGlobalPrefix` do not apply.
+6. **Static UI:** `@nest-my-admin/ui` assets are served at the configured path with a history fallback. `core` injects `<base href>` and runtime config (`window.__NMA__`: base path, API URL, branding) into `index.html`, so changing `path` needs no rebuild. Assets are located with `createRequire(import.meta.url).resolve('@nest-my-admin/ui/package.json')` so they survive bundling and monorepos.
 
 ## 5. Declarative API
 
-### 5.1 Root and feature registration
+### 5.1 Root registration and groups
 
 ```ts
 @Module({
@@ -89,14 +93,15 @@ Also `examples/demo-api`: a Nest app with representative entities, used for deve
 })
 export class AppModule {}
 
+@AdminGroup({ key: 'sales', label: { en: 'Sales', fa: 'فروش' }, icon: 'cart', order: 10 })
 @Module({
-  imports: [AdminModule.forFeature([OrderAdmin, OrderItemAdmin], { group: 'sales', icon: 'cart', label: { en: 'Sales', fa: 'فروش' } })],
-  providers: [OrdersService],
+  imports: [TypeOrmModule.forFeature([Order, OrderItem])],
+  providers: [OrdersService, OrderAdmin, OrderItemAdmin],   // resources are ordinary providers (D13)
 })
 export class OrdersModule {}
 ```
 
-Each `forFeature` call defines a **sidebar group**; each resource is a **sidebar tab** within it. The registry is namespaced by **site** (`default` in v1); multiple admin sites (e.g. `/admin`, `/partner`) are enabled in v1.1 without breaking changes.
+Each Nest module that provides resources is a **sidebar group** (key and label default to the module name without the `Module` suffix; `@AdminGroup()` customises it); each resource is a **sidebar tab** within it. A resource may override its group with `@AdminResource(Entity, { group: 'key' })`. The registry is namespaced by **site** (`default` in v1); multiple admin sites (e.g. `/admin`, `/partner`) are enabled in v1.1 without breaking changes.
 
 ### 5.2 Resource classes
 
@@ -179,7 +184,7 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 }
 ```
 
-Other decorators: `@AdminPage()` (custom pages), `@AdminWidget()` (dashboard widgets), `@OnAdminEvent()` (§8.3), `@AdminField()` (hints on entity/DTO properties, §5.3).
+Other decorators: `@AdminGroup()` (on Nest modules, §5.1), `@AdminPage()` (custom pages), `@AdminWidget()` (dashboard widgets), `@OnAdminEvent()` (§8.3), `@AdminField()` (hints on entity/DTO properties, §5.3).
 
 **Typing:** `FieldsConfig<T>`, `ListConfig<T>`, `FormConfig<T>` accept field paths typed from the entity (`'customer.name'` autocompletes; typos fail to compile). Path typing is depth-limited to 3 levels.
 
@@ -393,7 +398,7 @@ Host code can throw `AdminFieldError({ field: 'message' })`; `errorMapper` maps 
 - **Persian search normalization:** Arabic ي/ك ↔ Persian ی/ک, Persian and Arabic-Indic digits → Latin, ZWNJ handling; queries match both character variants.
 - Inputs accept all digit sets; optional Persian digit display.
 - **Time:** stored in UTC, displayed in the user's timezone; Jalali filter ranges converted to UTC ranges; `date` columns never shifted.
-- Money/decimal/bigint stay strings; display with thousands separators.
+- Money/decimal/bigint stay strings; display with thousands separators. The serializer enforces this regardless of driver (e.g. SQLite returns `decimal` as a JS number; it is re-emitted as a string using the column's scale, `1.5` → `"1.50"`).
 
 ## 13. Developer experience
 
@@ -417,7 +422,7 @@ Exported `AdminMigrations` for `synchronize: false` hosts; configurable table pr
 ## 14. Testing strategy (package itself)
 
 - **Unit (`bun test`):** resolution order, policy engine (grant/scope/field/record matrix), DTO → form-schema compiler, query parser, Persian normalization, error mapping.
-- **Integration:** `examples/demo-api` against Postgres, MySQL and SQLite (Docker) × NestJS 10 and 11; CRUD through services, transactions, scopes, uploads, jobs.
+- **Integration:** `examples/demo-api` against Postgres, MySQL and SQLite (Docker) × NestJS 11 and 12 × TypeORM 0.3 and 1.x; CRUD through services, transactions, scopes, uploads, jobs.
 - **Security conformance suite:** leak crawler for every demo resource × role; filter-oracle, escalation, CSRF and out-of-scope-404 tests.
 - **E2E (Playwright):** desktop and mobile widths × LTR/RTL × light/dark, with screenshot comparison.
 - **Type tests** for typed paths and config types.
@@ -425,9 +430,9 @@ Exported `AdminMigrations` for `synchronize: false` hosts; configurable table pr
 
 ## 15. Compatibility and packaging
 
-- NestJS 10 (Express 4) and 11 (Express 5): SPA fallback route syntax handled internally. Fastify in v1.1.
-- TypeORM 0.3.x. Postgres, MySQL 8, SQLite. Search strategy per driver (`ILIKE` vs `LOWER … LIKE`); overridable `search(qb, term)` for full-text/trigram.
-- `core`, `auth`, `testing`, `cli` ship CommonJS + `.d.ts`; `ui` ships static assets.
+- NestJS 11 and 12 (D14). The admin sub-app does its own routing, so Nest/path-to-regexp route-syntax differences do not affect it. Express in v1; Fastify in v1.1.
+- TypeORM 0.3.x and 1.x. Postgres, MySQL 8, SQLite. Search strategy per driver (`ILIKE` vs `LOWER … LIKE`); overridable `search(qb, term)` for full-text/trigram.
+- `core`, `auth`, `testing`, `cli` ship ESM + `.d.ts` (D14); `ui` ships static assets only (React etc. are build-time dependencies, never installed by hosts).
 - Built and tested with Bun; must run under Node 20+ for consumers.
 - License: MIT. Securing the `@nest-my-admin` npm scope is a task in M0.
 
