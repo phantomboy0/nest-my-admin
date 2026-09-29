@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// PW_CHANNEL=chrome uses the installed Google Chrome where the Playwright CDN is unreachable.
+const channel = process.env.PW_CHANNEL;
+const browser = channel ? { channel } : {};
+
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.pw.ts',
@@ -13,7 +17,7 @@ export default defineConfig({
     timeout: 60_000,
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
-    { name: 'mobile', use: { ...devices['Pixel 7'] } },
+    { name: 'desktop', use: { ...devices['Desktop Chrome'], ...browser } },
+    { name: 'mobile', use: { ...devices['Pixel 7'], ...browser } },
   ],
 });
