@@ -6,10 +6,10 @@ export const useMeta = () => useQuery({ queryKey: ['meta'], queryFn: api.meta })
 export const useSchema = (resource: string) =>
   useQuery({ queryKey: ['schema', resource], queryFn: () => api.schema(resource) });
 
-export const useList = (resource: string, page: number, sort?: string) =>
+export const useList = (resource: string, query: string) =>
   useQuery({
-    queryKey: ['list', resource, page, sort],
-    queryFn: () => api.list(resource, { page, sort }),
+    queryKey: ['list', resource, query],
+    queryFn: () => api.list(resource, new URLSearchParams(query)),
     placeholderData: keepPreviousData,
   });
 

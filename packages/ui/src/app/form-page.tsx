@@ -5,7 +5,7 @@ import type { AdminRecord, FieldSchema, ResourceSchema } from '@nest-my-admin/co
 import { FieldInput } from '@/app/field-input';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
-import { ApiError, api } from '@/lib/api';
+import { ApiError, api, describeError } from '@/lib/api';
 import { toFormValues, toPayload, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema } from '@/lib/queries';
 
@@ -46,8 +46,8 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
       mode === 'create' ? api.create(schema.name, payload) : api.update(schema.name, id!, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['list', schema.name] });
-      queryClient.removeQueries({ queryKey: ['record', schema.name] });
       navigate(`/${schema.name}`);
+      queryClient.removeQueries({ queryKey: ['record', schema.name] });
     },
     onError: (error) => {
       if (!(error instanceof ApiError)) {
@@ -59,6 +59,20 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
       const hidden = entries.filter(([name]) => !names.includes(name)).map(([name, messages]) => `${name}: ${messages.join(', ')}`);
       setFieldErrors(shown);
       setFormError(Object.keys(shown).length > 0 && hidden.length === 0 ? null : [error.message, ...hidden].join(' — '));
+    },
+  });
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => api.remove(schema.name, id!),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['list', schema.name] });
+      navigate(`/${schema.name}`);
+      queryClient.removeQueries({ queryKey: ['record', schema.name, id] });
+    },
+    onError: (error) => {
+      setConfirmingDelete(false);
+      setFormError(describeError(error));
     },
   });
 
@@ -95,6 +109,21 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
         <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
           Cancel
         </Button>
+        {mode === 'edit' &&
+          (confirmingDelete ? (
+            <div className="ms-auto flex gap-2">
+              <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                {remove.isPending ? 'Deleting…' : 'Confirm delete'}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
+                Keep
+              </Button>
+            </div>
+          ) : (
+            <Button type="button" variant="outline" className="ms-auto" onClick={() => setConfirmingDelete(true)}>
+              Delete
+            </Button>
+          ))}
       </div>
     </form>
   );

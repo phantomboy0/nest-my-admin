@@ -10,7 +10,7 @@ export interface PayloadResult {
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** ISO string → value for <input type="datetime-local"> in the browser's timezone. */
-function toDatetimeLocal(value: string): string {
+export function toDatetimeLocal(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;

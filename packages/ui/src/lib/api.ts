@@ -35,12 +35,8 @@ const enc = encodeURIComponent;
 export const api = {
   meta: () => request<MetaResponse>('/meta'),
   schema: (resource: string) => request<ResourceSchema>(`/meta/resources/${enc(resource)}`),
-  list: (resource: string, params: { page: number; pageSize?: number; sort?: string }) => {
-    const query = new URLSearchParams({ page: String(params.page) });
-    if (params.pageSize) query.set('pageSize', String(params.pageSize));
-    if (params.sort) query.set('sort', params.sort);
-    return request<ListResponse>(`/resources/${enc(resource)}?${query}`);
-  },
+  list: (resource: string, query: URLSearchParams) => request<ListResponse>(`/resources/${enc(resource)}?${query}`),
+  remove: (resource: string, id: string) => request<void>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'DELETE' }),
   get: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`),
   create: (resource: string, body: Record<string, unknown>) =>
     request<AdminRecord>(`/resources/${enc(resource)}`, { method: 'POST', body: JSON.stringify(body) }),

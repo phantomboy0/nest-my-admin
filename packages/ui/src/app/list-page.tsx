@@ -2,10 +2,13 @@ import { Fragment } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import type { AdminRecord, FieldSchema } from '@nest-my-admin/core/contract';
+import { FilterBar } from '@/app/filter-bar';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { describeError } from '@/lib/api';
 import { formatCell } from '@/lib/format';
+import { hasActiveFilters, listQueryFromUrl, withChanges, type ParamChanges } from '@/lib/list-state';
 import { useList, useSchema } from '@/lib/queries';
 
 export function ListPage() {
@@ -15,7 +18,7 @@ export function ListPage() {
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const sortParam = searchParams.get('sort') ?? undefined;
   const schema = useSchema(resource);
-  const list = useList(resource, page, sortParam);
+  const list = useList(resource, listQueryFromUrl(searchParams));
 
   if (schema.isPending) return <PageMessage>Loading…</PageMessage>;
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
@@ -33,20 +36,13 @@ export function ListPage() {
   const totalPages = list.data ? Math.max(1, Math.ceil(list.data.total / list.data.pageSize)) : 1;
   const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item[s.primaryKey]))}`;
 
-  function updateParams(changes: Record<string, string | null>) {
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous);
-      for (const [key, value] of Object.entries(changes)) {
-        if (value === null) next.delete(key);
-        else next.set(key, value);
-      }
-      return next;
-    });
+  function updateParams(changes: ParamChanges) {
+    setSearchParams((previous) => withChanges(previous, changes));
   }
 
   function toggleSort(field: string) {
     const ascending = sort.field === field && sort.direction === 'asc';
-    updateParams({ sort: ascending ? `-${field}` : field, page: null });
+    updateParams({ sort: ascending ? `-${field}` : field });
   }
 
   return (
@@ -61,7 +57,9 @@ export function ListPage() {
         </Button>
       </div>
 
-      {list.isError && <PageMessage tone="error">{list.error.message}</PageMessage>}
+      <FilterBar schema={s} params={searchParams} onChange={updateParams} />
+
+      {list.isError && <PageMessage tone="error">{describeError(list.error)}</PageMessage>}
 
       <div className="hidden overflow-x-auto rounded-lg border md:block">
         <Table>
@@ -81,15 +79,23 @@ export function ListPage() {
           <TableBody>
             {items.map((item) => (
               <TableRow key={String(item[s.primaryKey])} className="cursor-pointer" onClick={() => navigate(recordPath(item))}>
-                {columns.map((column) => (
-                  <TableCell key={column.name}>{formatCell(item[column.name], column)}</TableCell>
+                {columns.map((column, index) => (
+                  <TableCell key={column.name}>
+                    {index === 0 ? (
+                      <Link to={recordPath(item)} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
+                        {formatCell(item[column.name], column)}
+                      </Link>
+                    ) : (
+                      formatCell(item[column.name], column)
+                    )}
+                  </TableCell>
                 ))}
               </TableRow>
             ))}
             {list.isSuccess && items.length === 0 && (
               <TableRow>
                 <TableCell colSpan={columns.length} className="text-center text-muted-foreground">
-                  No records yet.
+                  {hasActiveFilters(searchParams) ? 'No records match.' : 'No records yet.'}
                 </TableCell>
               </TableRow>
             )}
@@ -115,7 +121,7 @@ export function ListPage() {
             </Link>
           </li>
         ))}
-        {list.isSuccess && items.length === 0 && <li className="text-center text-sm text-muted-foreground">No records yet.</li>}
+        {list.isSuccess && items.length === 0 && <li className="text-center text-sm text-muted-foreground">{hasActiveFilters(searchParams) ? 'No records match.' : 'No records yet.'}</li>}
       </ul>
 
       <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
