@@ -24,7 +24,12 @@ export function toErrorResponse(
   if (errorMapper && !(error instanceof AdminError)) {
     try {
       const mapped = errorMapper(error);
-      if (mapped instanceof AdminError) error = mapped;
+      if (mapped instanceof AdminError) {
+        if (mapped.status >= 500) {
+          logger.error(`[${correlationId}] errorMapper answered ${mapped.status} for: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+        }
+        error = mapped;
+      }
     } catch (mapperError) {
       logger.error(`[${correlationId}] errorMapper threw: ${mapperError instanceof Error ? (mapperError.stack ?? mapperError.message) : String(mapperError)}`);
     }

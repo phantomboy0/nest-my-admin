@@ -3,7 +3,10 @@ import type { AdminError } from './errors.js';
 /**
  * Translates your own exceptions into admin errors. Return undefined to leave an error alone.
  * Runs for every error that is not already an AdminError, after the request's context has ended
- * (AdminContext.current() is undefined); use the error itself.
+ * (AdminContext.current() is undefined); use the error itself. It runs before the built-in database-error
+ * mapping, so it sees raw driver errors: never put a raw error message (it may contain SQL) into a mapped
+ * response. Errors from host middleware that carry a 4xx `status` and body-parser errors skip it.
+ * A mapped error with status >= 500 is logged with the original stack and the correlation id.
  */
 export type ErrorMapper = (error: unknown) => AdminError | undefined;
 

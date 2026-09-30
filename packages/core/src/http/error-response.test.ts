@@ -141,4 +141,21 @@ describe('toErrorResponse: invalid values reaching the database', () => {
     });
     expect(called).toBe(false);
   });
+
+  test('a mapper result with status >= 500 logs the original error and correlation id', () => {
+    const log = logger();
+    const original = new Error('boom from domain');
+    const res = toErrorResponse(original, 'c500', log, undefined, () => new AdminError('BUSINESS_RULE', 503, 'Try later'));
+    expect(res.status).toBe(503);
+    expect(log.error).toHaveBeenCalledTimes(1);
+    const message = log.error.mock.calls[0]![0];
+    expect(message).toContain('c500');
+    expect(message).toContain('boom from domain');
+  });
+
+  test('a mapper result with a 4xx status is not logged', () => {
+    const log = logger();
+    toErrorResponse(new Error('x'), 'c', log, undefined, () => new AdminError('BUSINESS_RULE', 402, 'Pay'));
+    expect(log.error).not.toHaveBeenCalled();
+  });
 });
