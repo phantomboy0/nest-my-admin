@@ -14,6 +14,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
     sort: '-id',
     pageSize: 20,
     count: 'estimate', // exact while the table is small, the planner's estimate once it is big
+    editable: ['status', 'stock'],
     filters: ['status', 'categoryId', 'tags', 'price', 'stock', 'releasedOn'],
     search: ['name', 'sku', 'category.name'],
   };

@@ -71,6 +71,7 @@ export const fa: Messages = {
   'list.quickView': 'نمای سریع: {name}',
   'list.edit': 'ویرایش',
   'list.close': 'بستن',
+  'list.editCell': 'ویرایش {name}: {value}',
 
   'filters.search': 'جست‌وجو',
   'filters.searchIn': 'جست‌وجو در {fields}',

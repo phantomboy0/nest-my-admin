@@ -51,6 +51,12 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - Theme and branding are applied in `main.tsx` before render (`lib/theme.ts`).
   - Sidebar state lives in `lib/nav-state.ts`, and icons come from a curated map (`lib/icons.ts`).
   - `/g/:group` is a group landing page, and `/` shows every group with counts.
+- List page (M2-2):
+  - `lib/filter-chips.ts` derives chips from the URL.
+  - `lib/column-prefs.ts` stores columns and density per resource in localStorage.
+  - `app/quick-view.tsx` is a Radix Dialog sheet; a row's Enter handler must `preventDefault()`, or the same key closes the sheet.
+  - `app/editable-cell.tsx` saves `list.editable` fields with PATCH and patches the cached list pages.
+  - `AdminApiService.bulkDelete` loops `remove()` per id.
 - Hooks (`@BeforeSave/@AfterSave/@BeforeDelete`) run only in `AdminResourceBase`'s default create/update/delete; resources that override those methods call their own services instead.
 - Writes run inside `AdminApiService.write()`: one `dataSource.transaction()`, `ctx.manager` set, and `AdminContext.run()` re-entered so `AdminContext.current()` sees the transactional context. `AdminResourceBase` defaults use `repositoryFor(ctx)`. Reads get no manager. On Postgres/MySQL a service that ignores `ctx.manager` writes on another pooled connection (outside the transaction, can block on its locks); SQLite-family writes are serialized per DataSource.
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.

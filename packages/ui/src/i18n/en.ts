@@ -69,6 +69,7 @@ export const en = {
   'list.quickView': 'Quick view: {name}',
   'list.edit': 'Edit',
   'list.close': 'Close',
+  'list.editCell': 'Edit {name}: {value}',
 
   'filters.search': 'Search',
   'filters.searchIn': 'Search {fields}',

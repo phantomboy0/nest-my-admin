@@ -55,6 +55,27 @@ query(qb: SelectQueryBuilder<Order>, ctx: AdminContext) {
 For joins or aggregates, override `findMany` and start from `this.buildListQuery(params, ctx)`. It already applies
 `query()`, filters, search, sort and paging (keyset included).
 
+### The list page
+
+- **Filters.**
+  - Enum filters are multi-selects (`in`), and nullable fields add an empty or not-empty choice.
+  - Active filters show as chips. Removing one chip removes only that filter.
+  - Filters live in the URL, so a shared link shows the same list.
+- **Columns.** "Columns" shows, hides and reorders columns and switches density. Header edges resize columns (arrow
+  keys work too). The layout is remembered per resource in the browser.
+- **Selection.** Select rows, then "Delete selected". It calls
+  `POST …/bulk-delete { ids }` → `{ ok, failed: [{ id, code, message }] }`, and each record is deleted on its own
+  (hooks, `query()` and trash apply), so one refusal does not stop the others.
+- **Quick view.** A row click (or Enter on a focused row) opens a side sheet with the record, with Edit and Close.
+  The first column still links straight to the edit page.
+- **Editing in cells.** Fields listed in `list.editable` are edited in their cell. They must be in the update form
+  and be text, number, decimal, bigint, boolean, enum or date fields. Each save is a normal PATCH (DTO, relation checks,
+  `If-Match`), and a refused change shows its reason under the cell:
+
+```ts
+list: ListConfig<Product> = { columns: ['name', 'status', 'stock'], editable: ['status', 'stock'] };
+```
+
 ### Lists at scale
 
 - **`list.count`:**

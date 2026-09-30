@@ -345,3 +345,48 @@ test('the quick view opens from a row with the keyboard and closes with Escape',
   await expect(sheet).toBeHidden();
   await expect(row).toBeFocused();
 });
+
+test('cells are edited in place; a refused change shows why and keeps the value (Review Focus 2)', async ({ page, isMobile }, testInfo) => {
+  test.skip(isMobile, 'inline editing lives in the desktop table');
+  const sku = `CELL-${testInfo.project.name.toUpperCase()}`;
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Name').fill('Inline lamp');
+  await page.getByLabel('Sku').fill(sku);
+  await page.getByLabel('Price').fill('5');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+
+  const row = page.getByRole('row').filter({ hasText: sku });
+  await row.getByRole('button', { name: 'Edit Status: draft' }).click();
+  await row.getByLabel('Status').selectOption('active');
+  await expect(row.getByRole('alert')).toContainText('Active products need stock');
+  await expect(row.getByRole('button', { name: 'Edit Status: draft' })).toBeVisible();
+
+  await row.getByRole('button', { name: 'Edit Stock: 0' }).click();
+  await row.getByLabel('Stock', { exact: true }).fill('4');
+  await row.getByLabel('Stock', { exact: true }).press('Enter');
+  await expect(row.getByRole('button', { name: 'Edit Stock: 4' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('row').filter({ hasText: sku }).getByRole('button', { name: 'Edit Stock: 4' })).toBeVisible();
+});
+
+test('hidden columns survive a reload; a chip removes one filter (Review Focus 3, 4)', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the column menu is part of the desktop table');
+  await page.goto('/admin/product');
+  await page.getByRole('button', { name: 'Columns' }).click();
+  await page.getByRole('checkbox', { name: 'Sku' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('columnheader', { name: /^Sku/ })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole('columnheader', { name: /^Sku/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Columns' }).click();
+  await page.getByRole('button', { name: 'Reset columns' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('columnheader', { name: /^Sku/ })).toHaveCount(1);
+
+  await page.goto('/admin/product?search=lamp&filter%5Bstatus%5D%5Bin%5D=draft');
+  const chips = page.getByRole('list', { name: 'Active filters' });
+  await chips.getByRole('button', { name: 'Remove filter Status' }).click();
+  await expect(page).toHaveURL(/search=lamp/);
+  await expect(page).not.toHaveURL(/status/);
+});

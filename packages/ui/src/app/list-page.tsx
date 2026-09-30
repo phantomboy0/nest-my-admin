@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { AdminRecord, BulkResult, FieldSchema } from '@nest-my-admin/core/contract';
 import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
+import { EditableCell } from '@/app/editable-cell';
 import { FilterBar } from '@/app/filter-bar';
 import { QuickView } from '@/app/quick-view';
 import { PageMessage } from '@/components/page-message';
@@ -245,6 +246,8 @@ export function ListPage() {
                       <Link to={recordPath(item)} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
                         {formatCell(item[column.name], column)}
                       </Link>
+                    ) : !trash && s.list.editable.includes(column.name) ? (
+                      <EditableCell schema={s} item={item} field={column} />
                     ) : (
                       <CellValue value={item[column.name]} field={column} />
                     )}

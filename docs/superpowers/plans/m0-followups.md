@@ -74,3 +74,10 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - A resource named `g` is shadowed by the group landing route `/g/:group`.
 - Home page counts run one list request per resource (exact counts for `exact` resources); fine for tens of resources, revisit with dashboards (M5).
 - Pinned and recent resources and the sidebar state live in localStorage per browser; per user in M3.
+
+## M2-2 follow-ups
+- -> M3: column layouts, pins and recents per user (localStorage per browser today); bulk delete permission per record.
+- -> M4: bulk actions beyond delete (`@AdminAction({ bulk: true })`) reuse the selection bar and `BulkResult`.
+- Row click opens the quick view on desktop; E2E and people who expect "row → edit page" use the first-column link or the sheet's Edit.
+- Inline editing covers text, number, decimal, bigint, boolean, enum and date; relations and datetimes are edited in the form.
+- The table is not virtualized (pages hold at most 100 rows).
