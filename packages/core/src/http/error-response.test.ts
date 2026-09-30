@@ -87,6 +87,14 @@ describe('toErrorResponse', () => {
     });
   });
 
+  test('Postgres FK direction does not depend on the language of its messages (lc_messages)', () => {
+    const names = dbNames({ widget_id: 'widgetId' }, { FK_8a2f: ['widgetId'] });
+    // German server messages: nothing English to match, only the SQLSTATE and the constraint name
+    const localized = { code: '23503', constraint: 'FK_8a2f', message: 'Einfügen oder Aktualisieren in Tabelle »gadget« verletzt Fremdschlüssel-Constraint', detail: 'Schlüssel (widget_id)=(9) ist nicht in Tabelle »widget« vorhanden.' };
+    expect(toErrorResponse(dbError(localized), 'c', logger(), { dbNames: names })).toMatchObject({ status: 422, body: { fields: { widgetId: ['does not exist'] } } });
+    expect(toErrorResponse(dbError(localized), 'c', logger(), { dbNames: names, deleting: true }).status).toBe(409);
+  });
+
   test('without a known constraint name the column in the message is used (Postgres detail, MySQL FOREIGN KEY)', () => {
     const detailOnly = dbError({ code: '23503', message: 'insert or update on table "gadget"', detail: 'Key (widget_id)=(9) is not present in table "widget".' });
     expect(toErrorResponse(detailOnly, 'c', logger(), { dbNames: dbNames({ widget_id: 'widgetId' }) }).body.fields).toEqual({ widgetId: ['does not exist'] });

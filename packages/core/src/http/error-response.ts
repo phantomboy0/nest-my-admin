@@ -98,8 +98,9 @@ function constraintError(error: QueryFailedError, context: ErrorContext): { stat
 
   const sqliteForeignKey = /FOREIGN KEY constraint failed/i.test(text);
   if (code === '23503' || MYSQL_FK_MISSING_PARENT.has(code) || MYSQL_FK_REFERENCED.has(code) || sqliteForeignKey) {
-    const missingParent =
-      MYSQL_FK_MISSING_PARENT.has(code) || /is not present in table/.test(detail) || (sqliteForeignKey && !context.deleting);
+    // MySQL's code says which side failed. Postgres (one SQLSTATE for both, messages translated by lc_messages) and
+    // SQLite do not: a request that is not a delete wrote the referencing row, so its parent is missing.
+    const missingParent = MYSQL_FK_MISSING_PARENT.has(code) || (!MYSQL_FK_REFERENCED.has(code) && !context.deleting);
     if (missingParent) {
       return { status: 422, body: { code: 'VALIDATION', message: 'A related record does not exist', ...onFields('does not exist') } };
     }
