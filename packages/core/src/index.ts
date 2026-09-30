@@ -5,6 +5,8 @@ export { AdminGroup, type AdminGroupOptions } from './decorators/admin-group.js'
 export { AdminResource, type AdminResourceOptions } from './decorators/admin-resource.js';
 export {
   AdminResourceBase,
+  type FilterCondition,
+  type FilterValue,
   type FindManyResult,
   type FormConfig,
   type ListConfig,

@@ -1,15 +1,25 @@
 import type { DeepPartial, FindOptionsOrder, FindOptionsWhere, ObjectLiteral, Repository } from 'typeorm';
-import type { SortDirection } from '../contract.js';
+import type { FilterOperator, SortDirection } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
 import type { AdminContext } from './admin-context.js';
 
 export type RecordId = string | number;
 
+export type FilterValue = string | number | boolean | Date | Array<string | number>;
+
+export interface FilterCondition {
+  field: string;
+  operator: FilterOperator;
+  value: FilterValue;
+}
+
 export interface ListParams {
   page: number;
   pageSize: number;
   sort: { field: string; direction: SortDirection };
+  filters: FilterCondition[];
+  search?: { term: string; fields: string[] };
 }
 
 export interface FindManyResult<T> {

@@ -1,10 +1,19 @@
-import type { ResourceSchema } from '../contract.js';
+import type { FieldSchema, FilterOperator, ResourceSchema } from '../contract.js';
 import { AdminValidationError } from '../errors.js';
-import type { ListParams } from '../resource/admin-resource-base.js';
+import type { FilterCondition, FilterValue, ListParams } from '../resource/admin-resource-base.js';
 import { MAX_PAGE_SIZE } from '../schema/build-resource-schema.js';
 
 type Errors = Record<string, string[]>;
+type Parsed<T> = { value: T } | { error: string };
 
+const PAGING_KEYS = new Set(['page', 'pageSize', 'sort', 'search']);
+const FILTER_KEY = /^filter\[([^\][]+)\](?:\[([^\][]+)\])?$/;
+const MAX_LIST_VALUES = 100;
+const MAX_TEXT = 200;
+const NUMBER = /^-?\d+(\.\d+)?$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Parses `page`, `pageSize`, `sort`, `search` and `filter[field][op]` (spec §11). Field names come only from the schema. */
 export function parseListQuery(query: URLSearchParams, schema: ResourceSchema): ListParams {
   const errors: Errors = {};
   const page = readPositiveInt(query, 'page', 1, errors);
@@ -19,8 +28,97 @@ export function parseListQuery(query: URLSearchParams, schema: ResourceSchema): 
     else errors.sort = [`cannot sort by "${field}"`];
   }
 
+  const filters: FilterCondition[] = [];
+  for (const key of new Set(query.keys())) {
+    if (PAGING_KEYS.has(key)) continue;
+    const match = FILTER_KEY.exec(key);
+    if (!match) {
+      errors[key] = ['is not a supported list parameter'];
+      continue;
+    }
+    const raw = readOne(query, key, errors);
+    if (raw === undefined) continue;
+    const fieldName = match[1]!;
+    const operator = (match[2] ?? 'eq') as FilterOperator;
+    const allowed = schema.list.filters.find((filter) => filter.field === fieldName);
+    if (!allowed) {
+      errors[key] = [`cannot filter by "${fieldName}"`];
+      continue;
+    }
+    if (!allowed.operators.includes(operator)) {
+      errors[key] = [`operator "${operator}" is not allowed for "${fieldName}" (allowed: ${allowed.operators.join(', ')})`];
+      continue;
+    }
+    const field = schema.fields.find((candidate) => candidate.name === fieldName)!;
+    const parsed = parseFilterValue(field, operator, raw);
+    if ('error' in parsed) errors[key] = [parsed.error];
+    else filters.push({ field: fieldName, operator, value: parsed.value });
+  }
+
+  let search: ListParams['search'];
+  const rawSearch = readOne(query, 'search', errors);
+  if (rawSearch !== undefined && rawSearch.trim() !== '') {
+    if (schema.list.search.length === 0) errors.search = ['this resource is not searchable'];
+    else if (rawSearch.length > MAX_TEXT) errors.search = [`must be at most ${MAX_TEXT} characters`];
+    else search = { term: rawSearch.trim(), fields: schema.list.search };
+  }
+
   if (Object.keys(errors).length > 0) throw new AdminValidationError(errors, 'Invalid list query');
-  return { page, pageSize, sort };
+  return { page, pageSize, sort, filters, ...(search ? { search } : {}) };
+}
+
+function parseFilterValue(field: FieldSchema, operator: FilterOperator, raw: string): Parsed<FilterValue> {
+  if (operator === 'isNull') {
+    if (raw === 'true') return { value: true };
+    if (raw === 'false') return { value: false };
+    return { error: 'must be true or false' };
+  }
+  if (operator === 'contains' || operator === 'startsWith') {
+    return raw.length === 0 || raw.length > MAX_TEXT ? { error: `must be 1 to ${MAX_TEXT} characters` } : { value: raw };
+  }
+  if (operator === 'in' || operator === 'nin' || operator === 'between') {
+    const parts = raw.split(',').map((part) => part.trim());
+    if (operator === 'between' && parts.length !== 2) return { error: 'must be two comma-separated values' };
+    if (parts.length > MAX_LIST_VALUES || parts.some((part) => part === '')) {
+      return { error: `must be 1 to ${MAX_LIST_VALUES} comma-separated values` };
+    }
+    const values: Array<string | number> = [];
+    for (const part of parts) {
+      const parsed = parseScalar(field, part);
+      if ('error' in parsed) return parsed;
+      if (typeof parsed.value === 'boolean' || parsed.value instanceof Date) return { error: 'is not supported for this field' };
+      values.push(parsed.value);
+    }
+    return { value: values };
+  }
+  return parseScalar(field, raw);
+}
+
+function parseScalar(field: FieldSchema, raw: string): Parsed<string | number | boolean | Date> {
+  switch (field.type) {
+    case 'number':
+      return NUMBER.test(raw) ? { value: Number(raw) } : { error: 'must be a number' };
+    case 'decimal':
+      return NUMBER.test(raw) ? { value: raw } : { error: 'must be a number' };
+    case 'bigint':
+      return /^-?\d+$/.test(raw) ? { value: raw } : { error: 'must be an integer' };
+    case 'boolean':
+      if (raw === 'true') return { value: true };
+      if (raw === 'false') return { value: false };
+      return { error: 'must be true or false' };
+    case 'date':
+      return /^\d{4}-\d{2}-\d{2}$/.test(raw) && !Number.isNaN(Date.parse(raw)) ? { value: raw } : { error: 'must be a date (YYYY-MM-DD)' };
+    case 'datetime': {
+      const time = Date.parse(raw);
+      return Number.isNaN(time) ? { error: 'must be a date and time' } : { value: new Date(time) };
+    }
+    case 'enum':
+      return field.enumValues?.includes(raw) ? { value: raw } : { error: `must be one of: ${(field.enumValues ?? []).join(', ')}` };
+    case 'uuid':
+      return UUID.test(raw) ? { value: raw } : { error: 'must be a UUID' };
+    default:
+      return raw.length <= MAX_TEXT ? { value: raw } : { error: `must be at most ${MAX_TEXT} characters` };
+  }
 }
 
 function readOne(query: URLSearchParams, key: string, errors: Errors): string | undefined {
