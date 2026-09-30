@@ -8,7 +8,7 @@ import { validateWrite } from '../crud/validate-write.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
-import type { AdminContext } from '../resource/admin-context.js';
+import { AdminContext } from '../resource/admin-context.js';
 
 @Injectable()
 export class AdminApiService {
@@ -57,37 +57,53 @@ export class AdminApiService {
     return serializeRecord(entity, schema.fields);
   }
 
+  /** Runs a write in one transaction (unless disabled) with ctx.manager set and AdminContext.current() pointing at it. */
+  private async write<T>(entry: RegisteredResource, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
+    if (!this.options.transactions) return work(ctx);
+    return entry.dataSource.transaction(async (manager) => {
+      const transactional: AdminContext = { ...ctx, manager };
+      return AdminContext.run(transactional, () => work(transactional));
+    });
+  }
+
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
     const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create });
-    const created: unknown = await resource.create(dto, ctx);
-    if (typeof created !== 'object' || created === null) {
-      throw new Error(`${entry.className}.create() must return the created entity`);
-    }
-    return serializeRecord(created, schema.fields);
+    return this.write(entry, ctx, async (tx) => {
+      const created: unknown = await resource.create(dto, tx);
+      if (typeof created !== 'object' || created === null) {
+        throw new Error(`${entry.className}.create() must return the created entity`);
+      }
+      return serializeRecord(created, schema.fields);
+    });
   }
 
   async update(name: string, rawId: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
     const id = parseRecordId(rawId, schema);
-    if (!(await resource.findOne(id, ctx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
     const updateDto = resource.form?.update;
     const dto = await validateWrite(body, {
       allowed: schema.form.update,
       dto: updateDto ?? resource.form?.create,
       partial: !updateDto,
     });
-    const updated: unknown = await resource.update(id, dto, ctx);
-    return serializeRecord(await this.reloadIfEmpty(entry, updated, id, ctx), schema.fields);
+    return this.write(entry, ctx, async (tx) => {
+      if (!(await resource.findOne(id, tx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+      const updated: unknown = await resource.update(id, dto, tx);
+      return serializeRecord(await this.reloadIfEmpty(entry, updated, id, tx), schema.fields);
+    });
   }
 
   async remove(name: string, rawId: string, ctx: AdminContext): Promise<void> {
-    const { schema, resource } = this.registry.get(name);
+    const entry = this.registry.get(name);
+    const { schema, resource } = entry;
     const id = parseRecordId(rawId, schema);
-    if (!(await resource.findOne(id, ctx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
-    await resource.delete(id, ctx);
+    await this.write(entry, ctx, async (tx) => {
+      if (!(await resource.findOne(id, tx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+      await resource.delete(id, tx);
+    });
   }
 
   /** Host services often return nothing from update(); fall back to reading the record. */

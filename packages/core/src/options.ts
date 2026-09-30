@@ -5,6 +5,8 @@ export interface AdminModuleOptions {
   title?: string;
   /** Give every entity of the default DataSource without an @AdminResource a default resource. Default `false`. */
   autoRegister?: boolean;
+  /** Run every create/update/delete in one database transaction (ctx.manager). Default `true`. */
+  transactions?: boolean;
   /** Advanced: serve the UI from this directory instead of @nest-my-admin/ui (tests, UI development). */
   uiDistPath?: string;
 }
@@ -13,6 +15,7 @@ export interface ResolvedAdminOptions {
   path: string;
   title: string;
   autoRegister: boolean;
+  transactions: boolean;
   uiDistPath?: string;
 }
 
@@ -23,5 +26,11 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     throw new Error('nest-my-admin: `path` must not be "/"; mount the admin under its own path such as "/admin"');
   }
   if (!/^\/[A-Za-z0-9\-._~/]+$/.test(path)) throw new Error(`nest-my-admin: invalid path "${options.path}"`);
-  return { path, title: options.title ?? 'Admin', uiDistPath: options.uiDistPath, autoRegister: options.autoRegister ?? false };
+  return {
+    path,
+    title: options.title ?? 'Admin',
+    uiDistPath: options.uiDistPath,
+    autoRegister: options.autoRegister ?? false,
+    transactions: options.transactions ?? true,
+  };
 }

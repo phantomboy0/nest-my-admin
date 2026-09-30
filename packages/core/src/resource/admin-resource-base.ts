@@ -74,6 +74,11 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return this.repository.metadata.primaryColumns[0]!.propertyName;
   }
 
+  /** The repository for this operation: the admin transaction's when one is running (ctx.manager), else the default. */
+  protected repositoryFor(ctx: AdminContext): Repository<T> {
+    return ctx.manager ? ctx.manager.getRepository<T>(this.repository.target) : this.repository;
+  }
+
   /**
    * The list query with filters, search, sort and paging applied. Override findMany and extend this to add
    * joins or restrictions: `this.buildListQuery(params).andWhere('entity.ownerId = :id', { id })`.
@@ -93,14 +98,15 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return { items, total };
   }
 
-  async findOne(id: RecordId, _ctx: AdminContext): Promise<T | null> {
-    return this.repository.findOne({ where: { [this.primaryKey]: id } as FindOptionsWhere<T> });
+  async findOne(id: RecordId, ctx: AdminContext): Promise<T | null> {
+    return this.repositoryFor(ctx).findOne({ where: { [this.primaryKey]: id } as FindOptionsWhere<T> });
   }
 
   /** Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them. */
   async create(dto: object, ctx: AdminContext): Promise<T> {
+    const repo = this.repositoryFor(ctx);
     await this.runHooks('beforeSave', dto, ctx, 'create');
-    const saved = await this.repository.save(this.repository.create({ ...dto } as DeepPartial<T>));
+    const saved = await repo.save(repo.create({ ...dto } as DeepPartial<T>));
     await this.runHooks('afterSave', saved, ctx, 'create');
     return saved;
   }
@@ -110,8 +116,9 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeSave', dto, ctx, 'update');
-    this.repository.merge(existing, { ...dto } as DeepPartial<T>);
-    const saved = await this.repository.save(existing);
+    const repo = this.repositoryFor(ctx);
+    repo.merge(existing, { ...dto } as DeepPartial<T>);
+    const saved = await repo.save(existing);
     await this.runHooks('afterSave', saved, ctx, 'update');
     return saved;
   }
@@ -121,7 +128,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeDelete', existing, ctx);
-    await this.repository.remove(existing);
+    await this.repositoryFor(ctx).remove(existing);
   }
 
   /** Runs @BeforeSave/@AfterSave/@BeforeDelete methods in declaration order (parent class first). */

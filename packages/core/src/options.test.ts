@@ -3,7 +3,9 @@ import { resolveAdminOptions } from './options.js';
 
 describe('resolveAdminOptions', () => {
   test('defaults', () => {
-    expect(resolveAdminOptions()).toEqual({ path: '/admin', title: 'Admin', uiDistPath: undefined, autoRegister: false });
+    expect(resolveAdminOptions()).toEqual({
+      path: '/admin', title: 'Admin', uiDistPath: undefined, autoRegister: false, transactions: true,
+    });
   });
 
   test('normalises the mount path', () => {

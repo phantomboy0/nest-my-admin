@@ -17,6 +17,7 @@ export interface RegisteredResource {
   resource: AdminResourceBase<any>;
   className: string;
   entity: Function;
+  dataSource: DataSource;
   /** Database column name → entity property name (for mapping constraint errors to fields). */
   columnProperties: ReadonlyMap<string, string>;
 }
@@ -137,6 +138,7 @@ export class ResourceRegistry implements OnModuleInit {
       resource,
       className,
       entity: definition.entity,
+      dataSource,
       columnProperties: new Map(metadata.columns.map((column) => [column.databaseName, column.propertyName])),
     });
   }
