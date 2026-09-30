@@ -4,6 +4,7 @@ import { ChevronRight, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { MetaResponse } from '@nest-my-admin/core/contract';
 import { CommandPalette } from '@/app/command-palette';
 import { DisplayMenu, LocaleSwitch, ThemeSwitch } from '@/app/preferences';
+import { UserMenu } from '@/app/user-menu';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { navStore, useNavState } from '@/lib/nav-state';
@@ -24,6 +25,7 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
   const recordId = first && first !== 'g' && second && second !== 'new' ? second : undefined;
   const record = useRecord(first ?? '', recordId);
   const crumbs: Crumb[] = [{ label: t('shell.home'), to: '/' }];
+  if (first === 'account' && !second) return [...crumbs, { label: t('auth.account') }];
   if (!first || !meta) return crumbs;
   if (first === 'g') {
     const group = meta.groups.find((candidate) => candidate.key === second);
@@ -81,6 +83,7 @@ export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; o
         <CommandPalette />
         <LocaleSwitch />
         <DisplayMenu />
+        <UserMenu />
         <div className="hidden sm:flex">
           <ThemeSwitch />
         </div>

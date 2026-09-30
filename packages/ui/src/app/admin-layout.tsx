@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation } from 'react-router';
+import { Navigate, Outlet, useLocation } from 'react-router';
 import { X } from 'lucide-react';
 import { Header } from '@/app/header';
 import { Sidebar } from '@/app/sidebar';
@@ -7,7 +7,9 @@ import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
 import { navStore, useNavState } from '@/lib/nav-state';
-import { useMeta } from '@/lib/queries';
+import { PageMessage } from '@/components/page-message';
+import { ApiError, describeError } from '@/lib/api';
+import { useMeta, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 function labelIn(label: string | Record<string, string> | undefined, locale: string): string | undefined {
@@ -15,7 +17,29 @@ function labelIn(label: string | Record<string, string> | undefined, locale: str
   return label[locale] ?? label[runtimeConfig.locale] ?? Object.values(label)[0];
 }
 
+/** Signed in first: without a session the admin shows the login page, keeping where the user was going. */
 export function AdminLayout() {
+  const { t } = useLocale();
+  const session = useSession();
+  const location = useLocation();
+  if (session.isPending) return <PageMessage>{t('common.loading')}</PageMessage>;
+  if (session.isError) {
+    if (session.error instanceof ApiError && session.error.status === 401) {
+      return <Navigate to={`/login?${new URLSearchParams({ next: location.pathname + location.search })}`} replace />;
+    }
+    return (
+      <PageMessage tone="error">
+        {describeError(session.error)}{' '}
+        <Button variant="outline" size="sm" onClick={() => void session.refetch()}>
+          {t('list.retry')}
+        </Button>
+      </PageMessage>
+    );
+  }
+  return <Shell />;
+}
+
+function Shell() {
   const meta = useMeta();
   const { t, locale } = useLocale();
   const nav = useNavState();

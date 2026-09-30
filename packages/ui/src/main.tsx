@@ -5,7 +5,9 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
+import { AccountPage } from '@/app/account-page';
 import { AdminLayout } from '@/app/admin-layout';
+import { LoginPage } from '@/app/login-page';
 import { FormPage } from '@/app/form-page';
 import { GroupPage } from '@/app/group-page';
 import { HomePage } from '@/app/home-page';
@@ -13,6 +15,7 @@ import { ListPage } from '@/app/list-page';
 import { NotFound } from '@/app/not-found';
 import { LocaleProvider } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
+import { setSignedOutHandler } from '@/lib/session';
 import { applyBranding, applyTheme, followSystemTheme, readTheme } from '@/lib/theme';
 
 document.title = runtimeConfig.title;
@@ -25,10 +28,12 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, sta
 
 const router = createBrowserRouter(
   [
+    { path: 'login', element: <LoginPage /> },
     {
       element: <AdminLayout />,
       children: [
         { index: true, element: <HomePage /> },
+        { path: 'account', element: <AccountPage /> },
         { path: 'g/:group', element: <GroupPage /> },
         { path: ':resource', element: <ListPage /> },
         { path: ':resource/new', element: <FormPage mode="create" /> },
@@ -39,6 +44,14 @@ const router = createBrowserRouter(
   ],
   { basename: runtimeConfig.basePath },
 );
+
+// A session that ends while the admin is open (expired, revoked elsewhere): drop what this user saw, then log in again.
+setSignedOutHandler(() => {
+  const { pathname, search } = router.state.location;
+  if (pathname === '/login') return;
+  queryClient.clear();
+  void router.navigate(`/login?${new URLSearchParams({ next: pathname + search })}`, { replace: true });
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

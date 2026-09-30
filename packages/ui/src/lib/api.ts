@@ -1,7 +1,19 @@
-import type { AdminErrorBody, AdminRecord, BulkResult, ListResponse, MetaResponse, OptionsResponse, ResourceSchema, SearchResponse } from '@nest-my-admin/core/contract';
+import type {
+  AccountSession,
+  AdminErrorBody,
+  AdminRecord,
+  BulkResult,
+  ListResponse,
+  MetaResponse,
+  OptionsResponse,
+  ResourceSchema,
+  SearchResponse,
+  SessionResponse,
+} from '@nest-my-admin/core/contract';
 import { activeLocale, translate as tr } from '@/i18n';
 import { runtimeConfig } from './config';
 import { ApiError } from './api-error';
+import { currentCsrfToken, signedOut } from './session';
 
 export { ApiError, describeError } from './api-error';
 
@@ -10,6 +22,8 @@ function isErrorBody(value: unknown): value is AdminErrorBody {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const method = init.method ?? 'GET';
+  const csrf = currentCsrfToken();
   const res = await fetch(`${runtimeConfig.apiBase}${path}`, {
     ...init,
     credentials: 'same-origin',
@@ -17,9 +31,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       Accept: 'application/json',
       'Accept-Language': activeLocale(), // labels in meta and schemas follow it
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      // Every write carries the session's CSRF token (spec §7).
+      ...(method !== 'GET' && csrf ? { 'X-CSRF-Token': csrf } : {}),
       ...init.headers,
     },
   });
+  // The session ended (expired, revoked, logged out elsewhere): back to the login page. The session endpoints
+  // answer 401 for "not signed in" and "wrong password", which their callers handle.
+  if (res.status === 401 && !path.startsWith('/session')) signedOut();
   const text = await res.text();
   let data: unknown;
   try {
@@ -42,6 +61,13 @@ const ifMatch = (version: unknown): Record<string, string> =>
   typeof version === 'number' || typeof version === 'string' ? { 'If-Match': `"${version}"` } : {};
 
 export const api = {
+  session: () => request<SessionResponse>('/session'),
+  login: (username: string, password: string) => request<SessionResponse>('/session', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  logout: () => request<void>('/session', { method: 'DELETE' }),
+  sessions: () => request<{ items: AccountSession[] }>('/account/sessions'),
+  revokeSession: (id: string) => request<void>(`/account/sessions/${enc(id)}`, { method: 'DELETE' }),
+  revokeOtherSessions: () => request<void>('/account/sessions', { method: 'DELETE' }),
+  changePassword: (current: string, next: string) => request<void>('/account/password', { method: 'POST', body: JSON.stringify({ current, next }) }),
   meta: () => request<MetaResponse>('/meta'),
   search: (q: string) => request<SearchResponse>(`/search?${new URLSearchParams({ q })}`),
   schema: (resource: string) => request<ResourceSchema>(`/meta/resources/${enc(resource)}`),

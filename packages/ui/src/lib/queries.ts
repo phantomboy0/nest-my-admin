@@ -1,6 +1,20 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useLocale } from '@/i18n';
 import { api } from './api';
+import { setCsrfToken } from './session';
+
+/** Who is signed in. Keeps the CSRF token for the API client; a 401 is an error (the layout sends you to login). */
+export const useSession = () =>
+  useQuery({
+    queryKey: ['session'],
+    queryFn: async () => {
+      const session = await api.session();
+      setCsrfToken(session.csrfToken);
+      return session;
+    },
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
 
 // Labels depend on the language, so meta and schemas are cached per locale.
 export const useMeta = () => {
