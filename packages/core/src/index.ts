@@ -22,6 +22,27 @@ export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutSectionConfig, Layo
 export { AdminContext } from './resource/admin-context.js';
 export type { FieldPath } from './schema/field-paths.js';
 export type { TitleDefinition } from './schema/titles.js';
-export { AdminBadRequestError, AdminConflictError, AdminError, AdminFieldError, AdminNotFoundError, AdminValidationError } from './errors.js';
+export {
+  AdminBadRequestError,
+  AdminConflictError,
+  AdminError,
+  AdminFieldError,
+  AdminForbiddenError,
+  AdminNotFoundError,
+  AdminRateLimitError,
+  AdminUnauthenticatedError,
+  AdminValidationError,
+} from './errors.js';
+export {
+  AdminAuth,
+  type AdminAuthAdapter,
+  type AdminAuthConfig,
+  type AdminPrincipal,
+  type AdminSessionInfo,
+  type AdminUser,
+  type AuthIO,
+  type LoginInput,
+} from './auth/auth-adapter.js';
+export { appendSetCookie, isSecureRequest, parseCookies, serializeCookie, type CookieOptions } from './http/cookies.js';
 export { AfterSave, BeforeDelete, BeforeSave, type DeleteMode, type HookKind, type SaveMode } from './decorators/hooks.js';
 export type * from './contract.js';

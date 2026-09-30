@@ -252,8 +252,49 @@ export interface SearchResponse {
   }>;
 }
 
+/** What the auth adapter supports (the UI shows only what works). */
+export interface AuthCapabilities {
+  login: boolean;
+  logout: boolean;
+  /** List and revoke sessions on the account page. */
+  sessions: boolean;
+  /** "Log out everywhere else". */
+  revokeOthers: boolean;
+  password: boolean;
+}
+
+export interface SessionUser {
+  id: string;
+  displayName: string;
+  username?: string;
+  email?: string;
+  isSuperuser: boolean;
+}
+
+/** `GET /api/session` and `POST /api/session` (log in). Not signed in: 401. */
+export interface SessionResponse {
+  user: SessionUser;
+  /** Send as `X-CSRF-Token` on POST, PATCH and DELETE. Absent when the adapter does not use cookies. */
+  csrfToken?: string;
+  /** No sign-in configured: everyone is a superuser. */
+  open: boolean;
+  auth: AuthCapabilities;
+}
+
+/** `GET /api/account/sessions`: the user's signed-in devices. */
+export interface AccountSession {
+  id: string;
+  /** The session of this request. */
+  current: boolean;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  userAgent?: string;
+  ip?: string;
+}
+
 export type AdminErrorCode =
-  | 'BAD_REQUEST' | 'VALIDATION' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'BUSINESS_RULE' | 'INTERNAL';
+  | 'BAD_REQUEST' | 'VALIDATION' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'RATE_LIMITED' | 'BUSINESS_RULE' | 'INTERNAL';
 
 export interface AdminErrorBody {
   code: AdminErrorCode;

@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { EntityManager } from 'typeorm';
+import type { AdminUser } from '../auth/auth-adapter.js';
 
 /** Passed to every resource method. Grows in later milestones (user, permissions, locale). */
 export interface AdminContext {
@@ -20,6 +21,8 @@ export interface AdminContext {
   manager?: EntityManager;
   /** The request's language (from `Accept-Language`, one of the admin's `locales`). */
   locale?: string;
+  /** Who is signed in (set for every authenticated request; an open admin's user is a superuser). */
+  user?: AdminUser;
 }
 
 /** The box is deactivated when the request ends, so timers and clients created inside it see no context. */

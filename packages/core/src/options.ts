@@ -1,3 +1,4 @@
+import type { AdminAuthConfig } from './auth/auth-adapter.js';
 import type { AdminError } from './errors.js';
 import type { LocalizedText } from './i18n/localized-text.js';
 
@@ -46,6 +47,11 @@ export interface AdminModuleOptions {
   errorMapper?: ErrorMapper;
   /** Advanced: serve the UI from this directory instead of @nest-my-admin/ui (tests, UI development). */
   uiDistPath?: string;
+  /**
+   * Who may use the admin: `builtinAuth()` from @nest-my-admin/auth, `AdminAuth.custom(YourAdapter)`, or
+   * `AdminAuth.none()`. Without it the admin is open (a warning at boot) and, with NODE_ENV=production, does not boot.
+   */
+  auth?: AdminAuthConfig;
 }
 
 export interface ResolvedAdminOptions {
@@ -59,6 +65,7 @@ export interface ResolvedAdminOptions {
   transactions: boolean;
   errorMapper?: ErrorMapper;
   uiDistPath?: string;
+  auth?: AdminAuthConfig;
 }
 
 export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedAdminOptions {
@@ -68,6 +75,12 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     throw new Error('nest-my-admin: `path` must not be "/"; mount the admin under its own path such as "/admin"');
   }
   if (!/^\/[A-Za-z0-9\-._~/]+$/.test(path)) throw new Error(`nest-my-admin: invalid path "${options.path}"`);
+  if (!options.auth && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'nest-my-admin: no `auth` configured with NODE_ENV=production: the admin would be open to anyone. ' +
+        'Use auth: builtinAuth() (from @nest-my-admin/auth), AdminAuth.custom(YourAdapter), or AdminAuth.none() if that is really intended.',
+    );
+  }
   const locale = options.locale ?? 'en';
   const locales = options.locales ?? [locale];
   if (!locales.includes(locale)) throw new Error(`nest-my-admin: locale "${locale}" must be one of locales (${locales.join(', ')})`);
@@ -81,6 +94,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     autoRegister: options.autoRegister === true ? ['default'] : Array.isArray(options.autoRegister) ? options.autoRegister : [],
     transactions: options.transactions ?? true,
     errorMapper: options.errorMapper,
+    auth: options.auth,
   };
 }
 

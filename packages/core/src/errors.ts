@@ -34,6 +34,30 @@ export class AdminConflictError extends AdminError {
   }
 }
 
+/** 401: not signed in (or the session ended). */
+export class AdminUnauthenticatedError extends AdminError {
+  constructor(message = 'Sign in to continue') {
+    super('UNAUTHENTICATED', 401, message);
+  }
+}
+
+/** 403: signed in, but not allowed (a missing CSRF token, a missing permission). */
+export class AdminForbiddenError extends AdminError {
+  constructor(message = 'Forbidden') {
+    super('FORBIDDEN', 403, message);
+  }
+}
+
+/** 429: too many attempts; `retryAfter` seconds are sent as `Retry-After`. */
+export class AdminRateLimitError extends AdminError {
+  constructor(
+    message: string,
+    readonly retryAfter: number,
+  ) {
+    super('RATE_LIMITED', 429, message);
+  }
+}
+
 export class AdminBadRequestError extends AdminError {
   constructor(message: string) {
     super('BAD_REQUEST', 400, message);

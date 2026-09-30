@@ -69,6 +69,7 @@ export function codeForStatus(status: number): AdminErrorCode {
   if (status === 409) return 'CONFLICT';
   if (status === 413 || status === 415) return 'BAD_REQUEST';
   if (status === 422) return 'VALIDATION';
+  if (status === 429) return 'RATE_LIMITED';
   return 'BUSINESS_RULE';
 }
 
