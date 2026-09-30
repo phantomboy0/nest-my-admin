@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router';
-import { ChevronDown, Pin, PinOff } from 'lucide-react';
+import { ChevronDown, KeyRound, Pin, PinOff, UserRound, UsersRound } from 'lucide-react';
 import type { MetaGroup, MetaResourceSummary } from '@nest-my-admin/core/contract';
 import { Input } from '@/components/ui/input';
 import { useLocale } from '@/i18n';
 import { iconFor } from '@/lib/icons';
 import { known, navStore, useNavState } from '@/lib/nav-state';
+import { useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 interface SidebarProps {
@@ -132,7 +133,35 @@ export function Sidebar({ title, logo, groups, rail = false }: SidebarProps) {
         );
       })}
       {term && visible.length === 0 && <p className="px-2 text-sm text-muted-foreground">{t('shell.noMatches')}</p>}
+      {!term && <AdministrationLinks rail={rail} />}
     </nav>
+  );
+}
+
+/** Users, groups and roles (with `rbac`, for users who may see them). */
+function AdministrationLinks({ rail }: { rail: boolean }) {
+  const { t } = useLocale();
+  const session = useSession();
+  if (!session.data?.rbac.view) return null;
+  const links: Array<[string, string, typeof UserRound]> = [
+    ['/-/users', t('rbac.users'), UserRound],
+    ['/-/groups', t('rbac.groups'), UsersRound],
+    ['/-/roles', t('rbac.roles'), KeyRound],
+  ];
+  return (
+    <div className="mt-auto border-t pt-3">
+      {!rail && <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">{t('rbac.administration')}</div>}
+      <ul className="flex flex-col gap-0.5" aria-label={t('rbac.administration')}>
+        {links.map(([to, label, Icon]) => (
+          <li key={to}>
+            <NavLink to={to} className={linkClass(rail)} aria-label={rail ? label : undefined} title={rail ? label : undefined}>
+              <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              {!rail && <span className="truncate">{label}</span>}
+            </NavLink>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

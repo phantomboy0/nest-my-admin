@@ -6,6 +6,10 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import { AccountPage } from '@/app/account-page';
+import { GroupEditorPage, GroupsPage } from '@/app/admin/groups-page';
+import { RoleEditorPage } from '@/app/admin/role-editor';
+import { RolesPage } from '@/app/admin/roles-page';
+import { UserEditorPage, UsersPage } from '@/app/admin/users-page';
 import { AdminLayout } from '@/app/admin-layout';
 import { LoginPage } from '@/app/login-page';
 import { FormPage } from '@/app/form-page';
@@ -34,6 +38,16 @@ const router = createBrowserRouter(
       children: [
         { index: true, element: <HomePage /> },
         { path: 'account', element: <AccountPage /> },
+        // Administration lives under /- so it never shadows a resource called users, groups or roles.
+        { path: '-/users', element: <UsersPage /> },
+        { path: '-/users/new', element: <UserEditorPage /> },
+        { path: '-/users/:id', element: <UserEditorPage /> },
+        { path: '-/groups', element: <GroupsPage /> },
+        { path: '-/groups/new', element: <GroupEditorPage /> },
+        { path: '-/groups/:id', element: <GroupEditorPage /> },
+        { path: '-/roles', element: <RolesPage /> },
+        { path: '-/roles/new', element: <RoleEditorPage /> },
+        { path: '-/roles/:name', element: <RoleEditorPage /> },
         { path: 'g/:group', element: <GroupPage /> },
         { path: ':resource', element: <ListPage /> },
         { path: ':resource/new', element: <FormPage mode="create" /> },

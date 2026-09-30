@@ -18,7 +18,7 @@ interface Crumb {
 /** Home › Group › Resource › Record, from the URL and the meta. */
 export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
   const { t } = useLocale();
-  const [first, second] = useLocation()
+  const [first, second, third] = useLocation()
     .pathname.split('/')
     .filter(Boolean)
     .map((part) => decodeURIComponent(part));
@@ -26,6 +26,12 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
   const record = useRecord(first ?? '', recordId);
   const crumbs: Crumb[] = [{ label: t('shell.home'), to: '/' }];
   if (first === 'account' && !second) return [...crumbs, { label: t('auth.account') }];
+  if (first === '-' && (second === 'users' || second === 'groups' || second === 'roles')) {
+    const section = { users: t('rbac.users'), groups: t('rbac.groups'), roles: t('rbac.roles') }[second];
+    crumbs.push({ label: t('rbac.administration') }, { label: section, to: `/-/${second}` });
+    if (third) crumbs.push({ label: third === 'new' ? t('list.new') : third });
+    return crumbs;
+  }
   if (!first || !meta) return crumbs;
   if (first === 'g') {
     const group = meta.groups.find((candidate) => candidate.key === second);
