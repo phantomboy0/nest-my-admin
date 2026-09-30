@@ -35,7 +35,7 @@ function readOne(query: URLSearchParams, key: string, errors: Errors): string | 
 function readPositiveInt(query: URLSearchParams, key: string, fallback: number, errors: Errors): number {
   const raw = readOne(query, key, errors);
   if (raw === undefined) return fallback;
-  if (!/^\d+$/.test(raw) || Number(raw) < 1) {
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) < 1) {
     errors[key] = ['must be a positive integer'];
     return fallback;
   }

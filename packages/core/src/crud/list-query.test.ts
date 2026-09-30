@@ -41,6 +41,7 @@ describe('parseListQuery', () => {
       page: ['must be a positive integer'],
       pageSize: ['must be a positive integer'],
     });
+    expect(errorsOf(() => parse('page=99999999999999999999'))).toEqual({ page: ['must be a positive integer'] });
     expect(errorsOf(() => parse('pageSize=101'))).toEqual({ pageSize: ['must be at most 100'] });
     expect(errorsOf(() => parse('sort=secret'))).toEqual({ sort: ['cannot sort by "secret"'] });
     expect(errorsOf(() => parse('page=1&page=2'))).toEqual({ page: ['must be given once'] });
