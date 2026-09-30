@@ -329,7 +329,55 @@ AdminModule.forRoot({
   - Return a `csrfToken` from `authenticate` when you use cookies.
   - `ctx.user` and `AdminContext.current().user` carry the result into resource methods and your services.
 - **No sign-in.** `AdminAuth.none()` makes everyone a superuser, for local tools. Without `auth` the admin behaves the same with a warning at boot, and **refuses to boot under `NODE_ENV=production`**.
-- Permissions (roles, scopes, field rules) come in M3-2; until then every signed-in user can do everything.
+- Every signed-in user who is not a superuser gets only what their roles grant (see Permissions).
+
+## Permissions
+
+```ts
+AdminModule.forRoot({
+  roles: [{
+    name: 'catalog-editor',
+    permissions: ['product.view', 'product.update', 'category.*', 'reports.run'],
+    fields: { product: { price: 'readonly', cost: 'hidden' } },
+    scopes: { product: { update: 'drafts' } },   // view / update / delete; none = every row
+  }],
+  resolveRoles: (user) => (user.username === 'editor' ? ['catalog-editor'] : []),
+  permissions: ['reports.run'],                   // global custom codes
+  globalScopes: [{ name: 'tenant', appliesTo: ({ metadata }) => !!metadata.findColumnWithPropertyName('tenantId'),
+                   where: (ctx) => ({ tenantId: ctx.user?.attrs?.tenantId }) }],
+});
+
+@AdminResource(Order, { permissions: ['view_all'] })           // declares order.view_all
+export class OrderAdmin extends AdminResourceBase<Order> {
+  fields: FieldsConfig<Order> = { margin: { restricted: true } };  // hidden unless a role grants order.field.margin.view|edit
+  @AdminScope('own') own(ctx: AdminContext) { return { ownerId: ctx.user?.id }; }  // or (where, alias) => where.where(...)
+  @AdminCan('delete') onlyDrafts(order: Order) { return order.status === 'draft'; }
+}
+```
+
+- **Codes:**
+  - operations: `{r}.view`, `{r}.create`, `{r}.update`, `{r}.delete`, `{r}.purge`;
+  - fields: `{r}.field.{f}.view` and `{r}.field.{f}.edit`;
+  - custom codes, per resource or global.
+  - Wildcards: `*`, `{r}.*`, `*.view`.
+  - `update` implies `view`.
+  - Anything unknown in a role (code, resource, field, scope) fails at boot with a suggestion.
+- **Roles combine grant-only, the most permissive winning.**
+  - Per field: `hidden < view < edit`. A field without a rule is editable for a role that may create or update.
+  - Per operation, scopes are ORed, and a role without a scope means every row.
+  - Superusers bypass everything but the global scopes that do not set `exemptSuperusers`.
+  - Roles come from `resolveRoles` and the auth adapter's `resolveRoles`. A lookup that throws grants nothing.
+- **Enforced on the server, at every endpoint:**
+  - Meta lists only what you may view, and every other resource is 404.
+  - Schemas are cut: hidden fields disappear, read-only ones move to `form.readonly`, and `permissions` says what you may do.
+  - Filter, sort and search accept only visible fields (anti-oracle).
+  - Records carry only visible fields. Relation titles of resources or rows you may not see become `#id`, and paths through them are null.
+  - A write naming hidden or read-only fields is 403 `FORBIDDEN_FIELDS` with their names. A missing operation is 403 `FORBIDDEN`.
+  - Records outside your scope are 404.
+  - `_perm: { update, delete }` on each record combines permission, scope and `@AdminCan`, and PATCH/DELETE re-check it.
+  - Scopes also restrict counts, global search, relation pickers and the ids a write may link to.
+  - A resource that overrides `findMany`/`findOne` still cannot leak rows: the API re-checks with its own scoped query.
+- **In your code:** `ctx.can('order.view_all')` and `ctx.permissions`.
 
 Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers); middleware registered in `main.ts` before `listen` still runs. Do not enable wildcard CORS for it. Catch-all routes the host registered earlier take precedence over the admin.
 

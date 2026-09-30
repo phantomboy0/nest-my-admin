@@ -105,3 +105,11 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - `GET /api/session` answers a plain 401 when signed out; the login page always shows the username/password form (a custom adapter without `login` answers 404 there).
 - A resource named `login` or `account` is shadowed by those UI routes.
 - The screenshot threshold (1% of pixels) lets small header changes through; regenerate with `-- --update-snapshots=all` after any deliberate UI change.
+
+## M3-2 follow-ups
+- -> M3-3: database roles/groups/memberships and their UI; anti-escalation; permission debugger; view-as; a permissions cache with `permissionsVersion` (today they are computed per request from code roles and `resolveRoles`).
+- Sorting by a path into a scoped resource (`team.name`) orders by values the user cannot see (the values themselves are masked); keep such paths out of `list.sortable` for multi-tenant targets.
+- A function `title` may read hidden fields; only column titles are masked when their column is hidden.
+- A `findMany` override that ignores scopes still reports its own `total`; rows are filtered, the count is not.
+- Paths deeper than one hop check each hop's resource permission, and the rows of the first hop's scope only.
+- Meta lists resources the user may view; a create-only role reaches `/r/new` by URL, not from the sidebar.

@@ -1,4 +1,4 @@
-import { AdminResource, AdminResourceBase, type AdminContext, type FieldsConfig, type FormConfig, type ListConfig, type RecordId } from '@nest-my-admin/core';
+import { AdminResource, AdminResourceBase, AdminScope, type AdminContext, type FieldsConfig, type FormConfig, type ListConfig, type RecordId } from '@nest-my-admin/core';
 import { CreateProductDto, UpdateProductDto } from './product.dto.js';
 import { Product } from './product.entity.js';
 import { ProductsService } from './products.service.js';
@@ -12,7 +12,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   }
 
   list: ListConfig<Product> = {
-    columns: ['id', 'name', 'sku', 'categoryId', 'price', 'stock', 'status', 'tags'],
+    columns: ['id', 'name', 'sku', 'categoryId', 'price', 'cost', 'stock', 'status', 'tags'],
     sort: '-id',
     pageSize: 20,
     count: 'estimate', // exact while the table is small, the planner's estimate once it is big
@@ -32,6 +32,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
       readonlyIf: archived,
     },
     sku: { label: { en: 'Sku', fa: 'کد کالا' } },
+    cost: { widget: 'money', currency: 'USD', label: { en: 'Cost', fa: 'بهای تمام‌شده' }, restricted: true, readonlyIf: archived },
     price: { widget: 'money', currency: 'USD', label: { en: 'Price', fa: 'قیمت' }, readonlyIf: archived },
     stock: { label: { en: 'Stock', fa: 'موجودی' }, readonlyIf: archived },
     status: {
@@ -52,12 +53,17 @@ export class ProductAdmin extends AdminResourceBase<Product> {
         tab: { en: 'General', fa: 'عمومی' },
         sections: [
           { section: { en: 'Details', fa: 'جزئیات' }, fields: ['name', 'slug', 'sku', 'status', 'releasedOn'], columns: 2 },
-          { section: { en: 'Pricing and stock', fa: 'قیمت و موجودی' }, fields: ['price', 'stock'], columns: 2 },
+          { section: { en: 'Pricing and stock', fa: 'قیمت و موجودی' }, fields: ['price', 'cost', 'stock'], columns: 2 },
         ],
       },
       { tab: { en: 'Catalog', fa: 'کاتالوگ' }, sections: [{ fields: ['categoryId', 'tags'] }] },
     ],
   };
+
+  /** Row scope for roles: products still in draft (the editor role may change only these). */
+  @AdminScope('drafts') drafts() {
+    return { status: 'draft' };
+  }
 
   links(product: Product) {
     return product.slug ? [{ label: { en: 'View in shop', fa: 'مشاهده در فروشگاه' }, href: `https://shop.example.test/p/${encodeURIComponent(product.slug)}` }] : [];

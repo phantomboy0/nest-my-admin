@@ -46,8 +46,8 @@ describe('product admin (service-first)', () => {
   test('the form comes from the DTOs', async () => {
     const res = await agent.get('/admin/api/meta/resources/product');
     expect(res.body.form).toMatchObject({
-      create: ['name', 'slug', 'sku', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
-      update: ['name', 'slug', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
+      create: ['name', 'slug', 'sku', 'price', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
+      update: ['name', 'slug', 'price', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
       requiredOnCreate: ['name', 'sku', 'price'],
     });
     expect(res.body.form.constraints.create.name).toEqual({ required: true, minLength: 1, maxLength: 120 });
@@ -102,7 +102,7 @@ describe('product admin (service-first)', () => {
   test('archived products are locked except their status (readonlyIf)', async () => {
     const { body } = await post({ name: 'Old', sku: 'old-1', price: '2' });
     const archived = await agent.patch(`${base}/${body.id}`).send({ status: 'archived' });
-    expect(archived.body._readonly).toEqual(['name', 'slug', 'price', 'stock', 'releasedOn', 'categoryId', 'tags']);
+    expect(archived.body._readonly).toEqual(['name', 'slug', 'cost', 'price', 'stock', 'releasedOn', 'categoryId', 'tags']);
     const res = await agent.patch(`${base}/${body.id}`).send({ name: 'Renamed', price: '1' });
     expect(res.status).toBe(422);
     expect(res.body).toMatchObject({ code: 'VALIDATION', fields: { name: ['is read-only'], price: ['is read-only'] } });
@@ -236,5 +236,39 @@ describe('sign-in', () => {
   test('the admin API is closed without a session', async () => {
     expect((await request(app.getHttpServer()).get('/admin/api/meta')).status).toBe(401);
     expect((await request(app.getHttpServer()).post('/admin/api/session').send({ username: 'admin', password: 'wrong-password' })).status).toBe(401);
+  });
+});
+
+describe('the catalog-editor role (editor)', () => {
+  let editor: ReturnType<typeof request.agent>;
+  beforeAll(async () => {
+    const { seedUsers } = await import('../src/seed.js');
+    await seedUsers(app);
+    editor = request.agent(app.getHttpServer());
+    const signedIn = await editor.post('/admin/api/session').send({ username: 'editor', password: 'editor-demo-pass' });
+    expect(signedIn.status).toBe(200);
+    editor.set('X-CSRF-Token', signedIn.body.csrfToken);
+  });
+
+  test('sees the catalog without suppliers, and no cost', async () => {
+    const meta = (await editor.get('/admin/api/meta')).body;
+    const names = meta.groups.flatMap((group: { resources: Array<{ name: string }> }) => group.resources.map((resource) => resource.name)).sort();
+    expect(names).toEqual(['category', 'product', 'stock-move', 'tag']);
+    const schema = (await editor.get('/admin/api/meta/resources/product')).body;
+    expect(schema.list.columns).not.toContain('cost');
+    expect(schema.permissions).toEqual({ create: false, update: true, delete: false, purge: false });
+    expect(schema.form.readonly).toContain('price');
+  });
+
+  test('updates drafts only; price is read-only; cost cannot be written', async () => {
+    const draft = (await post({ name: 'Draft for editor', sku: 'ed-1', price: '5', cost: '2' })).body;
+    const active = (await post({ name: 'Active for editor', sku: 'ed-2', price: '5', stock: 1, status: 'active' })).body;
+    expect((await editor.patch(`${base}/${draft._id}`).send({ name: 'Renamed draft' })).status).toBe(200);
+    expect((await editor.patch(`${base}/${active._id}`).send({ name: 'Renamed active' })).status).toBe(404);
+    expect((await editor.patch(`${base}/${draft._id}`).send({ price: '9' })).body).toMatchObject({ code: 'FORBIDDEN_FIELDS', fields: { price: ['is read-only for you'] } });
+    expect((await editor.patch(`${base}/${draft._id}`).send({ cost: '1' })).body).toMatchObject({ code: 'FORBIDDEN_FIELDS', fields: { cost: ['is not available'] } });
+    expect((await editor.get(`${base}/${draft._id}`)).body).not.toHaveProperty('cost');
+    expect((await editor.delete(`${base}/${draft._id}`)).status).toBe(403);
+    expect((await editor.post(base).send({ name: 'New', sku: 'ed-3', price: '1' })).status).toBe(403);
   });
 });

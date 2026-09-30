@@ -13,6 +13,8 @@ export class Product {
   @Column({ length: 140, default: '' }) slug: string;
   @Column({ length: 40, unique: true }) sku: string;
   @Column({ type: 'decimal', precision: 12, scale: 2 }) price: string;
+  /** What the shop pays; restricted: only superusers and roles granting product.field.cost see it. */
+  @Column({ type: 'decimal', precision: 12, scale: 2, default: '0.00' }) cost: string;
   @Column({ type: 'int', default: 0 }) stock: number;
   @Column({ type: 'simple-enum', enum: [...PRODUCT_STATUSES], default: 'draft' }) status: ProductStatus;
   @Column({ type: 'date', nullable: true }) releasedOn: string | null;

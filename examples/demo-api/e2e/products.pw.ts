@@ -712,3 +712,60 @@ test.describe('signing in', () => {
     }
   });
 });
+
+test.describe('as the catalog editor', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('sees only what the role allows; the server refuses the rest (M3-2 Review Focus 1, 4)', async ({ page, isMobile }) => {
+    await page.goto('/admin/login');
+    await page.getByLabel('Username').fill('editor');
+    await page.getByLabel('Password').fill('editor-demo-pass');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
+
+    if (isMobile) await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    const sidebar = page.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Catalog' });
+    await expect(sidebar.getByRole('link', { name: 'Product' })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: 'Supplier' })).toHaveCount(0);
+    expect((await page.request.get('/admin/api/resources/supplier')).status()).toBe(404);
+    if (isMobile) await page.keyboard.press('Escape');
+
+    await page.goto('/admin/product?search=DEMO-');
+    await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'New' })).toHaveCount(0);
+    if (!isMobile) {
+      await expect(page.getByRole('columnheader', { name: /^Cost/ })).toHaveCount(0);
+      await expect(page.getByRole('columnheader', { name: /^Price/ })).toHaveCount(1);
+    }
+
+    // An active product: shown, not changeable.
+    await openRecord(page, 'DEMO-1');
+    await expect(page.getByText('You can view this record but not change it.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Move to trash' })).toHaveCount(0);
+
+    // A draft: editable, except the price; no cost at all.
+    await page.goto('/admin/product?search=DEMO-');
+    await openRecord(page, 'DEMO-3');
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+    await expect(page.locator('[data-readonly="price"]')).toContainText('499.00 USD');
+    await expect(page.getByLabel('Cost')).toHaveCount(0);
+    await expect(page.getByLabel('Name')).toBeEnabled();
+
+    const id = decodeURIComponent(new URL(page.url()).pathname.split('/').pop()!);
+    const res = await page.request.patch(`/admin/api/resources/product/${encodeURIComponent(id)}`, { data: { price: '1.00' }, headers: await csrf(page) });
+    expect(res.status()).toBe(403);
+    expect(await res.json()).toMatchObject({ code: 'FORBIDDEN_FIELDS', fields: { price: ['is read-only for you'] } });
+  });
+
+  test('the superuser sees the restricted cost', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'column headers are the desktop table');
+    await page.goto('/admin/login');
+    await page.getByLabel('Username').fill('admin');
+    await page.getByLabel('Password').fill('admin-demo-pass');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
+    await page.goto('/admin/product');
+    await expect(page.getByRole('columnheader', { name: /^Cost/ })).toHaveCount(1);
+  });
+});
