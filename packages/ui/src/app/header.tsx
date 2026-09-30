@@ -22,7 +22,7 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
     .pathname.split('/')
     .filter(Boolean)
     .map((part) => decodeURIComponent(part));
-  const recordId = first && first !== 'g' && second && second !== 'new' ? second : undefined;
+  const recordId = first && first !== 'g' && first !== '-' && second && second !== 'new' ? second : undefined;
   const record = useRecord(first ?? '', recordId);
   const crumbs: Crumb[] = [{ label: t('shell.home'), to: '/' }];
   if (first === 'account' && !second) return [...crumbs, { label: t('auth.account') }];
