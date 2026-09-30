@@ -4,7 +4,7 @@
   "type": "module",
   "workspaces": ["packages/*", "examples/*"],
   "scripts": {
-    "build": "bun run --filter @nest-my-admin/ui build && bun run --filter @nest-my-admin/core build",
+    "build": "bun run --filter @nest-my-admin/ui build && bun run --filter @nest-my-admin/core build && bun run --filter @nest-my-admin/auth build",
     "typecheck": "bun run --filter @nest-my-admin/core build && bun run --filter '*' typecheck",
     "test": "bun run build && bun test packages examples",
     "e2e": "bun run build && bun run --filter demo-api e2e",
