@@ -9,7 +9,7 @@ import { validateWrite } from '../crud/validate-write.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
-import { AdminContext } from '../resource/admin-context.js';
+import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
 const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
@@ -72,13 +72,15 @@ export class AdminApiService {
     if (!this.options.transactions) return work(ctx);
     const { dataSource } = entry;
     // Re-entrant write (host code inside a write calls the API again on the same DataSource): join the outer
-    // transaction; queueing behind it would deadlock.
+    // transaction; queueing behind it would deadlock. There is no savepoint: if host code catches a failed nested
+    // write and carries on, the nested rows commit with the outer transaction. `manager.connection` is deprecated
+    // in TypeORM 1.x but is the only property that exists on both 0.3 and 1.x.
     const outer = AdminContext.current();
     if (outer?.manager && outer.manager.connection === dataSource) return work(outer);
     const run = () =>
       dataSource.transaction(async (manager) => {
         const transactional: AdminContext = { ...ctx, manager };
-        return AdminContext.run(transactional, () => work(transactional));
+        return runInAdminContext(transactional, () => work(transactional));
       });
     if (!SINGLE_CONNECTION_DRIVERS.has(dataSource.options.type)) return run();
     // One shared query runner: a second BEGIN would nest into (and roll back with) the first, so queue writes.

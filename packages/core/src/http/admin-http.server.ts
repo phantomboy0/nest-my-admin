@@ -6,7 +6,7 @@ import type { AdminErrorCode } from '../contract.js';
 import { AdminError, AdminNotFoundError, AdminUnsupportedMediaTypeError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
-import { AdminContext, createAdminContext } from '../resource/admin-context.js';
+import { createAdminContext, runInAdminContext, type AdminContext } from '../resource/admin-context.js';
 import { codeForStatus, toErrorResponse } from './error-response.js';
 import { readJsonBody, sendJson, type AdminRequest } from './http-io.js';
 import { Router } from './router.js';
@@ -140,7 +140,7 @@ export class AdminHttpServer implements OnModuleInit {
         }
         resourceName = match.params.resource;
         const requestCtx = ctx; // narrows the `let` ctx for the closure below
-        await AdminContext.run(requestCtx, () => match.handler({ req, res, url, ctx: requestCtx }, match.params));
+        await runInAdminContext(requestCtx, () => match.handler({ req, res, url, ctx: requestCtx }, match.params));
         return;
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {

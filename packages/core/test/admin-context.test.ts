@@ -78,3 +78,8 @@ describe('AdminContext.current()', () => {
     expect(admin.lateContext).toEqual([undefined]);
   });
 });
+
+test('the package export exposes current() only, so host code cannot fabricate contexts', () => {
+  expect('run' in AdminContext).toBe(false);
+  expect(typeof AdminContext.current).toBe('function');
+});

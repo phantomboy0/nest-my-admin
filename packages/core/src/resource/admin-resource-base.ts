@@ -84,9 +84,10 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * joins or restrictions: `this.buildListQuery(params).andWhere('entity.ownerId = :id', { id })`.
    * A restriction added here applies to the list only: apply the same restriction in `findOne`, which
    * GET, PATCH and DELETE by id use. A restricted `findOne` override should read through
-   * `this.repositoryFor(ctx)` (or `this.buildListQuery(params, alias, ctx)`) so it reads inside the transaction.
+   * `this.repositoryFor(ctx)` so it reads inside the transaction. Pass `ctx` here too when you build the query in
+   * a write path: `this.buildListQuery(params, ctx)`.
    */
-  protected buildListQuery(params: ListParams, alias = 'entity', ctx?: AdminContext): SelectQueryBuilder<T> {
+  protected buildListQuery(params: ListParams, ctx?: AdminContext, alias = 'entity'): SelectQueryBuilder<T> {
     const repository = ctx ? this.repositoryFor(ctx) : this.repository;
     return applyListParams(repository.createQueryBuilder(alias), params, this.primaryKey);
   }
@@ -96,7 +97,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * otherwise the UI shows filters and search that do nothing.
    */
   async findMany(params: ListParams, ctx: AdminContext): Promise<FindManyResult<T>> {
-    const [items, total] = await this.buildListQuery(params, 'entity', ctx).getManyAndCount();
+    const [items, total] = await this.buildListQuery(params, ctx).getManyAndCount();
     return { items, total };
   }
 
