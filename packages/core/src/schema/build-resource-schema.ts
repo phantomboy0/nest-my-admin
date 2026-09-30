@@ -165,6 +165,19 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     if (!update.includes(name)) fail(`list.editable: "${name}" is not in the update form${didYouMean(name, update)}`);
     if (!field || !INLINE_EDITABLE.includes(field.type)) fail(`list.editable: "${name}" (${field?.type}) cannot be edited in a cell; use text, number, decimal, bigint, boolean, enum or date fields`);
   }
+  const mobileConfig = resource.list?.mobile;
+  const mobile = mobileConfig
+    ? {
+        ...(mobileConfig.title ? { title: mobileConfig.title } : {}),
+        ...(mobileConfig.subtitle ? { subtitle: mobileConfig.subtitle } : {}),
+        ...(mobileConfig.badge ? { badge: mobileConfig.badge } : {}),
+        meta: [...(mobileConfig.meta ?? [])],
+      }
+    : undefined;
+  if (mobile) {
+    for (const key of ['title', 'subtitle', 'badge'] as const) if (mobile[key]) lookup(`list.mobile.${key}`, mobile[key]);
+    for (const name of mobile.meta) lookup('list.mobile.meta', name);
+  }
   for (const [setting, names] of [['list.columns', columns], ['list.filters', resource.list?.filters ?? []], ['list.search', resource.list?.search ?? []], ['list.editable', editable]] as const) {
     const repeated = names.find((name, index) => names.indexOf(name) !== index);
     if (repeated) fail(`${setting}: "${repeated}" is listed twice`);
@@ -301,6 +314,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       filters,
       search,
       editable,
+      ...(mobile ? { mobile } : {}),
     },
     form: {
       create,

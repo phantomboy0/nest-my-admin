@@ -177,6 +177,8 @@ export interface ResourceSchema {
     search: string[];
     /** Fields edited in place in the list (saved with PATCH). */
     editable: string[];
+    /** Phone cards: fields (or paths) for the title, subtitle, badge and meta line. Without it, the title and the columns. */
+    mobile?: { title?: string; subtitle?: string; badge?: string; meta: string[] };
   };
   /** False for the root of a single-table inheritance: records are created through its child resources. */
   creatable: boolean;
@@ -233,6 +235,17 @@ export interface ListResponse {
   nextCursor?: string | null;
   page: number;
   pageSize: number;
+}
+
+/** `GET /api/search?q=`: records matching `q` in each searchable resource (command palette). */
+export interface SearchResponse {
+  groups: Array<{
+    resource: string;
+    label: string;
+    items: Array<{ _id: string; _title: string }>;
+    /** More records match than were returned. */
+    hasMore: boolean;
+  }>;
 }
 
 export type AdminErrorCode =

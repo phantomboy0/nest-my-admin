@@ -60,6 +60,7 @@ export class AdminHttpServer implements OnModuleInit {
     this.router
       .add('GET', '/api/meta', ({ res, ctx }) => sendJson(res, 200, this.api.meta(ctx.locale)))
       .add('GET', '/api/meta/resources/:resource', ({ res, ctx }, p) => sendJson(res, 200, this.api.schema(p.resource, ctx.locale)))
+      .add('GET', '/api/search', async ({ res, url, ctx }) => sendJson(res, 200, await this.api.search(url.searchParams, ctx)))
       .add('GET', '/api/resources/:resource', async ({ res, url, ctx }, p) =>
         sendJson(res, 200, await this.api.list(p.resource, url.searchParams, ctx)),
       )

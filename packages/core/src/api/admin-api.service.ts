@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { AdminRecord, BulkResult, FieldSchema, ListResponse, MetaResponse, OptionsResponse, RecordLink, ResourceSchema } from '../contract.js';
+import type { AdminRecord, BulkResult, FieldSchema, ListResponse, MetaResponse, OptionsResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
+import { persianLike } from '../i18n/persian.js';
 import { toErrorResponse } from '../http/error-response.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
@@ -17,7 +18,7 @@ import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
-import type { RecordId, RecordLinkConfig } from '../resource/admin-resource-base.js';
+import type { ListParams, RecordId, RecordLinkConfig } from '../resource/admin-resource-base.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
 const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
@@ -87,7 +88,9 @@ export class AdminApiService {
     const sortPath = entry.sortPaths.get(params.sort.field);
     if (sortPath) params.sort = { ...params.sort, field: sortPath };
     const { items, total, estimated, hasMore, nextCursor } = await resource.findMany(params, ctx);
-    const loaded = schema.fields.filter((field) => isLoadedField(field) && schema.list.columns.includes(field.name));
+    const mobile = schema.list.mobile;
+    const shown = new Set([...schema.list.columns, ...(mobile ? [mobile.title, mobile.subtitle, mobile.badge, ...mobile.meta] : [])]);
+    const loaded = schema.fields.filter((field) => isLoadedField(field) && shown.has(field.name));
     return {
       items: await this.records(entry, items, loaded, ctx),
       total: total ?? null,
@@ -97,6 +100,49 @@ export class AdminApiService {
       page: params.page,
       pageSize: params.pageSize,
     };
+  }
+
+  /**
+   * Records matching `q` in every resource with `list.search`, through each resource's `findMany` (so `query()`
+   * restrictions apply): up to `limit` (default 5) per resource, uncounted. A resource whose search fails is left out.
+   */
+  async search(query: URLSearchParams, ctx: AdminContext): Promise<SearchResponse> {
+    const q = (query.get('q') ?? '').trim();
+    if (q.length === 0 || q.length > 200) throw new AdminValidationError({ q: ['must be 1 to 200 characters'] });
+    const rawLimit = query.get('limit');
+    const limit = rawLimit === null ? 5 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new AdminValidationError({ limit: ['must be an integer from 1 to 20'] });
+    const locale = ctx.locale ?? this.options.locale;
+    const searchable = this.registry.list().filter((entry) => entry.schema.list.search.length > 0);
+    const results = await Promise.all(
+      searchable.map(async (entry) => {
+        const { schema } = entry;
+        const sortPath = entry.sortPaths.get(schema.list.defaultSort.field);
+        const params: ListParams = {
+          page: 1,
+          pageSize: limit,
+          sort: sortPath ? { ...schema.list.defaultSort, field: sortPath } : schema.list.defaultSort,
+          filters: [],
+          search: { term: q, fields: schema.list.search },
+          count: 'none',
+          pagination: 'offset',
+        };
+        try {
+          const { items, hasMore } = await entry.resource.findMany(params, ctx);
+          if (items.length === 0) return undefined;
+          return {
+            resource: schema.name,
+            label: resolveText(entry.label, locale, this.options.locale),
+            items: items.map((entity) => ({ _id: recordIdOf(entity, schema.primaryKeys), _title: entry.title(entity) })),
+            hasMore: hasMore ?? items.length >= limit,
+          };
+        } catch (error) {
+          this.warnOnce(`search: ${entry.className} failed (${error instanceof Error ? error.message : String(error)}); it is left out of the results`);
+          return undefined;
+        }
+      }),
+    );
+    return { groups: results.filter((group) => group !== undefined) };
   }
 
   async get(name: string, rawId: string, ctx: AdminContext): Promise<AdminRecord> {
@@ -314,8 +360,8 @@ export class AdminApiService {
         const targetEntry = this.registry.forEntity(target.target, entry.dataSource);
         const fields = targetEntry ? targetEntry.schema.list.search.filter((name) => !name.includes('.')) : title.column ? [title.column] : [];
         if (fields.length === 0) throw new AdminValidationError({ search: [`${field.label} options cannot be searched`] });
-        const clauses = fields.map((name) => `LOWER(option.${name}) LIKE LOWER(:nmaSearch) ESCAPE '!'`);
-        qb.andWhere(`(${clauses.join(' OR ')})`, { nmaSearch: likePattern(search, 'anywhere') });
+        const clauses = fields.map((name) => persianLike(`option.${name}`, search, 'nmaSearch', (text) => likePattern(text, 'anywhere')));
+        qb.andWhere(`(${clauses.map((clause) => clause.sql).join(' OR ')})`, clauses[0]!.params);
       }
       qb.take(20);
     }

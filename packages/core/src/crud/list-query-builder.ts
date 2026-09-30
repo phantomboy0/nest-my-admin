@@ -2,6 +2,7 @@ import type { EntityMetadata, ObjectLiteral, SelectQueryBuilder } from 'typeorm'
 import type { FilterCondition, ListParams } from '../resource/admin-resource-base.js';
 import { isToOne, resolvePath, type RelationLike } from '../schema/relation-fields.js';
 import { applyKeyset } from './cursor.js';
+import { persianLike } from '../i18n/persian.js';
 
 type ManyToMany = RelationLike & { junctionEntityMetadata?: EntityMetadata };
 
@@ -81,11 +82,11 @@ function applyFilter<T extends ObjectLiteral>(qb: SelectQueryBuilder<T>, column:
       return;
     }
     case 'contains':
-      qb.andWhere(`LOWER(${column}) LIKE LOWER(:${name}) ESCAPE '!'`, { [name]: likePattern(String(value), 'anywhere') });
+    case 'startsWith': {
+      const like = persianLike(column, String(value), name, (text) => likePattern(text, operator === 'contains' ? 'anywhere' : 'start'));
+      qb.andWhere(like.sql, like.params);
       return;
-    case 'startsWith':
-      qb.andWhere(`LOWER(${column}) LIKE LOWER(:${name}) ESCAPE '!'`, { [name]: likePattern(String(value), 'start') });
-      return;
+    }
     case 'isNull':
       qb.andWhere(`${column} IS ${value ? '' : 'NOT '}NULL`);
       return;
@@ -109,11 +110,10 @@ export function applyListParams<T extends ObjectLiteral>(qb: SelectQueryBuilder<
     else applyFilter(qb, target.column, filter, `nmaFilter${index}`);
   });
   if (params.search) {
-    const clauses = params.search.fields.map((field) => {
-      const target = targetOf(qb, metadata, field) as { column: string };
-      return `LOWER(${target.column}) LIKE LOWER(:nmaSearch) ESCAPE '!'`;
-    });
-    qb.andWhere(`(${clauses.join(' OR ')})`, { nmaSearch: likePattern(params.search.term, 'anywhere') });
+    const term = params.search.term;
+    const clauses = params.search.fields.map((field) => persianLike((targetOf(qb, metadata, field) as { column: string }).column, term, 'nmaSearch', (text) => likePattern(text, 'anywhere')));
+    // Every clause binds the same parameters (same term), so one set serves them all.
+    qb.andWhere(`(${clauses.map((clause) => clause.sql).join(' OR ')})`, clauses[0]?.params ?? {});
   }
   const sort = targetOf(qb, metadata, params.sort.field) as { column: string; joinAlias?: string };
   // With joins, skip/take paginates with a DISTINCT query that can only order by selected columns.

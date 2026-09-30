@@ -3,6 +3,7 @@ import { AdminValidationError } from '../errors.js';
 import type { FilterCondition, FilterValue, ListParams } from '../resource/admin-resource-base.js';
 import { MAX_PAGE_SIZE } from '../schema/build-resource-schema.js';
 import { decodeCursor } from './cursor.js';
+import { toLatinNumber } from '../i18n/persian.js';
 
 type Errors = Record<string, string[]>;
 type Parsed<T> = { value: T } | { error: string };
@@ -129,7 +130,11 @@ function parseFilterValue(field: FieldSchema, operator: FilterOperator, raw: str
   return parseScalar(field, raw);
 }
 
-function parseScalar(field: FieldSchema, raw: string): Parsed<string | number | boolean | Date> {
+const NUMERIC_TEXT = new Set(['number', 'decimal', 'bigint', 'date', 'datetime']);
+
+function parseScalar(field: FieldSchema, text: string): Parsed<string | number | boolean | Date> {
+  // Numbers and dates may be typed with Persian or Arabic-Indic digits (spec §12).
+  const raw = NUMERIC_TEXT.has(field.type) ? toLatinNumber(text) : text;
   switch (field.type) {
     case 'number': {
       if (field.integer) {

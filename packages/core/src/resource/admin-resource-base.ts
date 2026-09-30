@@ -83,6 +83,11 @@ export interface ListConfig<T> {
    * number, decimal, bigint, boolean, enum or date fields. Each save is a normal PATCH.
    */
   editable?: FieldPath<T>[];
+  /**
+   * Cards on phones (spec §9.3): the title (default: the record title), a subtitle, a badge and a line of meta fields.
+   * Fields or paths, like `columns`; without it a card shows the title, then the columns.
+   */
+  mobile?: { title?: FieldPath<T>; subtitle?: FieldPath<T>; badge?: FieldPath<T>; meta?: FieldPath<T>[] };
 }
 
 export interface FormConfig {
