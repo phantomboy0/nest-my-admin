@@ -25,6 +25,10 @@ describe('parseRecordId', () => {
     expect(() => parseRecordId('not-a-uuid', schemaWithKey('uuid'))).toThrow(AdminNotFoundError);
   });
 
+  test('bigint keys must be integer strings', () => {
+    expect(() => parseRecordId('abc', schemaWithKey('bigint'))).toThrow(AdminNotFoundError);
+  });
+
   test('string, uuid and bigint keys stay strings', () => {
     expect(parseRecordId('SKU-1', schemaWithKey('string'))).toBe('SKU-1');
     expect(parseRecordId('0b6f3c52-8f1e-4c1a-9b7e-2d5c6a7e8f90', schemaWithKey('uuid'))).toBe('0b6f3c52-8f1e-4c1a-9b7e-2d5c6a7e8f90');

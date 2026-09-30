@@ -12,6 +12,7 @@ export function parseRecordId(raw: string, schema: ResourceSchema): RecordId {
     if (!/^-?\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) throw notFound();
     return Number(raw);
   }
+  if (type === 'bigint' && !/^-?\d+$/.test(raw)) throw notFound();
   if (type === 'uuid' && !UUID.test(raw)) throw notFound();
   return raw;
 }
