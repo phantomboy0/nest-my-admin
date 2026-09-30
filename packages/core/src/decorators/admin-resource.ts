@@ -20,6 +20,8 @@ export interface AdminResourceOptions {
   title?: TitleDefinition;
   /** TypeORM DataSource name. Defaults to the default DataSource. */
   dataSource?: string;
+  /** Custom permission codes of this resource: `['view_all']` declares `<name>.view_all` for roles and `ctx.can()`. */
+  permissions?: string[];
 }
 
 export interface AdminResourceDefinition extends AdminResourceOptions {

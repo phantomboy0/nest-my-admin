@@ -1,4 +1,8 @@
-import type { AdminAuthConfig } from './auth/auth-adapter.js';
+import type { EntityMetadata } from 'typeorm';
+import type { AdminAuthConfig, AdminUser } from './auth/auth-adapter.js';
+import type { ScopeCondition } from './decorators/admin-scope.js';
+import type { RoleDefinition } from './policy/roles.js';
+import type { AdminContext } from './resource/admin-context.js';
 import type { AdminError } from './errors.js';
 import type { LocalizedText } from './i18n/localized-text.js';
 
@@ -26,6 +30,20 @@ export interface AdminBranding {
  */
 export type ErrorMapper = (error: unknown) => AdminError | undefined;
 
+/**
+ * A scope ANDed onto every resource it applies to (spec §6.4), typically the tenant:
+ * `{ name: 'tenant', appliesTo: ({ metadata }) => metadata.findColumnWithPropertyName('tenantId') !== undefined,
+ *    where: (ctx) => ({ tenantId: ctx.user?.attrs?.tenantId }) }`.
+ */
+export interface GlobalScope {
+  name: string;
+  /** Default: every resource. */
+  appliesTo?: (resource: { name: string; entity: Function; metadata: EntityMetadata }) => boolean;
+  where: (ctx: AdminContext, resource: { name: string }) => ScopeCondition;
+  /** Superusers are restricted too, unless this is true. */
+  exemptSuperusers?: boolean;
+}
+
 export interface AdminModuleOptions {
   /** Mount path of the admin UI and API. Default `/admin`. */
   path?: string;
@@ -52,6 +70,14 @@ export interface AdminModuleOptions {
    * `AdminAuth.none()`. Without it the admin is open (a warning at boot) and, with NODE_ENV=production, does not boot.
    */
   auth?: AdminAuthConfig;
+  /** Roles defined in code (spec §6.1): permissions, field rules and row scopes. */
+  roles?: RoleDefinition[];
+  /** Role names of a signed-in user (with the auth adapter's own `resolveRoles`, if any; the union counts). */
+  resolveRoles?: (user: AdminUser) => string[] | Promise<string[]>;
+  /** Scopes ANDed onto every resource they apply to (multi-tenancy). */
+  globalScopes?: GlobalScope[];
+  /** Global custom permission codes (`reports.run`) for roles and `ctx.can()`. */
+  permissions?: string[];
 }
 
 export interface ResolvedAdminOptions {
@@ -66,6 +92,10 @@ export interface ResolvedAdminOptions {
   errorMapper?: ErrorMapper;
   uiDistPath?: string;
   auth?: AdminAuthConfig;
+  roles: RoleDefinition[];
+  resolveRoles?: (user: AdminUser) => string[] | Promise<string[]>;
+  globalScopes: GlobalScope[];
+  permissions: string[];
 }
 
 export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedAdminOptions {
@@ -95,6 +125,10 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     transactions: options.transactions ?? true,
     errorMapper: options.errorMapper,
     auth: options.auth,
+    roles: options.roles ?? [],
+    resolveRoles: options.resolveRoles,
+    globalScopes: options.globalScopes ?? [],
+    permissions: options.permissions ?? [],
   };
 }
 

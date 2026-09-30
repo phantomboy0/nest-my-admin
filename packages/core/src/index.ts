@@ -1,5 +1,5 @@
 export { AdminModule } from './admin.module.js';
-export type { AdminBranding, AdminModuleOptions, ErrorMapper } from './options.js';
+export type { AdminBranding, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
 export type { LocalizedText } from './i18n/localized-text.js';
 export { ResourceRegistry, type RegisteredGroup, type RegisteredResource } from './registry/resource-registry.js';
 export type { DbNames } from './registry/db-names.js';
@@ -20,6 +20,8 @@ export {
 export { AdminField, BADGE_COLORS, WIDGETS, type AdminFieldOptions, type BadgeColor, type WidgetName } from './decorators/admin-field.js';
 export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutSectionConfig, LayoutTabConfig } from './schema/field-config.js';
 export { AdminContext } from './resource/admin-context.js';
+export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from './decorators/admin-scope.js';
+export type { FieldRule, ResourceOperation, RoleDefinition, ScopedOperation } from './policy/roles.js';
 export type { FieldPath } from './schema/field-paths.js';
 export type { TitleDefinition } from './schema/titles.js';
 export {

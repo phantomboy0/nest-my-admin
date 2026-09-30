@@ -8,8 +8,10 @@ export interface AdminUser {
   displayName: string;
   username?: string;
   email?: string;
-  /** Bypasses every permission check (M3-2). */
+  /** Bypasses every permission check. */
   isSuperuser: boolean;
+  /** Anything your scopes need (`ctx.user.attrs.branchId`). */
+  attrs?: Record<string, unknown>;
 }
 
 /** A signed-in request: the user, and for cookie sessions the session and its CSRF token. */
@@ -61,6 +63,8 @@ export interface AdminAuthAdapter {
   /** "Log out everywhere else": ends every session of the user except this one. */
   revokeOtherSessions?(principal: AdminPrincipal): Promise<void>;
   changePassword?(principal: AdminPrincipal, input: { current: string; next: string }, io: AuthIO): Promise<void>;
+  /** Admin role names of this user (your own roles mapped to the admin's, spec §6.6). */
+  resolveRoles?(user: AdminUser): string[] | Promise<string[]>;
 }
 
 /** How the admin authenticates (`AdminModuleOptions.auth`). */

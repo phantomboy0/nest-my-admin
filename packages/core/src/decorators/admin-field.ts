@@ -34,6 +34,11 @@ export interface AdminFieldOptions {
   slugFrom?: string;
   /** Currency code shown with the `money` widget (display only). */
   currency?: string;
+  /**
+   * Hidden from everyone but superusers and roles that grant `<resource>.field.<name>.view|edit` or name the field
+   * in their `fields` rules (spec §6.2).
+   */
+  restricted?: boolean;
 }
 
 /** Customises how a property appears in the admin (spec §5.3 layer 3). Later layers (resource `fields`) win. */

@@ -12,3 +12,5 @@ export const ADMIN_OPTIONS = 'NEST_MY_ADMIN_OPTIONS';
 
 /** Reflect-metadata key holding @AdminField options by property, on an entity or DTO class. */
 export const ADMIN_FIELD_METADATA = 'nest-my-admin:fields';
+export const ADMIN_SCOPES_METADATA = 'nest-my-admin:scopes';
+export const ADMIN_CAN_METADATA = 'nest-my-admin:can';
