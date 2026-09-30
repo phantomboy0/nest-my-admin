@@ -40,7 +40,7 @@ export class ProductsService {
     const products = this.repo(manager);
     const product = await products.findOneByOrFail({ id });
     if (product.status === 'active') throw new ConflictException('Active products cannot be deleted; archive them first');
-    await products.remove(product);
+    await products.softRemove(product);
   }
 
   private assertSellable(product: Product): void {

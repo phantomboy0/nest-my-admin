@@ -84,6 +84,30 @@ relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext) {
 }
 ```
 
+### Entity shapes
+
+- **Record ids.** Every record carries `_id`, the id used in URLs: key values in primary-key order, joined by `,`,
+  with `~` written `~0` and `,` written `~1`. Composite primary keys work this way; their `findOne`, `update` and
+  `delete` receive `{ key: value, … }`, and single-key resources keep receiving the plain value.
+- **Embedded columns** (`@Column(() => Address) address`) are a group of fields in the form. Records nest them
+  (`address: { city, zip }`), and paths such as `'address.city'` work in `list.columns`, filters, search and sort. A
+  PATCH may send part of a group (`{ address: { zip } }`).
+- **Nested DTOs** (`@ValidateNested() @Type(() => AddressDto) address`) make sub-forms, and
+  `@IsArray() @ValidateNested({ each: true }) @Type(() => LineDto) lines` makes a list of sub-forms, for example over
+  a `simple-json` column. Field errors use dotted paths (`address.city`, `lines.1.qty`).
+- **Single-table inheritance**: each `@ChildEntity` gets its own resource (autoRegister included), which creates rows
+  of its kind and lists only those. The root resource lists every row with a read-only discriminator and does not
+  create.
+- **`@VersionColumn`**: the form sends `If-Match: "<version>"` with PATCH and DELETE. If someone saved the record in
+  between, the answer is 409 with `current` (the record as it is now), and the form offers "Keep my changes" or "Load
+  theirs". The check runs in the write transaction, holding a row lock on Postgres and MySQL, before your `update`.
+- **`@DeleteDateColumn`**: DELETE moves the record to the trash (the default `delete` soft-deletes; a service
+  override should call `softRemove`). `?trashed=only|with` lists the trash, `POST …/:id/restore` restores a record
+  (the resource's `restore`), and `DELETE …/:id?purge=true` removes it for good (`purge`). `@BeforeDelete` hooks get
+  `'soft'` or `'hard'`.
+- **CHECK constraint** violations are a 422 on the columns the check's expression names. TypeORM does not create
+  checks on MySQL.
+
 ## Transactions, context and errors
 
 Every create, update and delete runs in one database transaction. Pass `ctx.manager` to your services so their writes

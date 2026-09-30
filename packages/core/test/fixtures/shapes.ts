@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsArray, IsIn, IsOptional, IsString, Length, Matches, ValidateNested } from 'class-validator';
-import { Column, DeleteDateColumn, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, VersionColumn } from 'typeorm';
+import { Check, Column, DeleteDateColumn, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, VersionColumn } from 'typeorm';
 import { AdminResource, AdminResourceBase, BeforeDelete, type AdminContext, type DeleteMode, type FormConfig, type ListConfig } from '../../src/index.js';
 
 /** A composite primary key whose string part may contain the id separators. */
@@ -72,8 +72,9 @@ export class VenueDtoAdmin extends AdminResourceBase<Venue> {
   form: FormConfig = { create: VenueDto };
 }
 
-/** Optimistic concurrency and soft delete. */
+/** Optimistic concurrency, soft delete and a CHECK constraint (not created on MySQL by TypeORM). */
 @Entity()
+@Check('CHK_shop_stock', 'stock >= 0')
 export class Shop {
   @PrimaryGeneratedColumn() id: number;
   @Column({ length: 40 }) name: string;

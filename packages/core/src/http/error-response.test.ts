@@ -1,3 +1,4 @@
+import { dbNamesFor } from '../registry/db-names.js';
 import { describe, expect, mock, test } from 'bun:test';
 import { BadRequestException, ConflictException, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
@@ -13,6 +14,25 @@ const dbNames = (columns: Record<string, string>, constraints: Record<string, st
 });
 
 describe('toErrorResponse', () => {
+  test('CHECK violations are 422 on the columns the check mentions, on every driver', () => {
+    const dbNames = dbNamesFor({
+      columns: [{ databaseName: 'stock', propertyName: 'stock' }, { databaseName: 'name', propertyName: 'name' }],
+      uniques: [],
+      indices: [],
+      foreignKeys: [],
+      checks: [{ name: 'CHK_stock', expression: 'stock >= 0' }],
+    });
+    const expected = { status: 422, body: { code: 'VALIDATION', message: 'A value is not allowed', fields: { stock: ['is not allowed'] }, correlationId: 'c' } };
+    for (const error of [
+      dbError({ message: 'CHECK constraint failed: CHK_stock' }),
+      dbError({ code: '23514', constraint: 'CHK_stock', message: 'new row for relation "shop" violates check constraint "CHK_stock"' }),
+      dbError({ code: 'ER_CHECK_CONSTRAINT_VIOLATED', message: "Check constraint 'CHK_stock' is violated." }),
+    ]) {
+      expect(toErrorResponse(error, 'c', logger(), { dbNames })).toEqual(expected as ErrorResponse);
+    }
+    expect(toErrorResponse(dbError({ message: 'CHECK constraint failed: CHK_other' }), 'c', logger(), { dbNames }).body.fields).toBeUndefined();
+  });
+
   test('admin errors keep their code, status and fields', () => {
     expect(toErrorResponse(new AdminFieldError({ total: 'too big' }), 'c1', logger())).toEqual({
       status: 422,

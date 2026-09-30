@@ -4,7 +4,7 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 
 ## Promoted by the final review (do early in M1)
 - Error contract for body-parser/host errors is in place; keep it covered as M1 adds routes.
-- Record with string primary key "new" is shadowed by the :resource/new route.
+- (done in M1c-3) Record with string primary key "new" is shadowed by the :resource/new route: ids are encoded, `new` is `~new`.
 - (from M1a) Count modes (`exact | estimate | none`) and keyset pagination (spec §11) are driver-specific: do them in M1c with the database matrix.
 - (from M1a) Persian/Arabic search normalization (spec §12) belongs with i18n in M2.
 
@@ -26,14 +26,14 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 
 ## M1a follow-ups
 - -> M3 (blocker there): method-override middleware can turn a CORS-simple form POST into DELETE and bypass the JSON content-type CSRF check; use req.originalMethod when auth lands.
-- -> M1c: CONFLICT needs a way to distinguish @VersionColumn conflicts (spec §11 diff dialog).
+- (done in M1c-3) CONFLICT for @VersionColumn carries `current` (spec §11 diff dialog).
 - -> M1c/M3: spec §5.2 names a `query(qb, ctx)` hook called by the default findMany; M1a shipped `buildListQuery` (override findMany) instead. Decide in M1c/M3 (row scopes) and make restrictions apply to findOne too.
 - -> M2: Unicode case folding on SQLite with §12 normalization.
 - -> M2: Save and Confirm delete are not mutually disabled.
 - -> M2: datetime "To" filter uses lte at minute precision.
 - -> M2: free-text numeric filter inputs.
 - -> M2: duplicate list.filters entries (reject at boot).
-- (from M1b) Nested DTOs (`@ValidateNested` + `@Type`) → sub-forms and arrays of sub-forms: do with embedded columns in M1c.
+- (done in M1c-3) Nested DTOs (`@ValidateNested` + `@Type`) → sub-forms and arrays of sub-forms.
 - (from M1b) Client constraints do not cover `@IsDecimal` digit limits or `@IsPositive`; the server still enforces them.
 
 ## M1c-1 follow-ups
@@ -42,7 +42,7 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - Postgres `22001` (value too long) names no column, so that 422 has no field; the client's `maxLength` usually catches it first.
 - `bun run compat` tests the oldest supported stack; the newest is what the workspace pins. Versions in between (and Nest 12.0 / TypeORM 1.0 exactly) are assumed.
 - Final review minors (deferred): stale-database sweep keys on pid only, so two hosts sharing one DB server could drop each other's databases (add a host hash to `nma_t_*` names); MySQL message regexes take the first `for key '…'` / `for column '…'`, so a crafted value can strip or mislabel the field (anchor to the last match); `DbNames` is not exported although `RegisteredResource.dbNames` is public (and `columnProperties` was removed — note in a changelog); demo test leaks its database if boot fails (`app?.close()` + try/finally); SQLite/Postgres FK direction comes from the HTTP method, so a PATCH that changes a referenced primary key reports 422 instead of 409; no committed test for the schema-sync-failure path of fast boot failure.
-- CHECK constraint violations (SQLite, Postgres 23514, MySQL ER_CHECK_CONSTRAINT_VIOLATED) still return 500: map them to 422 VALIDATION.
+- (done in M1c-3) CHECK constraint violations → 422 VALIDATION on the columns the expression names.
 
 ## M1c-2 follow-ups
 - -> M1c-4: inverse relations (one-to-many, inverse many-to-many) as read-only "Related" data; lazy relations; sorting a relation field by its target's title column; `relationOptions()` receiving the form's current values (dependent options, spec §5.2 `values`).
@@ -51,3 +51,12 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - Relation ids are checked before the write and the check is not locked, so a target deleted concurrently still reaches the database FK (mapped to 422 as before). The SQLite/Postgres insert-side FK mapping is now covered only by unit tests.
 - Title functions see only what was loaded (columns; relations only when a finder joined them); spec §5.2's `o.customer.name` example needs `?.` or a column title.
 - Multi-select pickers close after each pick (so the list never covers the form); the keyboard flow still works by typing again.
+
+## M1c-3 follow-ups
+- -> M4 (trash UI): purge button and a trash page; the list's Trash toggle only restores today. A to-one relation to a trashed record reads as `null` (TypeORM filters the join).
+- -> M4: `@VersionColumn` diff dialog is an inline notice; a field-by-field merge view is M2/M4 polish.
+- Relations to entities with composite primary keys are still not fields (RelationSchema has one id).
+- Nested DTO detection needs `@Type(() => X)` (class-transformer) or a non-array class type; plain `@ValidateNested()` on `object` stays a DTO-only string field.
+- A json column behind a nested DTO is returned as stored (keys the DTO does not describe survive); an embedded group returns only its columns.
+- `trashed` needs host `findMany` overrides to start from `buildListQuery` (or apply `withDeleted` themselves), like filters.
+- Soft-deleted rows keep their unique values (a new product cannot reuse a trashed product's SKU); partial unique indexes are a host concern.

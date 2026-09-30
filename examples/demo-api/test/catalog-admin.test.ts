@@ -146,3 +146,32 @@ describe('categories and tags (relations)', () => {
     expect(res.body).toMatchObject({ code: 'CONFLICT', message: 'Other records still refer to this record' });
   });
 });
+
+describe('versions, trash and nested fields', () => {
+  const http = () => request(app.getHttpServer());
+
+  test('a stale save is a 409 carrying the product as it is now', async () => {
+    const { body } = await post({ name: 'Shared', sku: 'ver-1', price: '5' });
+    expect((await http().patch(`${base}/${body._id}`).set('If-Match', `"${body.version}"`).send({ stock: 2 })).status).toBe(200);
+    const stale = await http().patch(`${base}/${body._id}`).set('If-Match', `"${body.version}"`).send({ name: 'Mine' });
+    expect(stale.status).toBe(409);
+    expect(stale.body.current).toMatchObject({ name: 'Shared', stock: 2, version: body.version + 1 });
+  });
+
+  test('deleting moves a product to the trash, where it can be restored', async () => {
+    const { body } = await post({ name: 'Trashable', sku: 'bin-1', price: '1' });
+    expect((await http().delete(`${base}/${body._id}`)).status).toBe(204);
+    expect((await http().get(`${base}/${body._id}`)).status).toBe(404);
+    const trash = await http().get(`${base}?trashed=only`);
+    expect(trash.body.items.map((p: { sku: string }) => p.sku)).toContain('BIN-1');
+    expect((await http().post(`${base}/${body._id}/restore`).send({})).body).toMatchObject({ sku: 'BIN-1', deletedAt: null });
+  });
+
+  test('a supplier contact is a nested group', async () => {
+    const res = await http().post('/admin/api/resources/supplier').send({ name: 'Acme', contact: { email: 'a@acme.test', phone: null } });
+    expect(res.status).toBe(201);
+    expect(res.body.contact).toEqual({ email: 'a@acme.test', phone: null });
+    const list = await http().get('/admin/api/resources/supplier?search=acme.test');
+    expect(list.body.items[0]).toMatchObject({ name: 'Acme', 'contact.email': 'a@acme.test' });
+  });
+});

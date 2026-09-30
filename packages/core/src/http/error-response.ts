@@ -119,6 +119,9 @@ function constraintError(error: QueryFailedError, context: ErrorContext): { stat
   if (code === '23502' || MYSQL_NOT_NULL.has(code) || /NOT NULL constraint failed/i.test(text)) {
     return { status: 422, body: { code: 'VALIDATION', message: 'A required value is missing', ...onFields('is required') } };
   }
+  if (code === '23514' || code === 'ER_CHECK_CONSTRAINT_VIOLATED' || /CHECK constraint failed/i.test(text)) {
+    return { status: 422, body: { code: 'VALIDATION', message: 'A value is not allowed', ...onFields('is not allowed') } };
+  }
   if (/^22/.test(code) || MYSQL_INVALID_VALUE.has(code)) {
     return { status: 422, body: { code: 'VALIDATION', message: 'A value is invalid for its column', ...onFields('is invalid') } };
   }
@@ -140,7 +143,9 @@ function fieldErrors(driver: DriverError, text: string, names: DbNames | undefin
 function constraintFromMessage(text: string): string | undefined {
   return (
     /for key '(?:[^'.]+\.)?([^'.]+)'/.exec(text)?.[1] ?? // MySQL unique: Duplicate entry 'A' for key 'product.IDX_…'
-    /CONSTRAINT `([^`]+)`/.exec(text)?.[1] // MySQL foreign key: … CONSTRAINT `FK_…` FOREIGN KEY (`widget_id`) …
+    /CONSTRAINT `([^`]+)`/.exec(text)?.[1] ?? // MySQL foreign key: … CONSTRAINT `FK_…` FOREIGN KEY (`widget_id`) …
+    /CHECK constraint failed: "?(\w+)"?/.exec(text)?.[1] ?? // SQLite: CHECK constraint failed: CHK_shop_stock
+    /Check constraint '([^']+)' is violated/.exec(text)?.[1] // MySQL 8.0.16+
   );
 }
 

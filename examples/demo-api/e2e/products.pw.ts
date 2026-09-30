@@ -73,7 +73,7 @@ test('filters and search narrow the list', async ({ page, isMobile }) => {
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });
 
-test('deletes a draft product and refuses to delete an active one', async ({ page }, testInfo) => {
+test('moves a draft product to the trash and refuses to delete an active one', async ({ page }, testInfo) => {
   const sku = `DEL-${testInfo.project.name.toUpperCase()}`;
   await page.goto('/admin/product/new');
   await page.getByLabel('Name').fill('Short-lived');
@@ -83,14 +83,14 @@ test('deletes a draft product and refuses to delete an active one', async ({ pag
   await expect(page).toHaveURL(/\/admin\/product$/);
 
   await page.getByText(sku, { exact: true }).filter({ visible: true }).click();
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm delete' }).click();
+  await page.getByRole('button', { name: 'Move to trash', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm move to trash' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
   await expect(page.getByText(sku, { exact: true }).filter({ visible: true })).toHaveCount(0);
 
   await page.getByText('DEMO-1', { exact: true }).filter({ visible: true }).click();
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm delete' }).click();
+  await page.getByRole('button', { name: 'Move to trash', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm move to trash' }).click();
   await expect(page.getByRole('alert')).toContainText('Active products cannot be deleted');
 });
 
@@ -156,4 +156,67 @@ test('picks a category and tags, filters by category, and refuses to delete a ca
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm delete' }).click();
   await expect(page.getByRole('alert')).toContainText('Other records still refer to this record');
+});
+
+test('a second editor gets a conflict notice and can keep their changes', async ({ page }, testInfo) => {
+  const sku = `VER-${testInfo.project.name.toUpperCase()}`;
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Name').fill('Shared lamp');
+  await page.getByLabel('Sku').fill(sku);
+  await page.getByLabel('Price').fill('10');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(sku, { exact: true }).filter({ visible: true }).click();
+  const editUrl = page.url();
+
+  const other = await page.context().newPage();
+  await other.goto(editUrl);
+  await other.getByLabel('Stock').fill('7');
+  await other.getByRole('button', { name: 'Save' }).click();
+  await expect(other).toHaveURL(/\/admin\/product$/);
+  await other.close();
+
+  await page.getByLabel('Name').fill('My lamp');
+  await page.getByRole('button', { name: 'Save' }).click();
+  const notice = page.getByRole('alertdialog');
+  await expect(notice).toContainText('Someone else saved this product');
+  await expect(notice).toContainText('Stock');
+  await notice.getByRole('button', { name: 'Keep my changes' }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+
+  await page.goto(editUrl);
+  await expect(page.getByLabel('Name')).toHaveValue('My lamp');
+  await expect(page.getByLabel('Stock')).toHaveValue('7');
+});
+
+test('a product in the trash can be restored', async ({ page }, testInfo) => {
+  const sku = `BIN-${testInfo.project.name.toUpperCase()}`;
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Name').fill('Binned');
+  await page.getByLabel('Sku').fill(sku);
+  await page.getByLabel('Price').fill('2');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByText(sku, { exact: true }).filter({ visible: true }).click();
+  await page.getByRole('button', { name: 'Move to trash', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm move to trash' }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+
+  await page.getByRole('button', { name: 'Trash' }).click();
+  await expect(page).toHaveURL(/trashed=only/);
+  await page.getByRole('button', { name: 'Restore Binned' }).filter({ visible: true }).click();
+  await expect(page.getByText(sku, { exact: true }).filter({ visible: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Trash' }).click();
+  await expect(page.getByText(sku, { exact: true }).filter({ visible: true })).toBeVisible();
+});
+
+test('an embedded contact is edited as a group of fields', async ({ page }, testInfo) => {
+  const name = `Supplier ${testInfo.project.name}`;
+  await page.goto('/admin/supplier/new');
+  await page.getByLabel('Name').fill(name);
+  const contact = page.getByRole('group', { name: 'Contact' });
+  await contact.getByLabel('Email').fill('orders@example.test');
+  await contact.getByLabel('Phone').fill('+98 21 1234');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/admin\/supplier$/);
+  await page.getByText(name, { exact: true }).filter({ visible: true }).first().click();
+  await expect(page.getByRole('group', { name: 'Contact' }).getByLabel('Email')).toHaveValue('orders@example.test');
 });

@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, JoinColumn, JoinTable, ManyToMany, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, DeleteDateColumn, Entity, JoinColumn, JoinTable, ManyToMany, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn, VersionColumn } from 'typeorm';
 import { Category } from './category.entity.js';
 import { Tag } from './tag.entity.js';
 
@@ -20,4 +20,8 @@ export class Product {
   @ManyToMany(() => Tag) @JoinTable() tags: Tag[];
   @CreateDateColumn() createdAt: Date;
   @UpdateDateColumn() updatedAt: Date;
+  /** Two people editing one product: the second save gets a conflict dialog instead of overwriting. */
+  @VersionColumn() version: number;
+  /** Deleting moves a product to the trash. */
+  @DeleteDateColumn() deletedAt: Date | null;
 }
