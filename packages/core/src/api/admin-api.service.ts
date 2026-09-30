@@ -12,11 +12,14 @@ import { ResourceRegistry, type RegisteredResource } from '../registry/resource-
 import { AdminContext } from '../resource/admin-context.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
-const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native']);
+const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
 
 @Injectable()
 export class AdminApiService {
-  /** Tail of the write queue per single-connection DataSource, so admin transactions never interleave. */
+  /**
+   * Tail of the write queue per single-connection DataSource, so admin transactions never interleave.
+   * A write whose host code never settles blocks every later admin write on that SQLite DataSource.
+   */
   private readonly writeQueues = new WeakMap<DataSource, Promise<unknown>>();
 
   constructor(
@@ -68,6 +71,10 @@ export class AdminApiService {
   private async write<T>(entry: RegisteredResource, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
     if (!this.options.transactions) return work(ctx);
     const { dataSource } = entry;
+    // Re-entrant write (host code inside a write calls the API again on the same DataSource): join the outer
+    // transaction; queueing behind it would deadlock.
+    const outer = AdminContext.current();
+    if (outer?.manager && outer.manager.connection === dataSource) return work(outer);
     const run = () =>
       dataSource.transaction(async (manager) => {
         const transactional: AdminContext = { ...ctx, manager };

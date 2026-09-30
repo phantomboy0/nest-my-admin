@@ -38,8 +38,8 @@ export const AdminContext = {
       box.active = false;
       throw error;
     }
-    if (result instanceof Promise) {
-      return result.finally(() => {
+    if (typeof (result as { then?: unknown } | null | undefined)?.then === 'function') {
+      return Promise.resolve(result).finally(() => {
         box.active = false;
       }) as T;
     }

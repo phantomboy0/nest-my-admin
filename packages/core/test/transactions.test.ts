@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { Module, type INestApplication } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
+import { AdminApiService } from '../src/api/admin-api.service.js';
 import { AdminContext, AdminFieldError, AdminResource, AdminResourceBase, AfterSave } from '../src/index.js';
 import { Widget } from './fixtures/widgets.js';
 import { createTestApp } from './helpers/create-app.js';
@@ -46,7 +48,20 @@ class OwnRepoWidgetAdmin extends AdminResourceBase<Widget> {
   }
 }
 
-@Module({ providers: [StrictWidgetAdmin, PairWidgetAdmin, OwnRepoWidgetAdmin] })
+@AdminResource(Widget, { name: 'nested-widget' })
+class NestedWidgetAdmin extends AdminResourceBase<Widget> {
+  constructor(private readonly moduleRef: ModuleRef) {
+    super();
+  }
+
+  // Host code that calls the admin API again from inside a write must join the outer transaction, not deadlock.
+  async create(dto: { name?: string }, ctx: AdminContext) {
+    if (dto.name === 'outer') await this.moduleRef.get(AdminApiService, { strict: false }).create('nested-widget', { name: 'inner' }, ctx);
+    return super.create(dto, ctx);
+  }
+}
+
+@Module({ providers: [StrictWidgetAdmin, PairWidgetAdmin, OwnRepoWidgetAdmin, NestedWidgetAdmin] })
 class TxModule {}
 
 let app: INestApplication | undefined;
@@ -133,4 +148,12 @@ describe('transactions', () => {
     expect(created).toBe(6);
     expect(await count(http)).toBe(created);
   });
+
+  test('a write started from inside a write joins it instead of deadlocking', async () => {
+    app = await createTestApp({ imports: [TxModule] });
+    const http = app.getHttpServer();
+    const res = await request(http).post('/admin/api/resources/nested-widget').send({ name: 'outer' });
+    expect(res.status).toBe(201);
+    expect(await count(http)).toBe(2);
+  }, 2000);
 });
