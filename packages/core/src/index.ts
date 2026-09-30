@@ -44,6 +44,9 @@ export {
   type AdminPrincipal,
   type AdminSessionInfo,
   type AdminUser,
+  type AdminUserChanges,
+  type AdminUserRecord,
+  type NewAdminUser,
   type AuthIO,
   type LoginInput,
 } from './auth/auth-adapter.js';

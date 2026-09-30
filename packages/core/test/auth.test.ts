@@ -138,6 +138,8 @@ describe(`authentication (${TEST_DB})`, () => {
       csrfToken: csrf,
       open: false,
       auth: { login: true, logout: true, sessions: true, revokeOthers: false, password: false },
+      rbac: { enabled: false, view: false, manage: false },
+      permissionsVersion: expect.any(Number),
     });
     expect((await http().get('/admin/api/meta').set('Cookie', cookie)).status).toBe(200);
   });

@@ -281,6 +281,68 @@ export interface SessionResponse {
   /** No sign-in configured: everyone is a superuser. */
   open: boolean;
   auth: AuthCapabilities;
+  /** Roles/groups/users pages (with `rbac`): may this user see them, change them. */
+  rbac: { enabled: boolean; view: boolean; manage: boolean };
+  /** Changes when roles or memberships change: refetch meta and schemas. */
+  permissionsVersion: number;
+}
+
+/** Text in one language, or per language (`{ en, fa }`). */
+export type LocalizedTextJson = string | Record<string, string>;
+
+export interface RbacRole {
+  name: string;
+  label?: LocalizedTextJson;
+  description?: LocalizedTextJson;
+  /** Defined in code: read-only here. */
+  system: boolean;
+  permissions: string[];
+  fields?: Record<string, Record<string, 'hidden' | 'readonly' | 'view' | 'edit'>>;
+  scopes?: Record<string, Partial<Record<'view' | 'update' | 'delete', string | string[]>>>;
+}
+
+export interface RbacGroup {
+  id: number;
+  name: string;
+  label: LocalizedTextJson | null;
+  roles: string[];
+  members: string[];
+}
+
+export interface RbacUser {
+  id: string;
+  displayName: string;
+  username?: string;
+  email?: string;
+  isSuperuser: boolean;
+  isActive?: boolean;
+  lastLoginAt?: string | null;
+  createdAt?: string;
+  roles: string[];
+  groups: number[];
+}
+
+export interface RbacUsersResponse {
+  items: RbacUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+  /** What the auth adapter supports on this page. */
+  capabilities: { list: boolean; create: boolean; update: boolean; password: boolean };
+}
+
+/** What roles can name, for the matrix editor. */
+export interface RbacCatalog {
+  operations: Array<'view' | 'create' | 'update' | 'delete' | 'purge'>;
+  resources: Array<{
+    name: string;
+    label: string;
+    group: string;
+    fields: Array<{ name: string; label: string; restricted: boolean }>;
+    scopes: string[];
+    custom: string[];
+  }>;
+  global: string[];
 }
 
 /** `GET /api/account/sessions`: the user's signed-in devices. */

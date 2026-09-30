@@ -16,6 +16,8 @@ import {
 import type { AdminPrincipal, AdminUser } from '../auth/auth-adapter.js';
 import { AdminAuthService } from '../auth/auth.service.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
+import { addRbacRoutes } from '../rbac/rbac-routes.js';
+import { AdminRbac } from '../rbac/rbac.service.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import { createAdminContext, runInAdminContext, type AdminContext } from '../resource/admin-context.js';
@@ -73,12 +75,13 @@ export class AdminHttpServer implements OnModuleInit {
     private readonly registry: ResourceRegistry,
     private readonly auth: AdminAuthService,
     private readonly policy: AdminPolicy,
+    private readonly rbac: AdminRbac,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {
     this.router
-      .add('GET', '/api/session', ({ res, principal }) => {
+      .add('GET', '/api/session', async ({ res, principal }) => {
         if (!principal) throw new AdminUnauthenticatedError();
-        sendJson(res, 200, this.sessionResponse(principal));
+        sendJson(res, 200, await this.sessionResponse(principal));
       })
       .add('POST', '/api/session', async ({ req, res }) => {
         const login = this.auth.adapter?.login;
@@ -90,7 +93,7 @@ export class AdminHttpServer implements OnModuleInit {
         if (typeof password !== 'string' || password === '' || password.length > 1000) fields.password = ['is required'];
         if (Object.keys(fields).length > 0) throw new AdminValidationError(fields);
         const principal = await login.call(this.auth.adapter, { username: (username as string).trim(), password: password as string }, { req, res });
-        sendJson(res, 200, this.sessionResponse(principal));
+        sendJson(res, 200, await this.sessionResponse(principal));
       })
       .add('DELETE', '/api/session', async ({ req, res, principal }) => {
         const adapter = this.auth.adapter;
@@ -173,14 +176,19 @@ export class AdminHttpServer implements OnModuleInit {
         res.statusCode = 204;
         res.end();
       });
+    addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api });
   }
 
-  private sessionResponse(principal: AdminPrincipal): SessionResponse {
+  private async sessionResponse(principal: AdminPrincipal): Promise<SessionResponse> {
+    const permissions = await this.policy.forUser(principal.user);
+    const enabled = this.rbac.enabled;
     return {
       user: toSessionUser(principal.user),
       ...(principal.csrfToken ? { csrfToken: principal.csrfToken } : {}),
       open: this.auth.adapter === undefined,
       auth: this.auth.capabilities,
+      rbac: { enabled, view: enabled && (permissions.can('rbac.view') || permissions.can('rbac.manage')), manage: enabled && permissions.can('rbac.manage') },
+      permissionsVersion: this.rbac.permissionsVersion,
     };
   }
 

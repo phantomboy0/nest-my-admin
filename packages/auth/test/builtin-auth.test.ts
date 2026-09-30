@@ -8,8 +8,9 @@ import { fileURLToPath } from 'node:url';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
 import { AdminModule } from '@nest-my-admin/core';
+import { AdminAuthService } from '../../core/dist/auth/auth.service.js';
 import { TEST_DB, testDatabase } from '../../core/test/helpers/test-db.js';
-import { ADMIN_AUTH_ENTITIES, NmaSession, NmaUser, builtinAuth, createAdminUser, type BuiltinAuthOptions } from '../src/index.js';
+import { ADMIN_AUTH_ENTITIES, BuiltinAuthAdapter, NmaSession, NmaUser, builtinAuth, createAdminUser, type BuiltinAuthOptions } from '../src/index.js';
 
 const UI = fileURLToPath(new URL('../../core/test/fixtures/ui-dist', import.meta.url));
 const FAST = { N: 1024, r: 8, p: 1, keylen: 64 };
@@ -216,5 +217,35 @@ describe(`built-in auth limits and boot (${TEST_DB})`, () => {
   test('createAdminUser checks the username and the policy', async () => {
     await expect(createAdminUser(dataSource, { username: 'has space', password: 'long-enough-1' }, { scrypt: FAST })).rejects.toThrow('not a valid username');
     await expect(createAdminUser(dataSource, { username: 'frank', password: 'short' }, { scrypt: FAST })).rejects.toThrow('must be at least 10 characters');
+  });
+});
+
+describe(`built-in auth: the Users page methods (${TEST_DB})`, () => {
+  const adapter = () => (app.get(AdminAuthService) as AdminAuthService).adapter as BuiltinAuthAdapter;
+
+  test('create (policy and uniqueness checked), list with search, get', async () => {
+    await expect(adapter().createUser({ username: 'Gina', displayName: ' Gina ', password: 'short' })).rejects.toThrow('Validation failed');
+    const gina = await adapter().createUser({ username: 'Gina', displayName: ' Gina ', email: 'gina@example.test', password: 'gina-password-1' });
+    expect(gina).toMatchObject({ username: 'gina', displayName: 'Gina', email: 'gina@example.test', isSuperuser: false, isActive: true });
+    await expect(adapter().createUser({ username: 'gina', displayName: 'Again', password: 'gina-password-2' })).rejects.toMatchObject({ fields: { username: ['is taken'] } });
+    const found = await adapter().listUsers({ search: 'GINA', page: 1, pageSize: 10 });
+    expect(found.items.map((user) => user.username)).toEqual(['gina']);
+    expect(found.total).toBe(1);
+    expect((await adapter().getUser(String(gina.id)))!.email).toBe('gina@example.test');
+    expect(await adapter().getUser('not-a-number')).toBeNull();
+  });
+
+  test('deactivating ends the sessions; setting a password ends them too', async () => {
+    const hal = await adapter().createUser({ username: 'hal', displayName: 'Hal', password: 'hal-password-1' });
+    const first = await login('hal', 'hal-password-1');
+    await adapter().updateUser(String(hal.id), { isActive: false });
+    expect((await http().get('/admin/api/meta').set('Cookie', first.cookie)).status).toBe(401);
+    await adapter().updateUser(String(hal.id), { isActive: true, displayName: 'Hal 9000' });
+    const second = await login('hal', 'hal-password-1');
+    expect(second.res.body.user.displayName).toBe('Hal 9000');
+    await expect(adapter().setPassword(String(hal.id), 'hal')).rejects.toThrow('Validation failed');
+    await adapter().setPassword(String(hal.id), 'hal-password-2');
+    expect((await http().get('/admin/api/meta').set('Cookie', second.cookie)).status).toBe(401);
+    expect((await login('hal', 'hal-password-2')).res.status).toBe(200);
   });
 });

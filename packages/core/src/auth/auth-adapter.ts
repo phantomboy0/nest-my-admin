@@ -65,6 +65,34 @@ export interface AdminAuthAdapter {
   changePassword?(principal: AdminPrincipal, input: { current: string; next: string }, io: AuthIO): Promise<void>;
   /** Admin role names of this user (your own roles mapped to the admin's, spec §6.6). */
   resolveRoles?(user: AdminUser): string[] | Promise<string[]>;
+  /** The Users page (with `rbac`): list, read, create and change users; set a password (which ends their sessions). */
+  listUsers?(query: { search?: string; page: number; pageSize: number }): Promise<{ items: AdminUserRecord[]; total: number }>;
+  getUser?(id: string): Promise<AdminUserRecord | null>;
+  createUser?(input: NewAdminUser): Promise<AdminUserRecord>;
+  updateUser?(id: string, changes: AdminUserChanges): Promise<AdminUserRecord>;
+  setPassword?(id: string, password: string): Promise<void>;
+}
+
+/** A user as the Users page lists and edits them. */
+export interface AdminUserRecord extends AdminUser {
+  isActive?: boolean;
+  lastLoginAt?: Date | null;
+  createdAt?: Date;
+}
+
+export interface NewAdminUser {
+  username: string;
+  displayName: string;
+  email?: string | null;
+  password: string;
+  isSuperuser?: boolean;
+}
+
+export interface AdminUserChanges {
+  displayName?: string;
+  email?: string | null;
+  isActive?: boolean;
+  isSuperuser?: boolean;
 }
 
 /** How the admin authenticates (`AdminModuleOptions.auth`). */

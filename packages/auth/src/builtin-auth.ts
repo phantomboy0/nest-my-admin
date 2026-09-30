@@ -17,6 +17,9 @@ import {
   type AdminPrincipal,
   type AdminSessionInfo,
   type AdminUser,
+  type AdminUserChanges,
+  type AdminUserRecord,
+  type NewAdminUser,
   type AuthIO,
   type LoginInput,
 } from '@nest-my-admin/core';
@@ -212,10 +215,87 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
     await this.revokeOtherSessions(principal);
   }
 
+  // ---- the Users page (spec §6.7) ------------------------------------------------------------------------------
+
+  async listUsers(query: { search?: string; page: number; pageSize: number }): Promise<{ items: AdminUserRecord[]; total: number }> {
+    const qb = this.users.createQueryBuilder('u');
+    if (query.search) {
+      const pattern = `%${query.search.toLowerCase().replace(/[!%_]/g, (char) => `!${char}`)}%`;
+      qb.where("(LOWER(u.username) LIKE :q ESCAPE '!' OR LOWER(u.displayName) LIKE :q ESCAPE '!' OR LOWER(u.email) LIKE :q ESCAPE '!')", { q: pattern });
+    }
+    const [rows, total] = await qb.orderBy('u.username', 'ASC').skip((query.page - 1) * query.pageSize).take(query.pageSize).getManyAndCount();
+    return { items: rows.map(toUserRecord), total };
+  }
+
+  async getUser(id: string): Promise<AdminUserRecord | null> {
+    const numeric = Number(id);
+    if (!Number.isSafeInteger(numeric)) return null;
+    const user = await this.users.findOne({ where: { id: numeric } });
+    return user ? toUserRecord(user) : null;
+  }
+
+  async createUser(input: NewAdminUser): Promise<AdminUserRecord> {
+    const username = input.username.trim().toLowerCase();
+    const errors: Record<string, string[]> = {};
+    if (!USERNAME.test(username)) errors.username = ['must be letters, digits or . _ @ + - (at most 150)'];
+    else if (await this.users.existsBy({ username })) errors.username = ['is taken'];
+    const displayName = input.displayName.trim();
+    if (displayName === '' || displayName.length > 150) errors.displayName = ['must be 1–150 characters'];
+    const problems = passwordProblems(input.password, { username }, this.options.password);
+    if (problems.length > 0) errors.password = problems;
+    if (input.email && input.email.length > 254) errors.email = ['must be at most 254 characters'];
+    if (Object.keys(errors).length > 0) throw new AdminValidationError(errors);
+    const user = await this.users.save(
+      this.users.create({ username, displayName, email: input.email || null, passwordHash: await hashPassword(input.password, this.options.scrypt), isSuperuser: input.isSuperuser === true }),
+    );
+    return toUserRecord(user);
+  }
+
+  async updateUser(id: string, changes: AdminUserChanges): Promise<AdminUserRecord> {
+    const user = await this.getUser(id);
+    if (!user) throw new AdminValidationError({ id: ['does not exist'] });
+    const update: Partial<NmaUser> = {};
+    const errors: Record<string, string[]> = {};
+    if (changes.displayName !== undefined) {
+      if (typeof changes.displayName !== 'string' || changes.displayName.trim() === '' || changes.displayName.length > 150) errors.displayName = ['must be 1–150 characters'];
+      else update.displayName = changes.displayName.trim();
+    }
+    if (changes.email !== undefined) {
+      if (changes.email !== null && (typeof changes.email !== 'string' || changes.email.length > 254)) errors.email = ['must be at most 254 characters'];
+      else update.email = changes.email || null;
+    }
+    for (const key of ['isActive', 'isSuperuser'] as const) {
+      if (changes[key] === undefined) continue;
+      if (typeof changes[key] !== 'boolean') errors[key] = ['must be true or false'];
+      else update[key] = changes[key];
+    }
+    if (Object.keys(errors).length > 0) throw new AdminValidationError(errors);
+    if (Object.keys(update).length > 0) await this.users.update({ id: Number(id) }, update);
+    // A deactivated user is signed out everywhere.
+    if (update.isActive === false) await this.sessions.delete({ userId: Number(id) });
+    return (await this.getUser(id))!;
+  }
+
+  /** Sets a new password (the policy applies) and ends every session of that user. */
+  async setPassword(id: string, password: string): Promise<void> {
+    const user = await this.users.findOne({ where: { id: Number(id) } });
+    if (!user) throw new AdminValidationError({ id: ['does not exist'] });
+    const problems = passwordProblems(password, { username: user.username }, this.options.password);
+    if (problems.length > 0) throw new AdminValidationError({ password: problems });
+    await this.users.update({ id: user.id }, { passwordHash: await hashPassword(password, this.options.scrypt), failedLogins: 0, lockedUntil: null });
+    await this.sessions.delete({ userId: user.id });
+  }
+
   private setCookie(io: { req: IncomingMessage; res: ServerResponse }, value: string, maxAge: number): void {
     const secure = this.options.secureCookie === 'auto' ? isSecureRequest(io.req as Parameters<typeof isSecureRequest>[0]) : this.options.secureCookie;
     appendSetCookie(io.res, serializeCookie(this.options.cookieName, value, { path: cookiePath(io.req), httpOnly: true, secure, sameSite: 'Lax', maxAge }));
   }
+}
+
+const USERNAME = /^[\p{L}\p{N}._@+-]{1,150}$/u;
+
+function toUserRecord(user: NmaUser): AdminUserRecord {
+  return { ...toAdminUser(user), isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
 }
 
 export function toAdminUser(user: NmaUser): AdminUser {
@@ -235,7 +315,7 @@ export async function createAdminUser(
   options: { password?: PasswordPolicy; scrypt?: typeof SCRYPT } = {},
 ): Promise<NmaUser> {
   const username = input.username.trim().toLowerCase();
-  if (!/^[\p{L}\p{N}._@+-]{1,150}$/u.test(username)) throw new Error(`@nest-my-admin/auth: "${input.username}" is not a valid username`);
+  if (!USERNAME.test(username)) throw new Error(`@nest-my-admin/auth: "${input.username}" is not a valid username`);
   const problems = passwordProblems(input.password, { username }, options.password);
   if (problems.length > 0) throw new Error(`@nest-my-admin/auth: the password for "${username}" ${problems.join(', ')}`);
   const users = dataSource.getRepository(NmaUser);
