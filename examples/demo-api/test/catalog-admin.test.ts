@@ -78,4 +78,25 @@ describe('product admin (service-first)', () => {
     expect(res.status).toBe(409);
     expect(res.body).toMatchObject({ code: 'CONFLICT', message: 'Archived products are read-only' });
   });
+
+  test('filters and search narrow the list', async () => {
+    await post({ name: 'Filter lamp', sku: 'flt-1', price: '12', stock: 3, status: 'active' });
+    await post({ name: 'Filter mug', sku: 'flt-2', price: '30', status: 'draft' });
+    const byStatus = await request(app.getHttpServer()).get(`${base}?filter[status][eq]=draft&search=filter`);
+    expect(byStatus.body.items.map((p: { sku: string }) => p.sku)).toEqual(['FLT-2']);
+    const byPrice = await request(app.getHttpServer()).get(`${base}?filter[price][between]=10,20&search=flt`);
+    expect(byPrice.body.items.map((p: { sku: string }) => p.sku)).toEqual(['FLT-1']);
+    const bad = await request(app.getHttpServer()).get(`${base}?filter[sku][eq]=x`);
+    expect(bad.status).toBe(422);
+    expect(bad.body.fields).toEqual({ 'filter[sku][eq]': ['cannot filter by "sku"'] });
+  });
+
+  test('delete goes through the service, which refuses active products', async () => {
+    const draft = (await post({ name: 'Doomed', sku: 'del-1', price: '1' })).body;
+    expect((await request(app.getHttpServer()).delete(`${base}/${draft.id}`)).status).toBe(204);
+    const active = (await post({ name: 'Keeper', sku: 'del-2', price: '1', stock: 1, status: 'active' })).body;
+    const refused = await request(app.getHttpServer()).delete(`${base}/${active.id}`);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({ code: 'CONFLICT', message: 'Active products cannot be deleted; archive them first' });
+  });
 });

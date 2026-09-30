@@ -9,7 +9,13 @@ export class ProductAdmin extends AdminResourceBase<Product> {
     super();
   }
 
-  list: ListConfig<Product> = { columns: ['id', 'name', 'sku', 'price', 'stock', 'status'], sort: '-id', pageSize: 20 };
+  list: ListConfig<Product> = {
+    columns: ['id', 'name', 'sku', 'price', 'stock', 'status'],
+    sort: '-id',
+    pageSize: 20,
+    filters: ['status', 'price', 'stock', 'releasedOn'],
+    search: ['name', 'sku'],
+  };
   form: FormConfig = { create: CreateProductDto, update: UpdateProductDto };
 
   create(dto: CreateProductDto, _ctx: AdminContext) {
@@ -18,5 +24,9 @@ export class ProductAdmin extends AdminResourceBase<Product> {
 
   update(id: RecordId, dto: UpdateProductDto, _ctx: AdminContext) {
     return this.products.update(Number(id), dto);
+  }
+
+  delete(id: RecordId, _ctx: AdminContext) {
+    return this.products.remove(Number(id));
   }
 }

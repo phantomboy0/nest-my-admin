@@ -23,6 +23,12 @@ export class ProductsService {
     return this.products.save(product);
   }
 
+  async remove(id: number): Promise<void> {
+    const product = await this.products.findOneByOrFail({ id });
+    if (product.status === 'active') throw new ConflictException('Active products cannot be deleted; archive them first');
+    await this.products.remove(product);
+  }
+
   private assertSellable(product: Product): void {
     if (product.status === 'active' && (product.stock ?? 0) <= 0) {
       throw new BadRequestException('Active products need stock');
