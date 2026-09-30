@@ -13,7 +13,7 @@ export {
   type ListParams,
   type RecordId,
 } from './resource/admin-resource-base.js';
-export type { AdminContext } from './resource/admin-context.js';
+export { AdminContext } from './resource/admin-context.js';
 export { AdminBadRequestError, AdminError, AdminFieldError, AdminNotFoundError, AdminValidationError } from './errors.js';
 export { AfterSave, BeforeDelete, BeforeSave, type HookKind, type SaveMode } from './decorators/hooks.js';
 export type * from './contract.js';
