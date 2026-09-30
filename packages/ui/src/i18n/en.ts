@@ -143,6 +143,8 @@ export const en = {
   'display.persianDigits': 'Persian ۱۲۳',
 
   'form.new': 'New {name}',
+  'form.back': 'Back',
+  'form.viewOnly': 'You can view this record but not change it.',
   'form.save': 'Save',
   'form.saving': 'Saving…',
   'form.delete': 'Delete',

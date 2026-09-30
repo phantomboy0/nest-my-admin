@@ -100,7 +100,9 @@ export function ListPage() {
     setTrail(trail.slice(0, -1));
     updateParams({ after: previous || null });
   }
-  const selectable = !trash;
+  // Selection only serves bulk delete: without the permission there is nothing to select for.
+  const can = s.permissions ?? { create: true, update: true, delete: true, purge: true };
+  const selectable = !trash && can.delete;
   const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item._id))}`;
 
   function updateParams(changes: ParamChanges) {
@@ -118,13 +120,13 @@ export function ListPage() {
         <h1 className="text-xl font-semibold">{s.label}</h1>
         <div className="ms-auto" />
         <ColumnMenu schema={s} prefs={prefs} />
-        {s.softDelete && (
+        {s.softDelete && can.delete && (
           <Button variant={trash ? 'secondary' : 'outline'} aria-pressed={trash} onClick={() => updateParams({ trashed: trash ? null : 'only' })}>
             <Trash2 />
             {t('list.trash')}
           </Button>
         )}
-        {mobile && !trash && (
+        {mobile && selectable && (
           <Button
             variant={selectMode ? 'secondary' : 'outline'}
             aria-pressed={selectMode}
@@ -297,7 +299,7 @@ export function ListPage() {
                           <Link to={recordPath(item)} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
                             {formatCell(item[column.name], column)}
                           </Link>
-                        ) : !trash && s.list.editable.includes(column.name) && !(Array.isArray(item._readonly) && item._readonly.includes(column.name)) ? (
+                        ) : !trash && s.list.editable.includes(column.name) && !(Array.isArray(item._readonly) && item._readonly.includes(column.name)) && (item._perm as { update?: boolean } | undefined)?.update !== false ? (
                           <EditableCell schema={s} item={item} field={column} />
                         ) : (
                           <CellValue value={item[column.name]} field={column} />

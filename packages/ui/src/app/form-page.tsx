@@ -80,7 +80,11 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   // Edit forms also show read-only fields: `readonly` in the config, and those `readonlyIf` locks on this record.
-  const locked = new Set(mode === 'edit' ? [...schema.form.readonly, ...lockedOn(record)] : []);
+  // Without update permission, or when this record says no (`_perm`), the whole form is read-only.
+  const perm = record?._perm as { update?: boolean; delete?: boolean } | undefined;
+  const canUpdate = mode === 'create' || (schema.permissions?.update !== false && perm?.update !== false);
+  const canDelete = schema.permissions?.delete !== false && perm?.delete !== false;
+  const locked = new Set(mode === 'edit' ? (canUpdate ? [...schema.form.readonly, ...lockedOn(record)] : [...schema.form.update, ...schema.form.readonly]) : []);
   const shownNames = mode === 'create' ? schema.form.create : [...schema.form.update, ...schema.form.readonly];
   const allFields = schema.fields.filter((field) => shownNames.includes(field.name));
   const fields = allFields.filter((field) => !locked.has(field.name));
@@ -207,6 +211,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canUpdate) return; // ⌘S on a read-only form
     const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const then: After = submitter?.value === 'new' ? 'new' : submitter ? 'list' : after.current;
     after.current = 'list';
@@ -275,6 +280,11 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
       ) : (
         <DetailHeader schema={schema} record={record} id={id} />
       )}
+      {!canUpdate && (
+        <p role="note" className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          {t('form.viewOnly')}
+        </p>
+      )}
       {notice && (
         <p role="status" className="rounded-md border border-green-600/30 bg-green-500/10 px-3 py-2 text-sm">
           {notice}
@@ -310,16 +320,18 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
       )}
       <FormLayout layout={schema.form.layout} names={allFields.map((field) => field.name)} errors={fieldErrors} render={renderField} />
       <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
-        <Button type="submit" value="list" disabled={save.isPending} aria-keyshortcuts="Control+S Meta+S">
-          {t(save.isPending ? 'form.saving' : 'form.save')}
-        </Button>
-        {schema.creatable && (
+        {canUpdate && (
+          <Button type="submit" value="list" disabled={save.isPending} aria-keyshortcuts="Control+S Meta+S">
+            {t(save.isPending ? 'form.saving' : 'form.save')}
+          </Button>
+        )}
+        {canUpdate && schema.creatable && (
           <Button type="submit" value="new" variant="outline" disabled={save.isPending}>
             {t('form.saveAndNew')}
           </Button>
         )}
         <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
-          {t('common.cancel')}
+          {t(canUpdate ? 'common.cancel' : 'form.back')}
         </Button>
         {mode === 'edit' && schema.creatable && (
           <Button asChild variant="outline">
@@ -330,6 +342,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
           </Button>
         )}
         {mode === 'edit' &&
+          canDelete &&
           (confirmingDelete ? (
             <div className="ms-auto flex gap-2">
               <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>

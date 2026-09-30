@@ -145,6 +145,8 @@ export const fa: Messages = {
   'display.persianDigits': 'فارسی ۱۲۳',
 
   'form.new': '{name} جدید',
+  'form.back': 'بازگشت',
+  'form.viewOnly': 'می‌توانید این رکورد را ببینید اما نمی‌توانید آن را تغییر دهید.',
   'form.save': 'ذخیره',
   'form.saving': 'در حال ذخیره…',
   'form.delete': 'حذف',
