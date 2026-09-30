@@ -6,7 +6,7 @@ import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
 import type { FieldPath } from '../schema/field-paths.js';
 import { getHooks, type HookKind } from '../decorators/hooks.js';
-import type { AdminContext } from './admin-context.js';
+import { AdminContext } from './admin-context.js';
 
 /** A record's key: the value for single-key entities, `{ key: value, … }` for composite primary keys. */
 export type RecordId = string | number | Record<string, string | number>;
@@ -89,16 +89,25 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   /**
-   * The list query with filters, search, sort and paging applied. Override findMany and extend this to add
-   * joins or restrictions: `this.buildListQuery(params).andWhere('entity.ownerId = :id', { id })`.
-   * A restriction added here applies to the list only: apply the same restriction in `findOne`, which
-   * GET, PATCH and DELETE by id use. A restricted `findOne` override should read through
-   * `this.repositoryFor(ctx)` so it reads inside the transaction. Pass `ctx` here too when you build the query in
-   * a write path: `this.buildListQuery(params, ctx)`.
+   * The list query: `query()` restrictions, then filters, search, sort and paging. Override findMany and extend this to
+   * add joins or aggregates: `this.buildListQuery(params, ctx).leftJoinAndSelect('entity.owner', 'owner')`. Put row
+   * restrictions in `query()` instead, so records by id and pickers get them too. Pass `ctx` in write paths so the
+   * query runs inside the transaction.
    */
   protected buildListQuery(params: ListParams, ctx?: AdminContext, alias = 'entity'): SelectQueryBuilder<T> {
     const repository = ctx ? this.repositoryFor(ctx) : this.repository;
-    return applyListParams(repository.createQueryBuilder(alias), params, repository.metadata);
+    const qb = this.query(repository.createQueryBuilder(alias), (ctx ?? AdminContext.current()) as AdminContext);
+    return applyListParams(qb, params, repository.metadata);
+  }
+
+  /**
+   * Restricts which records the admin sees, on every read path: the list (`buildListQuery`), `findOne` (so GET, PATCH,
+   * DELETE, restore and purge by id), and pickers of relations that point at this resource, including the check of
+   * ids sent to them. Add conditions with `qb.alias` (the alias differs per path): `qb.andWhere(\`${qb.alias}.ownerId
+   * = :me\`, { me: ctx.user.id })`. Default: no restriction.
+   */
+  query(qb: SelectQueryBuilder<T>, _ctx: AdminContext): SelectQueryBuilder<T> {
+    return qb;
   }
 
   /**
@@ -113,7 +122,10 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   /** `options.withDeleted` also finds records in the trash (restore and purge use it). */
   async findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<T | null> {
     const where = typeof id === 'object' ? id : { [this.primaryKeys[0]!]: id };
-    return this.repositoryFor(ctx).findOne({ where: where as FindOptionsWhere<T>, ...(options.withDeleted ? { withDeleted: true } : {}) });
+    const qb = this.repositoryFor(ctx)
+      .createQueryBuilder('entity')
+      .setFindOptions({ where: where as FindOptionsWhere<T>, withDeleted: options.withDeleted === true, loadEagerRelations: true });
+    return this.query(qb, ctx).getOne();
   }
 
   /**

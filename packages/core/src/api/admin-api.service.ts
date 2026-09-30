@@ -193,11 +193,17 @@ export class AdminApiService {
     throw new AdminConflictError(`${entry.schema.label} was changed by someone else since you opened it`, await this.record(entry, current, ctx));
   }
 
-  /** A query for the records a relation field may point to (`option`), restricted by the resource's relationOptions(). */
+  /**
+   * A query for the records a relation field may point to (`option`), restricted by the target resource's query() and
+   * this resource's relationOptions().
+   */
   private optionsQuery(entry: RegisteredResource, field: string, ctx: AdminContext) {
     const target = entry.relations.get(field)!.inverseEntityMetadata;
     const manager = ctx.manager ?? entry.dataSource.manager;
-    return entry.resource.relationOptions(field, manager.getRepository(target.target).createQueryBuilder('option'), ctx);
+    const qb = manager.getRepository(target.target).createQueryBuilder('option');
+    // The target resource's query() restricts what may be picked, before this field's relationOptions().
+    const targetEntry = this.registry.forEntity(target.target, entry.dataSource);
+    return entry.resource.relationOptions(field, targetEntry ? targetEntry.resource.query(qb, ctx) : qb, ctx);
   }
 
   /**
