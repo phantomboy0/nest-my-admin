@@ -95,6 +95,7 @@ describe('buildResourceSchema', () => {
       pagination: 'offset',
       filters: [{ field: 'condition', operators: ['eq', 'ne', 'in', 'nin'] }],
       search: ['name'],
+      editable: [],
     });
     expect(schema.form).toMatchObject({
       create: ['name', 'price', 'condition', 'specs'],
@@ -394,5 +395,33 @@ describe('buildResourceSchema with relations', () => {
       form = { create: ReservedDto };
     }
     expect(() => orderSchema(new ReservedAdmin())).toThrow('DTO property "_title": names starting with "_" are reserved for the admin');
+  });
+});
+
+describe('list.editable', () => {
+  test('fields from the update form, of inline-editable types', () => {
+    @AdminResource(Tool)
+    class EditableAdmin extends AdminResourceBase<Tool> {
+      list: ListConfig<Tool> = { editable: ['weight', 'active', 'title'] };
+    }
+    expect(schemaFor(new EditableAdmin(), Tool).list.editable).toEqual(['weight', 'active', 'title']);
+  });
+
+  test('fields outside the update form, or of other types, fail at boot', () => {
+    class RenameToolDto {
+      @IsString() title: string;
+    }
+    @AdminResource(Tool)
+    class OutsideAdmin extends AdminResourceBase<Tool> {
+      form = { create: RenameToolDto };
+      list: ListConfig<Tool> = { editable: ['weight'] };
+    }
+    expect(() => schemaFor(new OutsideAdmin(), Tool)).toThrow('OutsideAdmin: list.editable: "weight" is not in the update form');
+
+    @AdminResource(Tool)
+    class JsonAdmin extends AdminResourceBase<Tool> {
+      list: ListConfig<Tool> = { editable: ['extra'] };
+    }
+    expect(() => schemaFor(new JsonAdmin(), Tool)).toThrow('list.editable: "extra" (json) cannot be edited in a cell');
   });
 });

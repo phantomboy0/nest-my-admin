@@ -139,6 +139,8 @@ export interface ResourceSchema {
     filters: FilterSchema[];
     /** Fields matched case-insensitively by `?search=`. Empty = not searchable. */
     search: string[];
+    /** Fields edited in place in the list (saved with PATCH). */
+    editable: string[];
   };
   /** False for the root of a single-table inheritance: records are created through its child resources. */
   creatable: boolean;
@@ -171,6 +173,12 @@ export interface ResourceSchema {
  * the record's display name (spec §5.2 `title`).
  */
 export type AdminRecord = Record<string, unknown>;
+
+/** `POST /resources/:resource/bulk-delete` with `{ ids }` (encoded record ids): each id succeeds or fails on its own. */
+export interface BulkResult {
+  ok: string[];
+  failed: Array<{ id: string; code: AdminErrorCode; message: string }>;
+}
 
 export interface ListResponse {
   items: AdminRecord[];

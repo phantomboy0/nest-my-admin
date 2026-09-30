@@ -1,6 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { AdminRecord, FieldSchema, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '../contract.js';
+import type { AdminRecord, BulkResult, FieldSchema, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '../contract.js';
+import { toErrorResponse } from '../http/error-response.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
 import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
@@ -20,8 +21,12 @@ import type { RecordId } from '../resource/admin-resource-base.js';
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
 const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
 
+/** Most ids one bulk request may name (a list page). */
+const MAX_BULK = 100;
+
 @Injectable()
 export class AdminApiService {
+  private readonly logger = new Logger('NestMyAdmin');
   /**
    * Tail of the write queue per single-connection DataSource, so admin transactions never interleave.
    * A write whose host code never settles blocks every later admin write on that SQLite DataSource.
@@ -306,6 +311,33 @@ export class AdminApiService {
     else qb.orderBy(`option.${key}`, 'ASC');
     const rows = await qb.getMany();
     return { items: rows.map((row) => relationRef(field, relation, row, title)) };
+  }
+
+  /**
+   * Deletes each record on its own (its own transaction, hooks, `query()` and trash), so one failure never undoes the
+   * others. Answers `{ ok, failed }` in request order; failures carry the code and message the single DELETE would.
+   */
+  async bulkDelete(name: string, body: unknown, ctx: AdminContext): Promise<BulkResult> {
+    const entry = this.registry.get(name);
+    const ids = (body as { ids?: unknown } | null)?.ids;
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BULK || ids.some((id) => typeof id !== 'string' || id === '')) {
+      throw new AdminValidationError({ ids: [`must be a list of 1 to ${MAX_BULK} record ids`] });
+    }
+    const result: BulkResult = { ok: [], failed: [] };
+    for (const id of new Set(ids as string[])) {
+      try {
+        await this.remove(name, id, ctx);
+        result.ok.push(id);
+      } catch (error) {
+        const { body: failure } = toErrorResponse(error, ctx.correlationId, this.logger, {
+          dbNames: entry.dbNames,
+          errorMapper: this.options.errorMapper,
+          deleting: true,
+        });
+        result.failed.push({ id, code: failure.code, message: failure.message });
+      }
+    }
+    return result;
   }
 
   /** Takes a record out of the trash. */

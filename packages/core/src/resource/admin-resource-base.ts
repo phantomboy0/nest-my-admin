@@ -76,6 +76,11 @@ export interface ListConfig<T> {
   filters?: FieldPath<T>[];
   /** Fields matched by `?search=`. Default: every string column. */
   search?: FieldPath<T>[];
+  /**
+   * Fields edited in place in the list (Django's `list_editable`). They must be in the update form and be text,
+   * number, decimal, bigint, boolean, enum or date fields. Each save is a normal PATCH.
+   */
+  editable?: FieldPath<T>[];
 }
 
 export interface FormConfig {

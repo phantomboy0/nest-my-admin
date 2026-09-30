@@ -75,6 +75,9 @@ export class AdminHttpServer implements OnModuleInit {
       .add('PATCH', '/api/resources/:resource/:id', async ({ req, res, ctx }, p) =>
         sendJson(res, 200, await this.api.update(p.resource, p.id, await readJsonBody(req), ctx, ifMatch(req))),
       )
+      .add('POST', '/api/resources/:resource/bulk-delete', async ({ req, res, ctx }, p) =>
+        sendJson(res, 200, await this.api.bulkDelete(p.resource, await readJsonBody(req), ctx)),
+      )
       .add('POST', '/api/resources/:resource/:id/restore', async ({ res, ctx }, p) =>
         sendJson(res, 200, await this.api.restore(p.resource, p.id, ctx)),
       )

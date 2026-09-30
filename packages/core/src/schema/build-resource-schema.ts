@@ -11,6 +11,9 @@ import { didYouMean } from './suggest.js';
 import { SEARCHABLE_TYPES, operatorsFor } from './filter-operators.js';
 
 export const DEFAULT_PAGE_SIZE = 25;
+
+/** Field types a list cell can edit in place. */
+const INLINE_EDITABLE: readonly string[] = ['string', 'number', 'decimal', 'bigint', 'boolean', 'enum', 'date'];
 export const MAX_PAGE_SIZE = 100;
 
 /** The subset of TypeORM's EntityMetadata the builder reads. */
@@ -149,7 +152,13 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const sortTarget = byName.get(sortField) ?? (sortField.includes('.') ? lookup('list.sort', sortField) : undefined);
   if (!sortTarget || !isSortable(sortTarget)) return fail(`list.sort: cannot sort by "${sortField}"${didYouMean(sortField, plainSortable)}`);
 
-  for (const [setting, names] of [['list.columns', columns], ['list.filters', resource.list?.filters ?? []], ['list.search', resource.list?.search ?? []]] as const) {
+  const editable: string[] = resource.list?.editable ?? [];
+  for (const name of editable) {
+    const field = byName.get(name) ?? dtoOnly.find((extra) => extra.name === name);
+    if (!update.includes(name)) fail(`list.editable: "${name}" is not in the update form${didYouMean(name, update)}`);
+    if (!field || !INLINE_EDITABLE.includes(field.type)) fail(`list.editable: "${name}" (${field?.type}) cannot be edited in a cell; use text, number, decimal, bigint, boolean, enum or date fields`);
+  }
+  for (const [setting, names] of [['list.columns', columns], ['list.filters', resource.list?.filters ?? []], ['list.search', resource.list?.search ?? []], ['list.editable', editable]] as const) {
     const repeated = names.find((name, index) => names.indexOf(name) !== index);
     if (repeated) fail(`${setting}: "${repeated}" is listed twice`);
   }
@@ -273,6 +282,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       pagination,
       filters,
       search,
+      editable,
     },
     form: { create, update, requiredOnCreate, constraints },
   };

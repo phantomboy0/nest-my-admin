@@ -33,6 +33,7 @@ const schema: ResourceSchema = {
     sortable: ['id', 'name'],
     count: 'exact',
     pagination: 'offset',
+    editable: [],
     defaultSort: { field: 'id', direction: 'desc' },
     pageSize: 25,
     filters: [
