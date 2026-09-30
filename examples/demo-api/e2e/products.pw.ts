@@ -220,3 +220,25 @@ test('an embedded contact is edited as a group of fields', async ({ page }, test
   await page.getByText(name, { exact: true }).filter({ visible: true }).first().click();
   await expect(page.getByRole('group', { name: 'Contact' }).getByLabel('Email')).toHaveValue('orders@example.test');
 });
+
+test("a category's related products open as a filtered list", async ({ page }) => {
+  await page.goto('/admin/category');
+  await page.getByText('Lighting', { exact: true }).filter({ visible: true }).click();
+  await page.getByRole('navigation', { name: 'Related' }).getByRole('link', { name: 'Product' }).click();
+  await expect(page).toHaveURL(/\/admin\/product\?filter%5BcategoryId%5D%5Beq%5D=\d+/);
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByText('DEMO-2', { exact: true }).filter({ visible: true })).toHaveCount(0);
+});
+
+test('the stock log pages forward and back with a cursor', async ({ page }) => {
+  await page.goto('/admin/stock-move');
+  await expect(page.getByText('Move 25', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByText('Page 1', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Next page' }).click();
+  await expect(page).toHaveURL(/after=/);
+  await expect(page.getByText('Page 2', { exact: true })).toBeVisible();
+  await expect(page.getByText('Move 15', { exact: true }).filter({ visible: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Previous page' }).click();
+  await expect(page.getByText('Move 25', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+});

@@ -7,11 +7,12 @@ import { Product } from './product.entity.js';
 import { ProductsService } from './products.service.js';
 import { Tag } from './tag.entity.js';
 import { Supplier } from './supplier.entity.js';
-import { CategoryAdmin, SupplierAdmin, TagAdmin } from './taxonomy.admin.js';
+import { StockMove } from './stock-move.entity.js';
+import { CategoryAdmin, StockMoveAdmin, SupplierAdmin, TagAdmin } from './taxonomy.admin.js';
 
 @AdminGroup({ label: 'Catalog', icon: 'boxes' })
 @Module({
-  imports: [TypeOrmModule.forFeature([Product, Category, Tag, Supplier])],
-  providers: [ProductsService, ProductAdmin, CategoryAdmin, TagAdmin, SupplierAdmin],
+  imports: [TypeOrmModule.forFeature([Product, Category, Tag, Supplier, StockMove])],
+  providers: [ProductsService, ProductAdmin, CategoryAdmin, TagAdmin, SupplierAdmin, StockMoveAdmin],
 })
 export class CatalogModule {}

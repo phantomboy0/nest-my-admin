@@ -1,4 +1,5 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { hostname } from 'node:os';
 import { DataSource, type DataSourceOptions } from 'typeorm';
 
 export type TestDb = 'sqljs' | 'postgres' | 'mysql';
@@ -59,10 +60,18 @@ function isAlive(pid: number): boolean {
   }
 }
 
-/** Drops databases of test processes that are gone (a killed run never reaches drop()). Returns their names. */
+/** This machine's tag in test database names, so hosts sharing a database server never sweep each other's. */
+export const HOST_TAG = createHash('sha1').update(hostname()).digest('hex').slice(0, 8);
+
+/**
+ * Drops databases of this machine's test processes that are gone (a killed run never reaches drop()), and untagged
+ * ones from before names carried a host tag. Returns their names.
+ */
 export async function sweepStaleDatabases(db: Server): Promise<string[]> {
   const stale = (await testDatabaseNames(db)).filter((name) => {
-    const pid = Number(/^nma_t_(\d+)_/.exec(name)?.[1]);
+    const match = /^nma_t_(?:([0-9a-f]{8})_)?(\d+)_[0-9a-f]{8}$/.exec(name);
+    if (!match || (match[1] !== undefined && match[1] !== HOST_TAG)) return false;
+    const pid = Number(match[2]);
     return !Number.isSafeInteger(pid) || !isAlive(pid);
   });
   await withServer(db, async (server) => {
@@ -79,7 +88,7 @@ export async function testDatabase(entities: Function[]): Promise<TestDatabase> 
   const db = TEST_DB;
   swept ??= sweepStaleDatabases(db);
   await swept;
-  const name = `nma_t_${process.pid}_${randomBytes(4).toString('hex')}`;
+  const name = `nma_t_${HOST_TAG}_${process.pid}_${randomBytes(4).toString('hex')}`;
   await withServer(db, (server) => server.query(`CREATE DATABASE ${quote(db, name)}`));
   const url = new URL(SERVER_URLS[db]);
   url.pathname = `/${name}`;

@@ -13,6 +13,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
     columns: ['id', 'name', 'sku', 'categoryId', 'price', 'stock', 'status', 'tags'],
     sort: '-id',
     pageSize: 20,
+    count: 'estimate', // exact while the table is small, the planner's estimate once it is big
     filters: ['status', 'categoryId', 'tags', 'price', 'stock', 'releasedOn'],
     search: ['name', 'sku', 'category.name'],
   };

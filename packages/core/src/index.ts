@@ -1,6 +1,7 @@
 export { AdminModule } from './admin.module.js';
 export type { AdminModuleOptions, ErrorMapper } from './options.js';
 export { ResourceRegistry, type RegisteredGroup, type RegisteredResource } from './registry/resource-registry.js';
+export type { DbNames } from './registry/db-names.js';
 export { AdminGroup, type AdminGroupOptions } from './decorators/admin-group.js';
 export { AdminResource, type AdminResourceOptions } from './decorators/admin-resource.js';
 export {

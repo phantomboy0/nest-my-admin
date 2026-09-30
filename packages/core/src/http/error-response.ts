@@ -140,9 +140,14 @@ function fieldErrors(driver: DriverError, text: string, names: DbNames | undefin
   return { fields: Object.fromEntries(properties.map((property) => [property, [message]])) };
 }
 
+/** The last match: MySQL puts the offending value before the key name, so a value can contain look-alike text. */
+function lastMatch(pattern: RegExp, text: string): string | undefined {
+  return [...text.matchAll(new RegExp(pattern.source, `${pattern.flags.replace('g', '')}g`))].at(-1)?.[1];
+}
+
 function constraintFromMessage(text: string): string | undefined {
   return (
-    /for key '(?:[^'.]+\.)?([^'.]+)'/.exec(text)?.[1] ?? // MySQL unique: Duplicate entry 'A' for key 'product.IDX_…'
+    lastMatch(/for key '(?:[^'.]+\.)?([^'.]+)'/, text) ?? // MySQL unique: Duplicate entry 'A' for key 'product.IDX_…'
     /CONSTRAINT `([^`]+)`/.exec(text)?.[1] ?? // MySQL foreign key: … CONSTRAINT `FK_…` FOREIGN KEY (`widget_id`) …
     /CHECK constraint failed: "?(\w+)"?/.exec(text)?.[1] ?? // SQLite: CHECK constraint failed: CHK_shop_stock
     /Check constraint '([^']+)' is violated/.exec(text)?.[1] // MySQL 8.0.16+
@@ -163,7 +168,7 @@ function columnFromMessage(text: string): string | undefined {
     /FOREIGN KEY \(`(\w+)`\)/.exec(text)?.[1] ?? // MySQL foreign key (single column)
     /Column '(\w+)' cannot be null/.exec(text)?.[1] ?? // MySQL explicit null
     /Field '(\w+)' doesn't have a default value/.exec(text)?.[1] ?? // MySQL missing value
-    /for column '(\w+)'/.exec(text)?.[1] ?? // MySQL: Data too long for column 'name' / Out of range value for column 'stock'
+    lastMatch(/for column '(\w+)'/, text) ?? // MySQL: Data too long for column 'name' / Out of range value for column 'stock'
     /column "(\w+)"/.exec(text)?.[1] // Postgres not-null message
   );
 }

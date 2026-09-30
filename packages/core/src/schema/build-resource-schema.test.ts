@@ -191,6 +191,14 @@ describe('buildResourceSchema', () => {
     expect(() => schemaFor(new SortTypoAdmin())).toThrow('list.sort: cannot sort by "prcie" (did you mean "price"?)');
   });
 
+  test('rejects a name listed twice', () => {
+    @AdminResource(Tool)
+    class TwiceAdmin extends AdminResourceBase<Tool> {
+      list: ListConfig<Tool> = { filters: ['active', 'weight', 'active'] };
+    }
+    expect(() => schemaFor(new TwiceAdmin(), Tool)).toThrow('TwiceAdmin: list.filters: "active" is listed twice');
+  });
+
   test('rejects an empty column list', () => {
     @AdminResource(Gadget)
     class EmptyAdmin extends AdminResourceBase<Gadget> {

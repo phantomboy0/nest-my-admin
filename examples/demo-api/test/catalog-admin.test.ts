@@ -14,14 +14,25 @@ const post = (body: object) => request(app.getHttpServer()).post(base).send(body
 beforeAll(async () => {
   db = await testDatabase([]); // entities come from the demo's own databaseOptions()
   if (db.url) process.env.DATABASE_URL = db.url;
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  app = moduleRef.createNestApplication({ logger: false });
-  await app.init();
+  try {
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    app = moduleRef.createNestApplication({ logger: false });
+    await app.init();
+  } catch (error) {
+    // a demo that fails to boot must not leave its database behind
+    await app?.close().catch(() => undefined);
+    delete process.env.DATABASE_URL;
+    await db.drop();
+    throw error;
+  }
 });
 afterAll(async () => {
-  await app.close();
-  delete process.env.DATABASE_URL;
-  await db.drop();
+  try {
+    await app?.close();
+  } finally {
+    delete process.env.DATABASE_URL;
+    await db.drop();
+  }
 });
 
 describe('product admin (service-first)', () => {
@@ -173,5 +184,32 @@ describe('versions, trash and nested fields', () => {
     expect(res.body.contact).toEqual({ email: 'a@acme.test', phone: null });
     const list = await http().get('/admin/api/resources/supplier?search=acme.test');
     expect(list.body.items[0]).toMatchObject({ name: 'Acme', 'contact.email': 'a@acme.test' });
+  });
+});
+
+describe('lists at scale', () => {
+  const http = () => request(app.getHttpServer());
+
+  test('the stock log pages with a cursor and does not count', async () => {
+    for (let i = 0; i < 12; i++) {
+      const product = (await post({ name: `Logged ${i}`, sku: `log-${i}`, price: '1' })).body;
+      await http().post('/admin/api/resources/stock-move').send({ productId: product.id, delta: 1, reason: `r${i}` });
+    }
+    const first = await http().get('/admin/api/resources/stock-move');
+    expect(first.body).toMatchObject({ total: null, hasMore: true });
+    expect(first.body.items).toHaveLength(10);
+    const second = await http().get(`/admin/api/resources/stock-move?after=${encodeURIComponent(first.body.nextCursor)}`);
+    expect(second.body.items[0].id).toBeLessThan(first.body.items[9].id);
+  });
+
+  test('products are counted exactly while the table is small', async () => {
+    const res = await http().get(base);
+    expect(res.body.estimated).toBeUndefined();
+    expect(typeof res.body.total).toBe('number');
+  });
+
+  test('a category lists its products as related', async () => {
+    const schema = (await http().get('/admin/api/meta/resources/category')).body;
+    expect(schema.related).toEqual([{ label: 'Product', resource: 'product', field: 'categoryId', operator: 'eq' }]);
   });
 });

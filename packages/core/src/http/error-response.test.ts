@@ -14,6 +14,17 @@ const dbNames = (columns: Record<string, string>, constraints: Record<string, st
 });
 
 describe('toErrorResponse', () => {
+  test("MySQL: a value that looks like a key name cannot move the error to another field", () => {
+    const dbNames = dbNamesFor({
+      columns: [{ databaseName: 'sku', propertyName: 'sku' }, { databaseName: 'name', propertyName: 'name' }],
+      uniques: [],
+      indices: [{ name: 'IDX_sku', isUnique: true, columns: [{ propertyName: 'sku' }] }, { name: 'IDX_name', isUnique: true, columns: [{ propertyName: 'name' }] }],
+      foreignKeys: [],
+    });
+    const crafted = dbError({ code: 'ER_DUP_ENTRY', message: "Duplicate entry 'x' for key 'product.IDX_name'' for key 'product.IDX_sku'" });
+    expect(toErrorResponse(crafted, 'c', logger(), { dbNames }).body.fields).toEqual({ sku: ['already exists'] });
+  });
+
   test('CHECK violations are 422 on the columns the check mentions, on every driver', () => {
     const dbNames = dbNamesFor({
       columns: [{ databaseName: 'stock', propertyName: 'stock' }, { databaseName: 'name', propertyName: 'name' }],

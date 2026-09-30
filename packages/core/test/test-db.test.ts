@@ -5,7 +5,7 @@ import { DataSource } from 'typeorm';
 import { AdminResource, AdminResourceBase } from '../src/index.js';
 import { Widget } from './fixtures/widgets.js';
 import { createTestApp } from './helpers/create-app.js';
-import { TEST_DB, sweepStaleDatabases, testDatabase, testDatabaseNames, type TestDatabase } from './helpers/test-db.js';
+import { HOST_TAG, TEST_DB, sweepStaleDatabases, testDatabase, testDatabaseNames, type TestDatabase } from './helpers/test-db.js';
 
 describe.skipIf(TEST_DB === 'sqljs')(`test databases (${TEST_DB})`, () => {
   const db = TEST_DB as 'postgres' | 'mysql';
@@ -36,16 +36,23 @@ describe.skipIf(TEST_DB === 'sqljs')(`test databases (${TEST_DB})`, () => {
     const live = await testDatabase([]);
     leftovers.push(live);
     const liveName = new URL(live.url!).pathname.slice(1);
-    const deadName = 'nma_t_2147483646_deadbeef'; // no process has this pid
+    const deadName = `nma_t_${HOST_TAG}_2147483646_deadbeef`; // no process has this pid
+    const legacyName = 'nma_t_2147483645_deadbeef'; // from before names carried a host tag
+    const otherHost = 'nma_t_0000beef_2147483646_deadbeef'; // another machine's run: never ours to drop
     const server = new DataSource({ type: db, url: db === 'postgres' ? 'postgres://postgres:nma@127.0.0.1:55432/postgres' : 'mysql://root:nma@127.0.0.1:53306/mysql' });
     await server.initialize();
-    await server.query(db === 'postgres' ? `CREATE DATABASE "${deadName}"` : `CREATE DATABASE \`${deadName}\``);
-    await server.destroy();
+    const create = (name: string) => server.query(db === 'postgres' ? `CREATE DATABASE "${name}"` : `CREATE DATABASE \`${name}\``);
+    for (const name of [deadName, legacyName, otherHost]) await create(name);
 
-    expect(await sweepStaleDatabases(db)).toContain(deadName);
+    const swept = await sweepStaleDatabases(db);
+    expect(swept).toEqual(expect.arrayContaining([deadName, legacyName]));
+    expect(swept).not.toContain(otherHost);
     const names = await testDatabaseNames(db);
     expect(names).not.toContain(deadName);
     expect(names).toContain(liveName);
+    expect(names).toContain(otherHost);
+    await server.query(db === 'postgres' ? `DROP DATABASE "${otherHost}"` : `DROP DATABASE \`${otherHost}\``);
+    await server.destroy();
   });
 
   test('an app that fails to boot drops its database at once (Review Focus 2)', async () => {

@@ -5,7 +5,7 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 ## Promoted by the final review (do early in M1)
 - Error contract for body-parser/host errors is in place; keep it covered as M1 adds routes.
 - (done in M1c-3) Record with string primary key "new" is shadowed by the :resource/new route: ids are encoded, `new` is `~new`.
-- (from M1a) Count modes (`exact | estimate | none`) and keyset pagination (spec §11) are driver-specific: do them in M1c with the database matrix.
+- (done in M1c-4) Count modes (`exact | estimate | none`) and keyset pagination.
 - (from M1a) Persian/Arabic search normalization (spec §12) belongs with i18n in M2.
 
 ## Deferred minors
@@ -27,12 +27,12 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 ## M1a follow-ups
 - -> M3 (blocker there): method-override middleware can turn a CORS-simple form POST into DELETE and bypass the JSON content-type CSRF check; use req.originalMethod when auth lands.
 - (done in M1c-3) CONFLICT for @VersionColumn carries `current` (spec §11 diff dialog).
-- -> M1c/M3: spec §5.2 names a `query(qb, ctx)` hook called by the default findMany; M1a shipped `buildListQuery` (override findMany) instead. Decide in M1c/M3 (row scopes) and make restrictions apply to findOne too.
+- (done in M1c-4) `query(qb, ctx)` restricts lists, `findOne` and pickers; M3 scopes build on it.
 - -> M2: Unicode case folding on SQLite with §12 normalization.
 - -> M2: Save and Confirm delete are not mutually disabled.
 - -> M2: datetime "To" filter uses lte at minute precision.
 - -> M2: free-text numeric filter inputs.
-- -> M2: duplicate list.filters entries (reject at boot).
+- (done in M1c-4) duplicate list.columns/filters/search entries fail at boot.
 - (done in M1c-3) Nested DTOs (`@ValidateNested` + `@Type`) → sub-forms and arrays of sub-forms.
 - (from M1b) Client constraints do not cover `@IsDecimal` digit limits or `@IsPositive`; the server still enforces them.
 
@@ -41,11 +41,11 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - (done in M1c-2) FK-on-delete E2E: deleting a category that products use.
 - Postgres `22001` (value too long) names no column, so that 422 has no field; the client's `maxLength` usually catches it first.
 - `bun run compat` tests the oldest supported stack; the newest is what the workspace pins. Versions in between (and Nest 12.0 / TypeORM 1.0 exactly) are assumed.
-- Final review minors (deferred): stale-database sweep keys on pid only, so two hosts sharing one DB server could drop each other's databases (add a host hash to `nma_t_*` names); MySQL message regexes take the first `for key '…'` / `for column '…'`, so a crafted value can strip or mislabel the field (anchor to the last match); `DbNames` is not exported although `RegisteredResource.dbNames` is public (and `columnProperties` was removed — note in a changelog); demo test leaks its database if boot fails (`app?.close()` + try/finally); SQLite/Postgres FK direction comes from the HTTP method, so a PATCH that changes a referenced primary key reports 422 instead of 409; no committed test for the schema-sync-failure path of fast boot failure.
+- Final review minors: (done in M1c-4: host tag in `nma_t_*` names, last-match MySQL regexes, `DbNames` exported, demo test cleans up on a failed boot) SQLite/Postgres FK direction comes from the HTTP method, so a PATCH that changes a referenced primary key reports 422 instead of 409; no committed test for the schema-sync-failure path of fast boot failure.
 - (done in M1c-3) CHECK constraint violations → 422 VALIDATION on the columns the expression names.
 
 ## M1c-2 follow-ups
-- -> M1c-4: inverse relations (one-to-many, inverse many-to-many) as read-only "Related" data; lazy relations; sorting a relation field by its target's title column; `relationOptions()` receiving the form's current values (dependent options, spec §5.2 `values`).
+- (done in M1c-4) related lists, lazy relations, relation sort by title column, dependent `relationOptions(…, values)`.
 - -> M3: the options endpoint and relation titles read targets that may have no resource (with `autoRegister: false`); permissions must cover them (anti-oracle: missing and not-allowed ids already share one message).
 - NULL placement when sorting by a path differs by driver (Postgres: last ascending; MySQL/SQLite: first). Normalise it if it matters to users.
 - Relation ids are checked before the write and the check is not locked, so a target deleted concurrently still reaches the database FK (mapped to 422 as before). The SQLite/Postgres insert-side FK mapping is now covered only by unit tests.
@@ -60,3 +60,10 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - A json column behind a nested DTO is returned as stored (keys the DTO does not describe survive); an embedded group returns only its columns.
 - `trashed` needs host `findMany` overrides to start from `buildListQuery` (or apply `withDeleted` themselves), like filters.
 - Soft-deleted rows keep their unique values (a new product cannot reuse a trashed product's SKU); partial unique indexes are a host concern.
+
+## M1c-4 follow-ups
+- -> M3: related lists and relation titles ignore permissions (a customer's orders link works for anyone who can open the customer); `query()` is the hook M3 scopes attach to.
+- Keyset pagination does not support sorting by dotted paths or nullable columns (the schema only offers eligible columns); datetimes with microseconds (Postgres `timestamp`) compare at millisecond precision in cursors, so rows within the same millisecond may be skipped or repeated — use `precision: 3` or sort by id.
+- `estimate` on MySQL is the optimizer's guess (it assumes 33% for unindexed ranges); it is labelled "about".
+- The related list filter is added to the other resource's filter bar too (visible there as a picker).
+- Dependent options send the form's short scalar values and relation ids as `?values=` (≤ 4 KB); long text and groups are left out.

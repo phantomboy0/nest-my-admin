@@ -42,17 +42,46 @@ with a time zone.
 
 ### Customising lists
 
-Override `findMany` and start from `this.buildListQuery(params)`, which already applies filters, search, sort and
-paging; add your joins or restrictions to it. A restriction added there applies to the list only, so apply the same
-one in `findOne`, which GET, PATCH and DELETE by id use:
+Put row restrictions in `query(qb, ctx)`. It applies to every read path: the list, GET, PATCH, DELETE, restore and
+purge by id, and the pickers of relations that point at the resource (including the check of ids sent to them).
+Always use `qb.alias`, because the alias differs from one path to another:
 
 ```ts
-async findMany(params: ListParams) {
-  const [items, total] = await this.buildListQuery(params).andWhere('entity.archived = false').getManyAndCount();
-  return { items, total };
+query(qb: SelectQueryBuilder<Order>, ctx: AdminContext) {
+  return qb.andWhere(`${qb.alias}.archived = false`);
 }
-findOne(id: RecordId) { return this.repository.findOne({ where: { id, archived: false } }); }
 ```
+
+For joins or aggregates, override `findMany` and start from `this.buildListQuery(params, ctx)`. It already applies
+`query()`, filters, search, sort and paging (keyset included).
+
+### Lists at scale
+
+- **`list.count`:**
+  - `'exact'` is the default.
+  - `'estimate'` answers with the query planner's row estimate on Postgres and MySQL, marked `estimated: true`, and
+    shown as "about 12,000". It counts exactly below 1000 rows and on other drivers.
+  - `'none'` does not count and only says `hasMore`.
+- **`list.pagination: 'keyset'`** pages with a cursor (`?after=`, from `nextCursor`), which stays fast deep into big
+  tables:
+  - it sorts only by non-nullable columns;
+  - it counts nothing unless `count` asks;
+  - the UI shows Previous/Next.
+- **Several DataSources:**
+  - `@AdminResource(Report, { dataSource: 'reports' })` reads and writes, transactions included, through that
+    DataSource.
+  - `autoRegister: ['default', 'reports']` covers several DataSources. A taken name gets the DataSource as a prefix
+    (`reports-widget`).
+- **Related lists.** When another resource has a relation field pointing at this one, the edit page links to that
+  resource's list, filtered by the record (a customer's orders). The filter is added to the other resource for it.
+- **Relations by title.** A to-one relation whose target is titled by a column sorts by that column (`sort=customer`
+  sorts by customer name).
+- **Lazy relations** (`{ lazy: true }`) are fields like the others.
+- **Dependent options.** `relationOptions(field, qb, ctx, values)` gets the record's values as the user sees them, so
+  one field's options can depend on another:
+  - in the picker, the form's current values;
+  - on create, the body;
+  - on update, the stored record with the body on top.
 
 ### Relations and record titles
 
@@ -75,11 +104,11 @@ Many-to-one, owning one-to-one and owning many-to-many relations are fields:
 - **Titles.** `@AdminResource(Customer, { title: 'name' })` or `title: (c) => \`${c.first} ${c.last}\``. Titles show
   in pickers, relation cells and headers, and as `_title` on every record. Without one, the first string column
   named `name`, `title`, `label`, `displayName`, `fullName`, `username`, `email`, `code` or `sku` is used; else `#<id>`.
-- **Picker options.** `relationOptions(field, qb, ctx)` restricts what a relation field may point to, both in the
+- **Picker options.** `relationOptions(field, qb, ctx, values)` restricts what a relation field may point to, both in the
   picker (`GET …/fields/:field/options`) and on writes. `qb` selects the target as `option`:
 
 ```ts
-relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext) {
+relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext, values: Record<string, unknown>) {
   return field === 'customer' ? qb.andWhere('option.active = true') : qb;
 }
 ```

@@ -149,6 +149,11 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const sortTarget = byName.get(sortField) ?? (sortField.includes('.') ? lookup('list.sort', sortField) : undefined);
   if (!sortTarget || !isSortable(sortTarget)) return fail(`list.sort: cannot sort by "${sortField}"${didYouMean(sortField, plainSortable)}`);
 
+  for (const [setting, names] of [['list.columns', columns], ['list.filters', resource.list?.filters ?? []], ['list.search', resource.list?.search ?? []]] as const) {
+    const repeated = names.find((name, index) => names.indexOf(name) !== index);
+    if (repeated) fail(`${setting}: "${repeated}" is listed twice`);
+  }
+
   const pageSize = resource.list?.pageSize ?? DEFAULT_PAGE_SIZE;
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
     fail(`list.pageSize must be an integer between 1 and ${MAX_PAGE_SIZE}`);

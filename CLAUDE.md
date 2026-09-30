@@ -37,6 +37,13 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - Single-table inheritance: child resources hide the discriminator, and the root has `creatable: false`. `AdminApiService.records` fills the discriminator from each entity's class.
   - `If-Match` → `checkVersion` (row lock, 409 `AdminConflictError` with `current`).
   - Soft delete: `trashed` list param, and base `delete`/`restore`/`purge`.
+- Lists at scale (M1c-4):
+  - `query(qb, ctx)` (base) restricts `buildListQuery`, `findOne` (now query-builder based with `setFindOptions`) and relation options and existence checks through the target resource.
+  - `list.count` goes through `crud/count.ts` (`EXPLAIN` estimates, exact below 1000 rows).
+  - `list.pagination: 'keyset'` goes through `crud/cursor.ts`: `after` is a base64url `{ s, v }`, and `applyKeyset` builds the WHERE clause.
+  - `autoRegister` is a list of DataSource names.
+  - `linkRelations` fills `schema.related`, adds the implied filters, and fills `sortPaths` (relation → title column).
+  - `relationOptions` takes a 4th `values` argument (`?values=` JSON, or the body/stored record on writes).
 - Hooks (`@BeforeSave/@AfterSave/@BeforeDelete`) run only in `AdminResourceBase`'s default create/update/delete; resources that override those methods call their own services instead.
 - Writes run inside `AdminApiService.write()`: one `dataSource.transaction()`, `ctx.manager` set, and `AdminContext.run()` re-entered so `AdminContext.current()` sees the transactional context. `AdminResourceBase` defaults use `repositoryFor(ctx)`. Reads get no manager. On Postgres/MySQL a service that ignores `ctx.manager` writes on another pooled connection (outside the transaction, can block on its locks); SQLite-family writes are serialized per DataSource.
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.
