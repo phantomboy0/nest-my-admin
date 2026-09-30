@@ -31,6 +31,16 @@ export function toFormValues(fields: FieldSchema[], record?: AdminRecord): FormV
 }
 
 /**
+ * Plain digits with an optional fraction; thousands commas are dropped only when grouped correctly
+ * ("1,234.50"), so a decimal comma ("1,50") is an error instead of becoming 150.
+ */
+function normalizeNumeric(text: string, integerOnly: boolean): string | undefined {
+  const value = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(text) ? text.replace(/,/g, '') : text;
+  if (!(integerOnly ? /^-?\d+$/ : /^-?\d+(\.\d+)?$/).test(value)) return undefined;
+  return value;
+}
+
+/**
  * Input values → JSON payload for `fields`. With `initial` (edit mode) only changed values are sent and a
  * cleared input is sent as null. On create, an empty input is null for nullable fields and omitted otherwise,
  * so the server reports "required" (or applies the column default) instead of receiving "" or 0.
@@ -52,16 +62,14 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
       continue;
     }
     switch (field.type) {
-      case 'number': {
-        const number = Number(trimmed.replace(/,/g, ''));
-        if (Number.isFinite(number)) payload[field.name] = number;
-        else errors[field.name] = ['must be a number'];
+      case 'number':
+      case 'decimal':
+      case 'bigint': {
+        const numeric = normalizeNumeric(trimmed, field.type === 'bigint');
+        if (numeric === undefined) errors[field.name] = ['must be a number'];
+        else payload[field.name] = field.type === 'number' ? Number(numeric) : numeric;
         break;
       }
-      case 'decimal':
-      case 'bigint':
-        payload[field.name] = trimmed.replace(/,/g, '');
-        break;
       case 'json':
         try {
           payload[field.name] = JSON.parse(trimmed);

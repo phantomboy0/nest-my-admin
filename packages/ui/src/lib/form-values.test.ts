@@ -53,4 +53,16 @@ describe('toPayload', () => {
     const { payload } = toPayload(fields, { ...initial, stock: '4', name: '' }, initial);
     expect(payload).toEqual({ stock: 4, name: null });
   });
+
+  test('a decimal comma is an error, never a thousands separator', () => {
+    const decimal = (price: string) => toPayload(fields, { price });
+    expect(decimal('1,50').errors).toEqual({ price: ['must be a number'] });
+    expect(decimal('1,234.50').payload.price).toBe('1234.50');
+    expect(toPayload(fields, { stock: '0x10' }).errors).toEqual({ stock: ['must be a number'] });
+    expect(toPayload(fields, { stock: '1e3' }).errors).toEqual({ stock: ['must be a number'] });
+    expect(toPayload(fields, { stock: '12' }).payload.stock).toBe(12);
+    const big = [field('n', 'bigint')];
+    expect(toPayload(big, { n: '1.5' }).errors).toEqual({ n: ['must be a number'] });
+    expect(toPayload(big, { n: '9,007,199,254,740,993' }).payload.n).toBe('9007199254740993');
+  });
 });
