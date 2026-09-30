@@ -170,7 +170,17 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     if (!SEARCHABLE_TYPES.includes(field.type)) return fail(`list.search: column "${name}" (${field.type}) is not a text column`);
   }
 
-  const sortable = [...plainSortable, ...[...paths.values()].filter(isSortable).map((field) => field.name)];
+  // Keyset pages compare (sort, keys…) with the cursor, which needs a sort column that is never NULL.
+  const pagination = resource.list?.pagination ?? 'offset';
+  const keysetSortable = (name: string) => {
+    const field = byName.get(name);
+    return field !== undefined && isSortable(field) && !field.nullable && field.type !== 'text';
+  };
+  let sortable = [...plainSortable, ...[...paths.values()].filter(isSortable).map((field) => field.name)];
+  if (pagination === 'keyset') {
+    if (!keysetSortable(sortField)) fail(`list.sort: keyset lists sort by a non-nullable column, not "${sortField}"`);
+    sortable = sortable.filter(keysetSortable);
+  }
 
   const entityConstraints = (name: string, field = byName.get(name), column = columnByName.get(name)): FieldConstraints => {
     if (!field) return {};
@@ -247,7 +257,16 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     softDelete: metadata.columns.some((column) => column.isDeleteDate),
     ...(versionField ? { version: versionField } : {}),
     fields: [...entityFields, ...dtoOnly, ...paths.values()],
-    list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, count: resource.list?.count ?? 'exact', filters, search },
+    list: {
+      columns,
+      sortable,
+      defaultSort: { field: sortField, direction },
+      pageSize,
+      count: resource.list?.count ?? (pagination === 'keyset' ? 'none' : 'exact'),
+      pagination,
+      filters,
+      search,
+    },
     form: { create, update, requiredOnCreate, constraints },
   };
 }

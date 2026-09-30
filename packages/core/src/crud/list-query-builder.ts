@@ -1,6 +1,7 @@
 import type { EntityMetadata, ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import type { FilterCondition, ListParams } from '../resource/admin-resource-base.js';
 import { isToOne, resolvePath, type RelationLike } from '../schema/relation-fields.js';
+import { applyKeyset } from './cursor.js';
 
 type ManyToMany = RelationLike & { junctionEntityMetadata?: EntityMetadata };
 
@@ -120,8 +121,11 @@ export function applyListParams<T extends ObjectLiteral>(qb: SelectQueryBuilder<
     qb.addSelect(sort.column);
   }
   qb.orderBy(sort.column, params.sort.direction === 'asc' ? 'ASC' : 'DESC');
-  for (const { propertyName } of metadata.primaryColumns) {
-    if (params.sort.field !== propertyName) qb.addOrderBy(`${alias}.${propertyName}`, 'ASC');
+  const keys = metadata.primaryColumns.map((column) => column.propertyName).filter((key) => key !== params.sort.field);
+  for (const key of keys) qb.addOrderBy(`${alias}.${key}`, 'ASC');
+  if (params.pagination === 'keyset') {
+    if (params.after) applyKeyset(qb, [sort.column, ...keys.map((key) => `${alias}.${key}`)], params.sort.direction, params.after);
+    return qb.take(params.pageSize);
   }
   return qb.skip((params.page - 1) * params.pageSize).take(params.pageSize);
 }

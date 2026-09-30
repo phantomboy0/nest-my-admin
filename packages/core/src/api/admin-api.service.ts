@@ -62,13 +62,14 @@ export class AdminApiService {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
     const params = parseListQuery(query, schema);
-    const { items, total, estimated, hasMore } = await resource.findMany(params, ctx);
+    const { items, total, estimated, hasMore, nextCursor } = await resource.findMany(params, ctx);
     const loaded = schema.fields.filter((field) => isLoadedField(field) && schema.list.columns.includes(field.name));
     return {
       items: await this.records(entry, items, loaded, ctx),
       total: total ?? null,
       ...(estimated ? { estimated: true } : {}),
       ...(hasMore !== undefined ? { hasMore } : {}),
+      ...(params.pagination === 'keyset' ? { nextCursor: nextCursor ?? null } : {}),
       page: params.page,
       pageSize: params.pageSize,
     };

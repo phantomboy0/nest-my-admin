@@ -123,6 +123,8 @@ export interface ResourceSchema {
     defaultSort: { field: string; direction: SortDirection };
     pageSize: number;
     count: 'exact' | 'estimate' | 'none';
+    /** `keyset`: pages follow `nextCursor` (`?after=`), not page numbers. */
+    pagination: 'offset' | 'keyset';
     filters: FilterSchema[];
     /** Fields matched case-insensitively by `?search=`. Empty = not searchable. */
     search: string[];
@@ -162,6 +164,8 @@ export interface ListResponse {
   estimated?: boolean;
   /** Set when `total` is null: whether there is a next page. */
   hasMore?: boolean;
+  /** Keyset lists: pass as `after` for the next page; `null` on the last page. */
+  nextCursor?: string | null;
   page: number;
   pageSize: number;
 }

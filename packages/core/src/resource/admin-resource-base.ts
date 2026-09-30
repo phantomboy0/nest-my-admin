@@ -1,5 +1,6 @@
 import type { DeepPartial, FindOptionsWhere, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { countRows } from '../crud/count.js';
+import { encodeCursor } from '../crud/cursor.js';
 import { applyListParams } from '../crud/list-query-builder.js';
 import { toRelationReferences } from '../crud/relation-writes.js';
 import type { FilterOperator, SortDirection } from '../contract.js';
@@ -28,6 +29,10 @@ export interface ListParams {
   search?: { term: string; fields: string[] };
   /** How the list is counted (`list.count`). */
   count?: CountMode;
+  /** Keyset lists (`list.pagination: 'keyset'`): the position to continue after (sort value, then key values). */
+  after?: unknown[];
+  /** `list.pagination`; `page` is always 1 for keyset lists. */
+  pagination?: 'offset' | 'keyset';
   /** Soft-deletable resources: `only` lists the trash, `with` lists everything. */
   trashed?: 'only' | 'with';
 }
@@ -40,6 +45,8 @@ export interface FindManyResult<T> {
   estimated?: boolean;
   /** Without a total: whether a next page exists. */
   hasMore?: boolean;
+  /** Keyset lists: `after` for the next page, `null` on the last page. */
+  nextCursor?: string | null;
 }
 
 /**
@@ -55,6 +62,11 @@ export interface ListConfig<T> {
    * below 1000 rows and on other drivers); `none` does not count and only says whether there is a next page.
    */
   count?: CountMode;
+  /**
+   * `offset` (default) pages by number. `keyset` pages with a cursor (`?after=`), which stays fast deep into big
+   * tables; it sorts only by non-nullable columns, and counts nothing unless `count` says so.
+   */
+  pagination?: 'offset' | 'keyset';
   /** Default: every column except json and text, and every to-one relation. */
   columns?: FieldPath<T>[];
   /** `'name'` for ascending, `'-createdAt'` for descending. Defaults to `-<primary key>`. */
@@ -131,6 +143,14 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    */
   async findMany(params: ListParams, ctx: AdminContext): Promise<FindManyResult<T>> {
     const qb = this.buildListQuery(params, ctx);
+    if (params.pagination === 'keyset') {
+      const rows = await qb.clone().take(params.pageSize + 1).getMany();
+      const items = rows.slice(0, params.pageSize);
+      const nextCursor = rows.length > params.pageSize ? encodeCursor(items[items.length - 1]!, params.sort.field, this.primaryKeys) : null;
+      if (params.count === 'none') return { items, total: null, hasMore: nextCursor !== null, nextCursor };
+      const counted = params.count === 'estimate' ? await countRows(qb) : { total: await qb.getCount(), estimated: false };
+      return { items, total: counted.total, ...(counted.estimated ? { estimated: true } : {}), nextCursor };
+    }
     if (params.count === 'none') {
       // One row more than a page says whether there is a next page, without counting.
       const rows = await qb.take(params.pageSize + 1).getMany();

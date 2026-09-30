@@ -2,11 +2,12 @@ import type { FieldSchema, FilterOperator, ResourceSchema } from '../contract.js
 import { AdminValidationError } from '../errors.js';
 import type { FilterCondition, FilterValue, ListParams } from '../resource/admin-resource-base.js';
 import { MAX_PAGE_SIZE } from '../schema/build-resource-schema.js';
+import { decodeCursor } from './cursor.js';
 
 type Errors = Record<string, string[]>;
 type Parsed<T> = { value: T } | { error: string };
 
-const PAGING_KEYS = new Set(['page', 'pageSize', 'sort', 'search', 'trashed']);
+const PAGING_KEYS = new Set(['page', 'pageSize', 'sort', 'search', 'trashed', 'after']);
 const FILTER_KEY = /^filter\[([^\][]+)\](?:\[([^\][]+)\])?$/;
 const MAX_LIST_VALUES = 100;
 const MAX_TEXT = 200;
@@ -76,8 +77,29 @@ export function parseListQuery(query: URLSearchParams, schema: ResourceSchema): 
     else errors.trashed = ['must be only or with'];
   }
 
+  const keyset = schema.list.pagination === 'keyset';
+  let after: unknown[] | undefined;
+  const rawAfter = readOne(query, 'after', errors);
+  if (!keyset && rawAfter !== undefined) errors.after = ['this list pages by page number'];
+  if (keyset && query.has('page')) errors.page = ['this list pages with after, not page numbers'];
+  if (keyset && rawAfter !== undefined && !errors.sort) {
+    const parsed = parseCursor(rawAfter, sort.field, schema);
+    if ('error' in parsed) errors.after = [parsed.error];
+    else after = parsed.value;
+  }
+
   if (Object.keys(errors).length > 0) throw new AdminValidationError(errors, 'Invalid list query');
-  return { page, pageSize, sort, filters, count: schema.list.count, ...(search ? { search } : {}), ...(trashed ? { trashed } : {}) };
+  return {
+    page: keyset ? 1 : page,
+    pageSize,
+    sort,
+    filters,
+    count: schema.list.count,
+    pagination: schema.list.pagination,
+    ...(after ? { after } : {}),
+    ...(search ? { search } : {}),
+    ...(trashed ? { trashed } : {}),
+  };
 }
 
 function parseFilterValue(field: FieldSchema, operator: FilterOperator, raw: string): Parsed<FilterValue> {
@@ -159,6 +181,23 @@ export function parseId(field: FieldSchema, raw: string): Parsed<string | number
     default:
       return raw.length > 0 && raw.length <= MAX_TEXT ? { value: raw } : { error: `must be an id of 1 to ${MAX_TEXT} characters` };
   }
+}
+
+/** A keyset cursor for this sort: the sort value and key values, each parsed like a filter value of its field. */
+function parseCursor(raw: string, sortField: string, schema: ResourceSchema): Parsed<unknown[]> {
+  const cursor = raw.length <= 2000 ? decodeCursor(raw) : undefined;
+  if (!cursor) return { error: 'is not a valid cursor' };
+  if (cursor.sort !== sortField) return { error: 'belongs to another sort order; start from the first page' };
+  const names = [sortField, ...schema.primaryKeys.filter((key) => key !== sortField)];
+  if (cursor.values.length !== names.length) return { error: 'is not a valid cursor' };
+  const values: unknown[] = [];
+  for (const [index, name] of names.entries()) {
+    const field = schema.fields.find((candidate) => candidate.name === name)!;
+    const parsed = parseScalar(field, String(cursor.values[index]));
+    if ('error' in parsed) return { error: 'is not a valid cursor' };
+    values.push(parsed.value);
+  }
+  return { value: values };
 }
 
 function readOne(query: URLSearchParams, key: string, errors: Errors): string | undefined {

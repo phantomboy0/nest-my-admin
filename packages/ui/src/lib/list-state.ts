@@ -2,13 +2,13 @@ import type { FilterOperator, ListResponse } from '@nest-my-admin/core/contract'
 
 export type ParamChanges = Record<string, string | null>;
 
-const isListKey = (key: string) => key === 'page' || key === 'sort' || key === 'search' || key === 'trashed' || key.startsWith('filter[');
+const LIST_KEYS = new Set(['page', 'sort', 'search', 'trashed', 'after']);
+const isListKey = (key: string) => LIST_KEYS.has(key) || key.startsWith('filter[');
 
 /** The API list query is the page URL's list parameters, passed through unchanged (spec §11 syntax). */
 export function listQueryFromUrl(params: URLSearchParams): string {
   const query = new URLSearchParams();
   for (const [key, value] of params) if (value !== '' && isListKey(key)) query.append(key, value);
-  if (!query.has('page')) query.set('page', '1');
   query.sort();
   return query.toString();
 }
@@ -27,14 +27,17 @@ export function clearFilters(params: URLSearchParams): ParamChanges {
   return changes;
 }
 
-/** Applies changes; any change other than to `page` sends the user back to page 1. */
+/** Applies changes; any change other than to the position (`page`, `after`) sends the user back to the first page. */
 export function withChanges(params: URLSearchParams, changes: ParamChanges): URLSearchParams {
   const next = new URLSearchParams(params);
+  if (Object.keys(changes).some((key) => key !== 'page' && key !== 'after')) {
+    next.delete('page');
+    next.delete('after');
+  }
   for (const [key, value] of Object.entries(changes)) {
     if (value === null) next.delete(key);
     else next.set(key, value);
   }
-  if (Object.keys(changes).some((key) => key !== 'page')) next.delete('page');
   return next;
 }
 

@@ -92,6 +92,7 @@ describe('buildResourceSchema', () => {
       defaultSort: { field: 'id', direction: 'desc' },
       pageSize: 25,
       count: 'exact',
+      pagination: 'offset',
       filters: [{ field: 'condition', operators: ['eq', 'ne', 'in', 'nin'] }],
       search: ['name'],
     });

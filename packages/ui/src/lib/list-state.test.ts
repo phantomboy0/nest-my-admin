@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test';
 import { clearFilters, filterKey, hasActiveFilters, listQueryFromUrl, paging, withChanges } from './list-state';
 
 describe('list state', () => {
-  test('listQueryFromUrl keeps list params only, drops empties, defaults page and sorts keys', () => {
-    const url = new URLSearchParams('sort=-id&foo=1&search=&filter%5Bstatus%5D%5Beq%5D=live');
-    expect(listQueryFromUrl(url)).toBe('filter%5Bstatus%5D%5Beq%5D=live&page=1&sort=-id');
+  test('listQueryFromUrl keeps list params only, drops empties and sorts keys', () => {
+    const url = new URLSearchParams('sort=-id&foo=1&search=&filter%5Bstatus%5D%5Beq%5D=live&after=c1');
+    expect(listQueryFromUrl(url)).toBe('after=c1&filter%5Bstatus%5D%5Beq%5D=live&sort=-id');
   });
 
   test('filterKey builds the bracket syntax', () => {
@@ -16,6 +16,8 @@ describe('list state', () => {
     expect(withChanges(params, { search: 'lamp' }).toString()).toBe('sort=name&search=lamp');
     expect(withChanges(params, { page: '4' }).toString()).toBe('page=4&sort=name');
     expect(withChanges(new URLSearchParams('search=x&sort=name'), { search: null }).toString()).toBe('sort=name');
+    expect(withChanges(new URLSearchParams('after=c1&sort=name'), { sort: 'id' }).toString()).toBe('sort=id');
+    expect(withChanges(new URLSearchParams('after=c1&sort=name'), { after: 'c2' }).toString()).toBe('after=c2&sort=name');
   });
 
   test('active filters and clearing them', () => {

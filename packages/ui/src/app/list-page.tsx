@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Plus, RotateCcw, Trash2 } from 'lucide-react';
@@ -28,6 +28,11 @@ export function ListPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['list', resource] }),
   });
   const trash = searchParams.get('trashed') === 'only';
+  const [trail, setTrail] = useState<string[]>([]);
+  const hasAfter = searchParams.has('after');
+  useEffect(() => {
+    if (!hasAfter) setTrail([]); // back on the first page (a new filter or sort, or Previous from page 2)
+  }, [hasAfter]);
 
   if (schema.isPending) return <PageMessage>Loading…</PageMessage>;
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
@@ -41,7 +46,26 @@ export function ListPage() {
     ? { field: sortParam.replace(/^-/, ''), direction: sortParam.startsWith('-') ? 'desc' : 'asc' }
     : s.list.defaultSort;
   const items = list.data?.items ?? [];
-  const pager = paging(list.data, page);
+  const keyset = s.list.pagination === 'keyset';
+  const after = searchParams.get('after');
+  // Keyset lists: the cursors of the pages before this one ('' is the first page), so Previous can walk back.
+  const pager = keyset
+    ? { summary: paging(list.data, 1).summary, label: `Page ${trail.length + 1}`, hasNext: Boolean(list.data?.nextCursor) }
+    : paging(list.data, page);
+  const hasPrevious = keyset ? trail.length > 0 : page > 1;
+
+  function nextPage() {
+    if (!keyset) return updateParams({ page: String(page + 1) });
+    setTrail([...trail, after ?? '']);
+    updateParams({ after: list.data?.nextCursor ?? null });
+  }
+
+  function previousPage() {
+    if (!keyset) return updateParams({ page: String(page - 1) });
+    const previous = trail[trail.length - 1];
+    setTrail(trail.slice(0, -1));
+    updateParams({ after: previous || null });
+  }
   const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item._id))}`;
 
   function updateParams(changes: ParamChanges) {
@@ -152,13 +176,13 @@ export function ListPage() {
       <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>{pager.summary}</span>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={page <= 1} onClick={() => updateParams({ page: String(page - 1) })}>
+          <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={!hasPrevious} onClick={previousPage}>
             <ChevronLeft className="rtl:rotate-180" />
           </Button>
           <span>
             {pager.label}
           </span>
-          <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={!pager.hasNext} onClick={() => updateParams({ page: String(page + 1) })}>
+          <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={!pager.hasNext} onClick={nextPage}>
             <ChevronRight className="rtl:rotate-180" />
           </Button>
         </div>
