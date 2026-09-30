@@ -16,12 +16,14 @@ const OPERATORS_BY_TYPE: Record<FieldType, FilterOperator[]> = {
   boolean: ['eq', 'ne'],
   json: [],
   other: [],
+  relation: EQUALITY, // to-one; to-many relations only support `in` (has any of), see operatorsFor
 };
 
 /** Column types that `?search=` can match with a case-insensitive LIKE. */
 export const SEARCHABLE_TYPES: readonly FieldType[] = ['string', 'text'];
 
 export function operatorsFor(field: FieldSchema): FilterOperator[] {
+  if (field.relation?.kind === 'to-many') return ['in'];
   const operators = OPERATORS_BY_TYPE[field.type];
   if (operators.length === 0) return [];
   return field.nullable ? [...operators, 'isNull'] : [...operators];

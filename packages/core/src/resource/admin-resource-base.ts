@@ -3,6 +3,7 @@ import { applyListParams } from '../crud/list-query-builder.js';
 import type { FilterOperator, SortDirection } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
+import type { FieldPath } from '../schema/field-paths.js';
 import { getHooks, type HookKind } from '../decorators/hooks.js';
 import type { AdminContext } from './admin-context.js';
 
@@ -29,17 +30,21 @@ export interface FindManyResult<T> {
   total: number;
 }
 
-type EntityKey<T> = Extract<keyof T, string>;
-
+/**
+ * Fields and paths such as `'customer.name'` go through many-to-one and owning one-to-one relations (joined
+ * automatically). A relation field is named like the property that holds its id (`customer`, or `customerId`
+ * when the entity declares that column), a path by the relation property (`customer.name`).
+ */
 export interface ListConfig<T> {
-  columns?: EntityKey<T>[];
+  /** Default: every column except json and text, and every to-one relation. */
+  columns?: FieldPath<T>[];
   /** `'name'` for ascending, `'-createdAt'` for descending. Defaults to `-<primary key>`. */
-  sort?: EntityKey<T> | `-${EntityKey<T>}`;
+  sort?: FieldPath<T> | `-${FieldPath<T>}`;
   pageSize?: number;
   /** Filterable fields. Default: every enum and boolean column. */
-  filters?: EntityKey<T>[];
+  filters?: FieldPath<T>[];
   /** Fields matched by `?search=`. Default: every string column. */
-  search?: EntityKey<T>[];
+  search?: FieldPath<T>[];
 }
 
 export interface FormConfig {
@@ -103,6 +108,14 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
 
   async findOne(id: RecordId, ctx: AdminContext): Promise<T | null> {
     return this.repositoryFor(ctx).findOne({ where: { [this.primaryKey]: id } as FindOptionsWhere<T> });
+  }
+
+  /**
+   * Restricts the records a relation field may point to: the picker's options and the ids accepted on create and
+   * update (a restricted id is a 422 on the field). `qb` selects the target entity as `option`. Default: all records.
+   */
+  relationOptions(_field: string, qb: SelectQueryBuilder<any>, _ctx: AdminContext): SelectQueryBuilder<any> {
+    return qb;
   }
 
   /** Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them. */

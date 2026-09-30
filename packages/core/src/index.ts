@@ -14,6 +14,8 @@ export {
   type RecordId,
 } from './resource/admin-resource-base.js';
 export { AdminContext } from './resource/admin-context.js';
+export type { FieldPath } from './schema/field-paths.js';
+export type { TitleDefinition } from './schema/titles.js';
 export { AdminBadRequestError, AdminError, AdminFieldError, AdminNotFoundError, AdminValidationError } from './errors.js';
 export { AfterSave, BeforeDelete, BeforeSave, type HookKind, type SaveMode } from './decorators/hooks.js';
 export type * from './contract.js';

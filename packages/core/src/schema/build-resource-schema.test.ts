@@ -4,6 +4,7 @@ import { IsDateString, IsIn, IsOptional, IsString, Length, MaxLength, MinLength,
 import { Column, CreateDateColumn, DataSource, Entity, PrimaryColumn, PrimaryGeneratedColumn } from 'typeorm';
 import { AdminResource, getAdminResourceDefinition } from '../decorators/admin-resource.js';
 import { AdminResourceBase, type ListConfig } from '../resource/admin-resource-base.js';
+import { ORDER_ENTITIES, Order, OrderAdmin } from '../../test/fixtures/orders.js';
 import { buildResourceSchema } from './build-resource-schema.js';
 
 @Entity()
@@ -274,5 +275,110 @@ describe('buildResourceSchema', () => {
     const schema = schemaFor(new GadgetAdmin());
     expect(schema.form.constraints.create.name).toEqual({});
     expect(schema.form.requiredOnCreate).not.toContain('name');
+  });
+});
+
+describe('buildResourceSchema with relations', () => {
+  let orders: DataSource;
+  beforeAll(async () => {
+    orders = await new DataSource({ type: 'sqljs', entities: ORDER_ENTITIES }).initialize();
+  });
+  afterAll(async () => {
+    await orders.destroy();
+  });
+  const orderSchema = (resource: AdminResourceBase<any>) =>
+    buildResourceSchema({
+      definition: getAdminResourceDefinition(resource.constructor)!,
+      resource,
+      metadata: orders.getMetadata(Order),
+      moduleGroup: 'sales',
+      className: resource.constructor.name,
+    });
+
+  test('defaults: to-one relations are columns and writable, many-to-many is writable but not a column', () => {
+    @AdminResource(Order)
+    class PlainOrderAdmin extends AdminResourceBase<Order> {}
+    const schema = orderSchema(new PlainOrderAdmin());
+    expect(schema.fields.map((f) => [f.name, f.type])).toEqual([
+      ['id', 'number'],
+      ['number', 'string'],
+      ['sellerId', 'relation'],
+      ['customer', 'relation'],
+      ['tags', 'relation'],
+    ]);
+    expect(schema.list.columns).toEqual(['id', 'number', 'sellerId', 'customer']);
+    expect(schema.list.sortable).toEqual(['id', 'number']);
+    expect(schema.form.create).toEqual(['number', 'sellerId', 'customer', 'tags']);
+    expect(schema.form.requiredOnCreate).toEqual(['number', 'customer']);
+  });
+
+  test('dotted paths become read-only fields, sortable and filterable by their column type', () => {
+    const schema = orderSchema(new OrderAdmin());
+    expect(schema.fields.filter((f) => f.name.includes('.')).map((f) => [f.name, f.label, f.type, f.readonly])).toEqual([
+      ['customer.name', 'Customer name', 'string', true],
+      ['customer.company.name', 'Customer company name', 'string', true],
+      ['customer.active', 'Customer active', 'boolean', true],
+    ]);
+    expect(schema.list.sortable).toEqual(['id', 'number', 'customer.name', 'customer.company.name', 'customer.active']);
+    expect(schema.list.filters).toEqual([
+      { field: 'customer', operators: ['eq', 'ne', 'in', 'nin'] },
+      { field: 'sellerId', operators: ['eq', 'ne', 'in', 'nin', 'isNull'] },
+      { field: 'tags', operators: ['in'] },
+      { field: 'customer.name', operators: ['eq', 'ne', 'in', 'nin', 'contains', 'startsWith'] },
+      { field: 'customer.active', operators: ['eq', 'ne'] },
+    ]);
+    expect(schema.list.search).toEqual(['number', 'customer.name']);
+    expect(schema.form.create).not.toContain('customer.name');
+  });
+
+  test('sorts by a path', () => {
+    @AdminResource(Order)
+    class ByCustomerAdmin extends AdminResourceBase<Order> {
+      list: ListConfig<Order> = { sort: '-customer.company.name' };
+    }
+    expect(orderSchema(new ByCustomerAdmin()).list.defaultSort).toEqual({ field: 'customer.company.name', direction: 'desc' });
+  });
+
+  test('unknown or unusable paths fail at boot with a suggestion', () => {
+    @AdminResource(Order)
+    class TypoAdmin extends AdminResourceBase<Order> {
+      list: ListConfig<Order> = { columns: ['customer.nam' as 'number'] };
+    }
+    expect(() => orderSchema(new TypoAdmin())).toThrow('TypoAdmin: list.columns: unknown path "customer.nam" on Order (did you mean "customer.name"?)');
+
+    @AdminResource(Order)
+    class ManyAdmin extends AdminResourceBase<Order> {
+      list: ListConfig<Order> = { filters: ['tags.label' as 'tags'] }; // also a compile error: arrays have no paths
+    }
+    expect(() => orderSchema(new ManyAdmin())).toThrow('list.filters: cannot use "tags.label" on Order: "tags" is not a many-to-one or owning one-to-one relation');
+
+    @AdminResource(Order)
+    class SearchAdmin extends AdminResourceBase<Order> {
+      list: ListConfig<Order> = { search: ['customer.active'] };
+    }
+    expect(() => orderSchema(new SearchAdmin())).toThrow('list.search: column "customer.active" (boolean) is not a text column');
+
+    @AdminResource(Order)
+    class SortRelationAdmin extends AdminResourceBase<Order> {
+      list: ListConfig<Order> = { sort: 'customer' };
+    }
+    expect(() => orderSchema(new SortRelationAdmin())).toThrow('list.sort: cannot sort by "customer"');
+
+    @AdminResource(Order)
+    class RelationNameAdmin extends AdminResourceBase<Order> {
+      list: ListConfig<Order> = { columns: ['seller'] };
+    }
+    expect(() => orderSchema(new RelationNameAdmin())).toThrow('list.columns: "seller" is the relation; its field is "sellerId" (paths use "seller.<column>")');
+  });
+
+  test('field names starting with "_" are reserved', () => {
+    class ReservedDto {
+      @IsString() _title: string;
+    }
+    @AdminResource(Order)
+    class ReservedAdmin extends AdminResourceBase<Order> {
+      form = { create: ReservedDto };
+    }
+    expect(() => orderSchema(new ReservedAdmin())).toThrow('DTO property "_title": names starting with "_" are reserved for the admin');
   });
 });

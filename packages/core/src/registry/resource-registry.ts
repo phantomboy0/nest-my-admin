@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { DiscoveryService, ModuleRef } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import type { DataSource } from 'typeorm';
+import type { DataSource, EntityMetadata } from 'typeorm';
 import { ADMIN_OPTIONS } from '../constants.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { ResourceSchema } from '../contract.js';
@@ -10,6 +10,8 @@ import { getAdminResourceDefinition, type AdminResourceDefinition } from '../dec
 import { AdminNotFoundError } from '../errors.js';
 import { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { buildResourceSchema } from '../schema/build-resource-schema.js';
+import { relationFields, type RelationLike } from '../schema/relation-fields.js';
+import { compileTitle, type TitleFn } from '../schema/titles.js';
 import { humanize, kebabCase } from '../schema/humanize.js';
 import { dbNamesFor, type DbNames } from './db-names.js';
 import { hookWarnings } from './hook-warnings.js';
@@ -22,7 +24,15 @@ export interface RegisteredResource {
   dataSource: DataSource;
   /** Database column and constraint names → entity properties (for mapping constraint errors to fields). */
   dbNames: DbNames;
+  metadata: EntityMetadata;
+  /** Relation fields by field name. */
+  relations: ReadonlyMap<string, RelationMetadataLike>;
+  /** The record's display name (`@AdminResource({ title })`). */
+  title: TitleFn;
 }
+
+/** TypeORM's RelationMetadata as the admin reads it (TypeORM does not export the class from its root). */
+export type RelationMetadataLike = RelationLike & { inverseEntityMetadata: EntityMetadata };
 
 export interface RegisteredGroup {
   key: string;
@@ -43,6 +53,8 @@ export class ResourceRegistry implements OnModuleInit {
   private readonly logger = new Logger('NestMyAdmin');
   private readonly resources = new Map<string, RegisteredResource>();
   private readonly groups = new Map<string, RegisteredGroup>();
+  /** Titles of entities that have no resource (targets of relations), compiled on first use. */
+  private readonly defaultTitles = new WeakMap<EntityMetadata, TitleFn>();
 
   constructor(
     private readonly discovery: DiscoveryService,
@@ -72,6 +84,7 @@ export class ResourceRegistry implements OnModuleInit {
       this.register(metatype.name, definition, instance, moduleGroup);
     }
     if (this.options.autoRegister) this.registerAutoResources();
+    this.linkRelations();
   }
 
   get(name: string): RegisteredResource {
@@ -86,6 +99,26 @@ export class ResourceRegistry implements OnModuleInit {
 
   list(): RegisteredResource[] {
     return [...this.resources.values()];
+  }
+
+  /** The resource registered for an entity class on a DataSource (the first one, when several share it). */
+  forEntity(entity: Function | string, dataSource: DataSource): RegisteredResource | undefined {
+    for (const entry of this.resources.values()) if (entry.entity === entity && entry.dataSource === dataSource) return entry;
+    return undefined;
+  }
+
+  /** How records of an entity are titled: its resource's `title`, or the default for its columns. */
+  titleFor(metadata: EntityMetadata, dataSource: DataSource): TitleFn {
+    const entry = this.forEntity(metadata.target, dataSource);
+    if (entry) return entry.title;
+    let title = this.defaultTitles.get(metadata);
+    if (!title) {
+      title = compileTitle(undefined, metadata, (message) => {
+        throw new Error(message);
+      });
+      this.defaultTitles.set(metadata, title);
+    }
+    return title;
   }
 
   groupList(): RegisteredGroup[] {
@@ -136,6 +169,12 @@ export class ResourceRegistry implements OnModuleInit {
     if (!this.groups.has(schema.group)) {
       this.groups.set(schema.group, { key: schema.group, label: humanize(schema.group), order: DEFAULT_GROUP_ORDER });
     }
+    const title = compileTitle(definition.title, metadata, (message) => {
+      throw new Error(`${className}: ${message}`);
+    });
+    const relations = new Map(
+      relationFields(metadata).map(({ field, relation }) => [field.name, relation as RelationMetadataLike]),
+    );
     this.resources.set(schema.name, {
       schema,
       resource,
@@ -143,7 +182,21 @@ export class ResourceRegistry implements OnModuleInit {
       entity: definition.entity,
       dataSource,
       dbNames: dbNamesFor(metadata),
+      metadata,
+      relations,
+      title,
     });
+  }
+
+  /** Points each relation field at the resource of its target entity, now that every resource is registered. */
+  private linkRelations(): void {
+    for (const entry of this.resources.values()) {
+      for (const [name, relation] of entry.relations) {
+        const target = this.forEntity(relation.inverseEntityMetadata.target, entry.dataSource);
+        const field = entry.schema.fields.find((candidate) => candidate.name === name);
+        if (target && field?.relation) field.relation.resource = target.schema.name;
+      }
+    }
   }
 
   private registerAutoResources(): void {

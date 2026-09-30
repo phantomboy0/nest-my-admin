@@ -2,6 +2,7 @@ import type { FieldConstraints, FieldSchema, FilterSchema, ResourceSchema, SortD
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
+import { isToOne, pathField as toPathField, relationFields, resolvePath, type RelatedMetadataLike } from './relation-fields.js';
 import { dtoConstraints, hasDtoInitializer, isConditionalProperty } from './dto-constraints.js';
 import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional, type DtoClass } from './dto-fields.js';
 import { humanize, kebabCase } from './humanize.js';
@@ -12,10 +13,7 @@ export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 
 /** The subset of TypeORM's EntityMetadata the builder reads. */
-export interface EntityMetadataLike {
-  columns: ColumnLike[];
-  primaryColumns: ColumnLike[];
-}
+export type EntityMetadataLike = RelatedMetadataLike;
 
 export interface BuildResourceSchemaInput {
   definition: AdminResourceDefinition;
@@ -39,9 +37,22 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   }
   const primaryKey = metadata.primaryColumns[0]!.propertyName;
 
-  const supportedColumns = metadata.columns.filter(isSupportedColumn);
-  const entityFields = supportedColumns.map(columnToField);
+  // Columns in entity order; a join column becomes its relation's field; many-to-many fields come last.
+  const relations = relationFields(metadata);
+  const entityFields: FieldSchema[] = [];
+  const columnByName = new Map<string, ColumnLike>();
+  for (const column of metadata.columns) {
+    const relationField = relations.find(({ relation }) => isToOne(relation) && relation.joinColumns[0] === column);
+    const field = relationField?.field ?? (isSupportedColumn(column) ? columnToField(column) : undefined);
+    if (!field) continue;
+    entityFields.push(field);
+    columnByName.set(field.name, column);
+  }
+  for (const { field, relation } of relations) if (!isToOne(relation)) entityFields.push(field);
   const byName = new Map(entityFields.map((field) => [field.name, field]));
+  for (const name of byName.keys()) {
+    if (name.startsWith('_')) fail(`${entityName}.${name}: field names starting with "_" are reserved for the admin`);
+  }
 
   const createDto = resource.form?.create;
   const updateDto = resource.form?.update ?? createDto;
@@ -57,39 +68,65 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       if (!field && dto && !dtoOnly.some((extra) => extra.name === name)) dtoOnly.push(dtoOnlyField(dto, name));
     }
   }
+  for (const field of dtoOnly) if (field.name.startsWith('_')) fail(`DTO property "${field.name}": names starting with "_" are reserved for the admin`);
 
   const requiredOnCreate = createDto
     ? create.filter((name) => !isDtoPropertyOptional(createDto, name) && !hasDtoInitializer(createDto, name))
-    : supportedColumns
-        .filter((c) => writable.includes(c.propertyName) && !c.isNullable && c.default === undefined)
-        .map((c) => c.propertyName);
+    : writable.filter((name) => {
+        const field = byName.get(name)!;
+        const column = columnByName.get(name);
+        return field.type !== 'relation' || field.relation!.kind === 'to-one'
+          ? column !== undefined && !column.isNullable && column.default === undefined
+          : false;
+      });
 
-  const sortable = entityFields.filter((field) => field.type !== 'json').map((field) => field.name);
+  // Dotted paths (`customer.name`) named anywhere in `list` become read-only fields.
+  const paths = new Map<string, FieldSchema>();
+  const lookup = (setting: string, name: string): FieldSchema => {
+    const field = byName.get(name) ?? paths.get(name);
+    if (field) return field;
+    if (name.includes('.')) {
+      const resolved = resolvePath(metadata, name);
+      if ('error' in resolved) {
+        return resolved.error === 'unknown path'
+          ? fail(`${setting}: unknown path "${name}" on ${entityName}${didYouMean(name, resolved.candidates)}`)
+          : fail(`${setting}: cannot use "${name}" on ${entityName}: ${resolved.error}`);
+      }
+      const pathField = toPathField(name, resolved);
+      paths.set(name, pathField);
+      return pathField;
+    }
+    const renamed = relations.find(({ relation, field: candidate }) => relation.propertyName === name && candidate.name !== name);
+    if (renamed) return fail(`${setting}: "${name}" is the relation; its field is "${renamed.field.name}" (paths use "${name}.<column>")`);
+    return fail(`${setting}: unknown column "${name}" on ${entityName}${didYouMean(name, [...byName.keys()])}`);
+  };
+  const isSortable = (field: FieldSchema) => field.type !== 'json' && field.type !== 'relation';
+
   const columns: string[] =
     resource.list?.columns ??
-    entityFields.filter((field) => field.type !== 'json' && field.type !== 'text').map((field) => field.name);
+    entityFields
+      .filter((field) => field.type !== 'json' && field.type !== 'text' && field.relation?.kind !== 'to-many')
+      .map((field) => field.name);
   if (columns.length === 0) fail('list.columns must name at least one column');
-  for (const column of columns) {
-    if (!byName.has(column)) return fail(`list.columns: unknown column "${column}" on ${entityName}${didYouMean(column, [...byName.keys()])}`);
-  }
+  for (const column of columns) lookup('list.columns', column);
 
   const rawSort: string = resource.list?.sort ?? `-${primaryKey}`;
   const direction: SortDirection = rawSort.startsWith('-') ? 'desc' : 'asc';
   const sortField = rawSort.replace(/^-/, '');
-  if (!sortable.includes(sortField)) return fail(`list.sort: cannot sort by "${sortField}"${didYouMean(sortField, sortable)}`);
+  const plainSortable = entityFields.filter(isSortable).map((field) => field.name);
+  const sortTarget = byName.get(sortField) ?? (sortField.includes('.') ? lookup('list.sort', sortField) : undefined);
+  if (!sortTarget || !isSortable(sortTarget)) return fail(`list.sort: cannot sort by "${sortField}"${didYouMean(sortField, plainSortable)}`);
 
   const pageSize = resource.list?.pageSize ?? DEFAULT_PAGE_SIZE;
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
     fail(`list.pageSize must be an integer between 1 and ${MAX_PAGE_SIZE}`);
   }
 
-  const allNames = [...byName.keys()];
   const filterNames: string[] =
     resource.list?.filters ?? entityFields.filter((field) => field.type === 'enum' || field.type === 'boolean').map((field) => field.name);
   const filters: FilterSchema[] = [];
   for (const name of filterNames) {
-    const field = byName.get(name);
-    if (!field) return fail(`list.filters: unknown column "${name}" on ${entityName}${didYouMean(name, allNames)}`);
+    const field = lookup('list.filters', name);
     const operators = operatorsFor(field);
     if (operators.length === 0) return fail(`list.filters: column "${name}" (${field.type}) cannot be filtered`);
     filters.push({ field: name, operators });
@@ -97,12 +134,12 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
 
   const search: string[] = resource.list?.search ?? entityFields.filter((field) => field.type === 'string').map((field) => field.name);
   for (const name of search) {
-    const field = byName.get(name);
-    if (!field) return fail(`list.search: unknown column "${name}" on ${entityName}${didYouMean(name, allNames)}`);
+    const field = lookup('list.search', name);
     if (!SEARCHABLE_TYPES.includes(field.type)) return fail(`list.search: column "${name}" (${field.type}) is not a text column`);
   }
 
-  const columnByName = new Map(supportedColumns.map((column) => [column.propertyName, column]));
+  const sortable = [...plainSortable, ...[...paths.values()].filter(isSortable).map((field) => field.name)];
+
   const entityConstraints = (name: string): FieldConstraints => {
     const field = byName.get(name);
     if (!field) return {};
@@ -138,7 +175,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     group: definition.group ?? moduleGroup,
     ...(definition.icon ? { icon: definition.icon } : {}),
     primaryKey,
-    fields: [...entityFields, ...dtoOnly],
+    fields: [...entityFields, ...dtoOnly, ...paths.values()],
     list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, filters, search },
     form: { create, update, requiredOnCreate, constraints },
   };

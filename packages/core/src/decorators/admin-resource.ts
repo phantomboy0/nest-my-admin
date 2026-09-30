@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Injectable } from '@nestjs/common';
 import { ADMIN_RESOURCE_METADATA } from '../constants.js';
+import type { TitleDefinition } from '../schema/titles.js';
 
 export interface AdminResourceOptions {
   /** URL segment and permission prefix. Defaults to kebab-case of the entity class name. */
@@ -9,6 +10,12 @@ export interface AdminResourceOptions {
   /** Sidebar group key. Defaults to the group of the Nest module that provides the resource. */
   group?: string;
   icon?: string;
+  /**
+   * The record's display name in lists, pickers and headers: a column name, or a function of the entity.
+   * Functions see columns (relations only when the loader joined them). Default: the first string column called
+   * name, title, label, displayName, fullName, username, email, code or sku; else `#<id>`.
+   */
+  title?: TitleDefinition;
   /** TypeORM DataSource name. Defaults to the default DataSource. */
   dataSource?: string;
 }
