@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { Brackets, type EntityManager, type SelectQueryBuilder, type WhereExpressionBuilder } from 'typeorm';
 import { ADMIN_OPTIONS, ADMIN_RESOURCE_METADATA } from '../constants.js';
-import type { AdminRecord, FieldSchema, ResourceSchema } from '../contract.js';
+import type { AdminRecord, ExplainRoleSource, FieldSchema, PermissionExplanation, ResourceSchema } from '../contract.js';
 import { recordIdOf } from '../crud/record-id.js';
 import { getCanRules, getScopes, type RecordOperation, type ScopeCondition } from '../decorators/admin-scope.js';
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
@@ -10,11 +10,12 @@ import type { AdminUser } from '../auth/auth-adapter.js';
 import { AdminAuthService } from '../auth/auth.service.js';
 import type { GlobalScope, ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
-import type { AdminContext } from '../resource/admin-context.js';
+import { createAdminContext, type AdminContext } from '../resource/admin-context.js';
 import type { RecordId } from '../resource/admin-resource-base.js';
 import { AdminRbac } from '../rbac/rbac.service.js';
 import { buildCatalog, customCodes } from './catalog.js';
 import { EffectivePermissions, type FieldLevel } from './effective.js';
+import { explainPermissions } from './explain.js';
 import { RESOURCE_OPERATIONS, checkRoles, type ResourceOperation, type RoleDefinition, type ScopedOperation } from './roles.js';
 
 const RANK: Record<FieldLevel, number> = { hidden: 0, view: 1, edit: 2 };
@@ -92,6 +93,27 @@ export class AdminPolicy implements OnApplicationBootstrap {
       else this.warnOnce(`resolveRoles returned "${name}", which is not a role; it is ignored`);
     }
     return new EffectivePermissions(roles, false);
+  }
+
+  /** A user's role names and where each comes from (for the debugger; `forUser` decides what they grant). */
+  async roleSources(user: AdminUser): Promise<Map<string, ExplainRoleSource[]>> {
+    const sources = new Map<string, ExplainRoleSource[]>();
+    const add = (name: string, source: ExplainRoleSource) => sources.set(name, [...(sources.get(name) ?? []), source]);
+    if (user.isSuperuser) return sources;
+    for (const name of (await this.options.resolveRoles?.(user)) ?? []) add(name, { kind: 'resolveRoles' });
+    for (const name of (await this.auth.adapter?.resolveRoles?.(user)) ?? []) add(name, { kind: 'adapter' });
+    for (const row of await this.rbac.assignmentSources(String(user.id))) add(row.role, row.group === undefined ? { kind: 'direct' } : { kind: 'group', group: row.group });
+    return sources;
+  }
+
+  /** Explains a user's permissions on a resource (spec §6.7). `request` is the explaining request. */
+  async explain(user: AdminUser, entry: RegisteredResource, labels: ResourceSchema, request: AdminContext['request'], locale: string | undefined, record?: string): Promise<Omit<PermissionExplanation, 'user'>> {
+    const ctx = createAdminContext(request);
+    ctx.user = user;
+    ctx.locale = locale;
+    const permissions = await this.forUser(user);
+    ctx.permissions = permissions;
+    return explainPermissions(this, { user, entry, labels, ctx: ctx as AdminContext & { permissions: EffectivePermissions }, sources: await this.roleSources(user), record });
   }
 
   permissionsOf(ctx: AdminContext): EffectivePermissions {
@@ -253,6 +275,11 @@ export class AdminPolicy implements OnApplicationBootstrap {
       qb.andWhere(new Brackets((inner) => this.condition(inner, alias, entry, scope.where(ctx, { name: entry.schema.name }), `global scope "${scope.name}"`)));
     }
     return qb;
+  }
+
+  /** Names of the global scopes that restrict this resource for these permissions. */
+  globalScopeNames(entry: RegisteredResource, perms: EffectivePermissions): string[] {
+    return this.globalScopes(entry, perms).map((scope) => scope.name);
   }
 
   private globalScopes(entry: RegisteredResource, perms: EffectivePermissions): GlobalScope[] {

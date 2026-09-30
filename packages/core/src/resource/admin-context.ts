@@ -24,6 +24,8 @@ export interface AdminContext {
   locale?: string;
   /** Who is signed in (set for every authenticated request; an open admin's user is a superuser). */
   user?: AdminUser;
+  /** Set while a superuser views the admin as `user` (`X-View-As`): the request is read-only. */
+  viewAs?: { by: AdminUser };
   /** The user's effective permissions for this request (roles, field rules, scopes). */
   permissions?: EffectivePermissions;
   /** Whether the user holds a permission code (`order.view_all`, `reports.run`); superusers hold all. */

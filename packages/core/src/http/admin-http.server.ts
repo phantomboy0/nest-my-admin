@@ -2,11 +2,13 @@ import { HttpException, Inject, Injectable, Logger, type OnModuleInit } from '@n
 import { HttpAdapterHost } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
-import type { AdminErrorCode, AdminRuntimeConfig, SessionResponse, SessionUser } from '../contract.js';
+import type { AdminErrorCode, AdminRuntimeConfig, SessionResponse } from '../contract.js';
+import { toSessionUser } from './session-user.js';
 import { pickLocale, resolveText } from '../i18n/localized-text.js';
 import {
   AdminBadRequestError,
   AdminError,
+  AdminForbiddenError,
   AdminNotFoundError,
   AdminRateLimitError,
   AdminUnauthenticatedError,
@@ -68,6 +70,7 @@ export class AdminHttpServer implements OnModuleInit {
   private readonly logger = new Logger('NestMyAdmin');
   private readonly router = new Router<RequestState>();
   private ui?: UiAssets;
+  private readonly viewAsLogged = new Map<string, number>();
 
   constructor(
     private readonly adapterHost: HttpAdapterHost,
@@ -79,9 +82,9 @@ export class AdminHttpServer implements OnModuleInit {
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {
     this.router
-      .add('GET', '/api/session', async ({ res, principal }) => {
+      .add('GET', '/api/session', async ({ res, principal, ctx }) => {
         if (!principal) throw new AdminUnauthenticatedError();
-        sendJson(res, 200, await this.sessionResponse(principal));
+        sendJson(res, 200, await this.sessionResponse(principal, ctx.viewAs));
       })
       .add('POST', '/api/session', async ({ req, res }) => {
         const login = this.auth.adapter?.login;
@@ -176,10 +179,34 @@ export class AdminHttpServer implements OnModuleInit {
         res.statusCode = 204;
         res.end();
       });
-    addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api });
+    addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry });
   }
 
-  private async sessionResponse(principal: AdminPrincipal): Promise<SessionResponse> {
+  /**
+   * `X-View-As: <user id>` (spec §6.5): a superuser sees the admin exactly as that user does. Nothing can be changed
+   * (only signing out works), and the account pages, which belong to the superuser, are closed.
+   */
+  private async viewAs(principal: AdminPrincipal, header: string | string[], route: string, ctx: AdminContext): Promise<AdminPrincipal> {
+    if (route === 'DELETE /api/session') return principal;
+    if (!principal.user.isSuperuser) throw new AdminForbiddenError('Only superusers may view the admin as another user');
+    if (route.split(' ')[1]!.startsWith('/api/account')) throw new AdminForbiddenError('Your account is not available while viewing as another user');
+    if (!route.startsWith('GET ')) throw new AdminForbiddenError('Viewing as another user is read-only');
+    const id = (Array.isArray(header) ? header[0] : header)?.trim() ?? '';
+    const getUser = this.auth.adapter?.getUser;
+    if (!getUser) throw new AdminNotFoundError('This admin cannot look up users');
+    const target = id === '' || id.length > 200 ? null : await getUser.call(this.auth.adapter, id);
+    if (!target) throw new AdminNotFoundError(`User "${id}" not found`);
+    const key = `${String(principal.user.id)}>${String(target.id)}`;
+    const now = Date.now();
+    if ((this.viewAsLogged.get(key) ?? 0) < now - 3_600_000) {
+      this.viewAsLogged.set(key, now);
+      this.logger.log(`User ${String(principal.user.id)} is viewing the admin as user ${String(target.id)}`);
+    }
+    ctx.viewAs = { by: principal.user };
+    return { user: target, ...(principal.csrfToken ? { csrfToken: principal.csrfToken } : {}) };
+  }
+
+  private async sessionResponse(principal: AdminPrincipal, viewAs?: AdminContext['viewAs']): Promise<SessionResponse> {
     const permissions = await this.policy.forUser(principal.user);
     const enabled = this.rbac.enabled;
     return {
@@ -189,6 +216,7 @@ export class AdminHttpServer implements OnModuleInit {
       auth: this.auth.capabilities,
       rbac: { enabled, view: enabled && (permissions.can('rbac.view') || permissions.can('rbac.manage')), manage: enabled && permissions.can('rbac.manage') },
       permissionsVersion: this.rbac.permissionsVersion,
+      ...(viewAs ? { viewAs: { by: toSessionUser(viewAs.by) } } : {}),
     };
   }
 
@@ -261,6 +289,7 @@ export class AdminHttpServer implements OnModuleInit {
         let principal: AdminPrincipal | undefined;
         if (PUBLIC_ROUTES.has(route)) principal = (await this.auth.principal(req)) ?? undefined;
         else principal = await this.auth.require(req);
+        if (principal && req.headers['x-view-as'] !== undefined) principal = await this.viewAs(principal, req.headers['x-view-as'], route, ctx);
         ctx.user = principal?.user;
         if (principal) ctx.permissions = await this.policy.forUser(principal.user);
         // Labels follow Accept-Language; caches must keep the languages apart.
@@ -292,17 +321,6 @@ export class AdminHttpServer implements OnModuleInit {
       sendJson(res, status, body);
     }
   }
-}
-
-/** @internal */
-export function toSessionUser(user: AdminUser): SessionUser {
-  return {
-    id: String(user.id),
-    displayName: user.displayName,
-    ...(user.username ? { username: user.username } : {}),
-    ...(user.email ? { email: user.email } : {}),
-    isSuperuser: user.isSuperuser === true,
-  };
 }
 
 /** The version in `If-Match: "3"` (or `3`, or a weak `W/"3"`); undefined without the header. */

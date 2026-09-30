@@ -1,7 +1,10 @@
 import type { ServerResponse } from 'node:http';
 import type { AdminUserRecord } from '../auth/auth-adapter.js';
 import type { AdminAuthService } from '../auth/auth.service.js';
-import type { RbacCatalog, RbacUser, RbacUsersResponse } from '../contract.js';
+import type { PermissionExplanation, RbacCatalog, RbacUser, RbacUsersResponse } from '../contract.js';
+import type { AdminPolicy } from '../policy/admin-policy.service.js';
+import type { ResourceRegistry } from '../registry/resource-registry.js';
+import { toSessionUser } from '../http/session-user.js';
 import { AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import { readJsonBody, sendJson, type AdminRequest } from '../http/http-io.js';
 import type { Router } from '../http/router.js';
@@ -23,8 +26,11 @@ const noContent = (res: ServerResponse) => {
 };
 
 /** `/api/rbac/*`: roles, groups and users (spec §6.6–6.7). Reading needs `rbac.view`, changing `rbac.manage`. */
-export function addRbacRoutes<S extends State>(router: Router<S>, services: { rbac: AdminRbac; auth: AdminAuthService; api: AdminApiService }): void {
-  const { rbac, auth, api } = services;
+export function addRbacRoutes<S extends State>(
+  router: Router<S>,
+  services: { rbac: AdminRbac; auth: AdminAuthService; api: AdminApiService; policy: AdminPolicy; registry: ResourceRegistry },
+): void {
+  const { rbac, auth, api, policy, registry } = services;
 
   const manager = (ctx: AdminContext): RbacManager => {
     if (!rbac.enabled) throw new AdminNotFoundError('Roles and groups are not stored in this admin');
@@ -85,6 +91,21 @@ export function addRbacRoutes<S extends State>(router: Router<S>, services: { rb
         }),
         global: catalog.global,
       };
+      sendJson(res, 200, body);
+    })
+    .add('GET', '/api/rbac/explain', async ({ res, url, ctx }) => {
+      reader(ctx);
+      const userId = url.searchParams.get('user');
+      const resource = url.searchParams.get('resource');
+      const errors: Record<string, string[]> = {};
+      if (!userId) errors.user = ['is required'];
+      if (!resource) errors.resource = ['is required'];
+      if (Object.keys(errors).length > 0) throw new AdminValidationError(errors);
+      const user = await findUser(userId!);
+      const entry = registry.get(resource!);
+      const record = url.searchParams.get('record') ?? undefined;
+      const explained = await policy.explain(user, entry, api.schema(entry.schema.name, ctx.locale), ctx.request, ctx.locale, record);
+      const body: PermissionExplanation = { user: toSessionUser(user), ...explained };
       sendJson(res, 200, body);
     })
     .add('GET', '/api/rbac/roles', async ({ res, ctx }) => {

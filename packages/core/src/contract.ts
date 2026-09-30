@@ -285,6 +285,8 @@ export interface SessionResponse {
   rbac: { enabled: boolean; view: boolean; manage: boolean };
   /** Changes when roles or memberships change: refetch meta and schemas. */
   permissionsVersion: number;
+  /** A superuser looking through another user's eyes (`X-View-As`): `user` is the target, `by` the superuser. Read-only. */
+  viewAs?: { by: SessionUser };
 }
 
 /** Text in one language, or per language (`{ en, fa }`). */
@@ -343,6 +345,53 @@ export interface RbacCatalog {
     custom: string[];
   }>;
   global: string[];
+}
+
+/** Where a user's role comes from. `group` names the group. */
+export interface ExplainRoleSource {
+  kind: 'direct' | 'group' | 'resolveRoles' | 'adapter';
+  group?: string;
+}
+
+/** `GET /api/rbac/explain?user=&resource=[&record=]`: why a user may or may not do things (spec §6.7). */
+export interface PermissionExplanation {
+  user: SessionUser;
+  superuser: boolean;
+  /** Every role the user has; `known: false` names a role that does not exist (it grants nothing). */
+  roles: Array<{ name: string; label?: LocalizedTextJson; known: boolean; sources: ExplainRoleSource[] }>;
+  resource: { name: string; label: string };
+  operations: Array<{
+    operation: 'view' | 'create' | 'update' | 'delete' | 'purge';
+    allowed: boolean;
+    /** The patterns that grant it; `via: 'update'` when view comes from holding update. */
+    grantedBy: Array<{ role: string; pattern: string; via?: 'update' }>;
+  }>;
+  fields: Array<{
+    name: string;
+    label: string;
+    restricted: boolean;
+    level: 'hidden' | 'view' | 'edit';
+    /** Keys and the version stay visible whatever the roles say. */
+    forced?: boolean;
+    byRole: Array<{ role: string; level: 'hidden' | 'view' | 'edit'; rule?: string; code?: string }>;
+  }>;
+  scopes: Array<{
+    operation: 'view' | 'update' | 'delete';
+    /** `all` rows, or those of any of these scopes (none = no rows). */
+    result: 'all' | string[];
+    byRole: Array<{ role: string; scopes: 'all' | string[] }>;
+    /** Global scopes that also apply (ANDed). */
+    global: string[];
+  }>;
+  record?: {
+    id: string;
+    exists: boolean;
+    view: boolean;
+    update: boolean;
+    delete: boolean;
+    /** Why each answer is no: `permission`, `scope`, `rule` (an `@AdminCan` method), `missing`. */
+    reasons: Partial<Record<'view' | 'update' | 'delete', 'permission' | 'scope' | 'rule' | 'missing'>>;
+  };
 }
 
 /** `GET /api/account/sessions`: the user's signed-in devices. */

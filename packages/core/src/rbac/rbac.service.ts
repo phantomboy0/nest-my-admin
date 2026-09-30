@@ -160,6 +160,17 @@ export class AdminRbac implements OnApplicationBootstrap {
     return names;
   }
 
+  /** Where each stored role of a user comes from (for the permission debugger): direct, or a group's name. */
+  async assignmentSources(userId: string): Promise<Array<{ role: string; group?: string }>> {
+    if (!this.dataSource) return [];
+    const direct = await this.db.getRepository(NmaUserRole).find({ where: { userId } });
+    const memberships = await this.db.getRepository(NmaGroupMember).find({ where: { userId } });
+    const groups = memberships.length > 0 ? await this.db.getRepository(NmaGroup).find({ where: { id: In(memberships.map((row) => row.groupId)) } }) : [];
+    const viaGroups = groups.length > 0 ? await this.db.getRepository(NmaGroupRole).find({ where: { groupId: In(groups.map((group) => group.id)) } }) : [];
+    const nameOf = new Map(groups.map((group) => [group.id, group.name]));
+    return [...direct.map((row) => ({ role: row.roleName })), ...viaGroups.map((row) => ({ role: row.roleName, group: nameOf.get(row.groupId)! }))];
+  }
+
   // ---- roles ----------------------------------------------------------------------------------------------------
 
   async listRoles(): Promise<RoleRecord[]> {
