@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
 import { toFormValues, toPayload, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema } from '@/lib/queries';
+import { validatePayload } from '@/lib/validate';
 
 type Mode = 'create' | 'edit';
 
@@ -79,9 +80,12 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
   function submit(event: FormEvent) {
     event.preventDefault();
     const { payload, errors } = toPayload(fields, values, mode === 'edit' ? initial : undefined);
-    setFieldErrors(errors);
+    const formMode = mode === 'create' ? 'create' : 'update';
+    const ruleErrors = validatePayload(payload, schema.form.constraints[formMode], formMode);
+    const allErrors = { ...ruleErrors, ...errors }; // conversion errors ("must be a number") win for the same field
+    setFieldErrors(allErrors);
     setFormError(null);
-    if (Object.keys(errors).length === 0) save.mutate(payload);
+    if (Object.keys(allErrors).length === 0) save.mutate(payload);
   }
 
   return (
@@ -99,6 +103,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
           value={values[field.name]}
           required={mode === 'create' && schema.form.requiredOnCreate.includes(field.name)}
           errors={fieldErrors[field.name]}
+          constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update'][field.name]}
           onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
         />
       ))}

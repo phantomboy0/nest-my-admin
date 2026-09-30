@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { FieldSchema } from '@nest-my-admin/core/contract';
+import type { FieldConstraints, FieldSchema } from '@nest-my-admin/core/contract';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 
 interface FieldInputProps {
   field: FieldSchema;
+  constraints?: FieldConstraints;
   value: string | boolean | undefined;
   required: boolean;
   errors?: string[];
@@ -16,7 +17,7 @@ interface FieldInputProps {
 const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive';
 
-export function FieldInput({ field, value, required, errors, onChange }: FieldInputProps) {
+export function FieldInput({ field, value, required, errors, constraints, onChange }: FieldInputProps) {
   const id = `field-${field.name}`;
   const errorId = `${id}-error`;
   const invalid = (errors?.length ?? 0) > 0;
@@ -70,7 +71,7 @@ export function FieldInput({ field, value, required, errors, onChange }: FieldIn
       />
     );
   } else {
-    control = <Input id={id} value={text} onChange={(e) => onChange(e.target.value)} {...inputProps(field)} {...aria} />;
+    control = <Input id={id} value={text} onChange={(e) => onChange(e.target.value)} {...inputProps(field, constraints)} {...aria} />;
   }
 
   return (
@@ -83,7 +84,7 @@ export function FieldInput({ field, value, required, errors, onChange }: FieldIn
 }
 
 /** Numeric fields use text inputs with inputMode: a controlled type="number" can drop focus on mobile keyboards. */
-function inputProps(field: FieldSchema): { type: string; inputMode?: 'decimal' | 'numeric' } {
+function inputProps(field: FieldSchema, constraints?: FieldConstraints): { type: string; inputMode?: 'decimal' | 'numeric' } {
   switch (field.type) {
     case 'number':
     case 'decimal':
@@ -95,7 +96,7 @@ function inputProps(field: FieldSchema): { type: string; inputMode?: 'decimal' |
     case 'datetime':
       return { type: 'datetime-local' };
     default:
-      return { type: 'text' };
+      return { type: constraints?.format === 'email' ? 'email' : constraints?.format === 'url' ? 'url' : 'text' };
   }
 }
 
