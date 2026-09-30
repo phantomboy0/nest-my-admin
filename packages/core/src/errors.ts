@@ -48,6 +48,13 @@ export class AdminForbiddenError extends AdminError {
   }
 }
 
+/** 403 FORBIDDEN_FIELDS: the body names fields the user may not write (hidden or read-only for them). */
+export class AdminForbiddenFieldsError extends AdminError {
+  constructor(fields: Record<string, string[]>) {
+    super('FORBIDDEN_FIELDS', 403, `You may not change: ${Object.keys(fields).join(', ')}`, fields);
+  }
+}
+
 /** 429: too many attempts; `retryAfter` seconds are sent as `Retry-After`. */
 export class AdminRateLimitError extends AdminError {
   constructor(

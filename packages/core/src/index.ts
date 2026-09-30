@@ -30,6 +30,7 @@ export {
   AdminError,
   AdminFieldError,
   AdminForbiddenError,
+  AdminForbiddenFieldsError,
   AdminNotFoundError,
   AdminRateLimitError,
   AdminUnauthenticatedError,

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { EntityManager } from 'typeorm';
 import type { AdminUser } from '../auth/auth-adapter.js';
+import type { EffectivePermissions } from '../policy/effective.js';
 
 /** Passed to every resource method. Grows in later milestones (user, permissions, locale). */
 export interface AdminContext {
@@ -23,6 +24,10 @@ export interface AdminContext {
   locale?: string;
   /** Who is signed in (set for every authenticated request; an open admin's user is a superuser). */
   user?: AdminUser;
+  /** The user's effective permissions for this request (roles, field rules, scopes). */
+  permissions?: EffectivePermissions;
+  /** Whether the user holds a permission code (`order.view_all`, `reports.run`); superusers hold all. */
+  can(code: string): boolean;
 }
 
 /** The box is deactivated when the request ends, so timers and clients created inside it see no context. */
@@ -56,5 +61,11 @@ export const AdminContext = {
 };
 
 export function createAdminContext(request: IncomingMessage): AdminContext {
-  return { correlationId: randomUUID(), request };
+  return {
+    correlationId: randomUUID(),
+    request,
+    can(code: string): boolean {
+      return this.permissions?.can(code) ?? false;
+    },
+  };
 }

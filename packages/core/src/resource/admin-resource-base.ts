@@ -120,6 +120,18 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   #repository?: Repository<T>;
+  #scoper?: (qb: SelectQueryBuilder<T>, ctx: AdminContext | undefined) => SelectQueryBuilder<T>;
+
+  /** @internal Called once by the policy during bootstrap: adds the user's view scopes (spec §6.4) to reads. */
+  attachScoper(scoper: (qb: SelectQueryBuilder<any>, ctx: AdminContext | undefined) => SelectQueryBuilder<any>): void {
+    this.#scoper = scoper;
+  }
+
+  /** `query()` and then the signed-in user's row scopes: what every read of this resource starts from. */
+  private restrict(qb: SelectQueryBuilder<T>, ctx: AdminContext | undefined): SelectQueryBuilder<T> {
+    const restricted = this.query(qb, ctx as AdminContext);
+    return this.#scoper ? this.#scoper(restricted, ctx) : restricted;
+  }
 
   /** @internal Called once by the registry during bootstrap. */
   attachRepository(repository: Repository<T>): void {
@@ -150,7 +162,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    */
   protected buildListQuery(params: ListParams, ctx?: AdminContext, alias = 'entity'): SelectQueryBuilder<T> {
     const repository = ctx ? this.repositoryFor(ctx) : this.repository;
-    const qb = this.query(repository.createQueryBuilder(alias), (ctx ?? AdminContext.current()) as AdminContext);
+    const qb = this.restrict(repository.createQueryBuilder(alias), ctx ?? AdminContext.current());
     return applyListParams(qb, params, repository.metadata);
   }
 
@@ -197,7 +209,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     const qb = this.repositoryFor(ctx)
       .createQueryBuilder('entity')
       .setFindOptions({ where: where as FindOptionsWhere<T>, withDeleted: options.withDeleted === true, loadEagerRelations: true });
-    return this.query(qb, ctx).getOne();
+    return this.restrict(qb, ctx).getOne();
   }
 
   /**

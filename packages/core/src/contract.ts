@@ -184,8 +184,10 @@ export interface ResourceSchema {
     /** Phone cards: fields (or paths) for the title, subtitle, badge and meta line. Without it, the title and the columns. */
     mobile?: { title?: string; subtitle?: string; badge?: string; meta: string[] };
   };
-  /** False for the root of a single-table inheritance: records are created through its child resources. */
+  /** False for the root of a single-table inheritance, or when the user may not create. */
   creatable: boolean;
+  /** What the signed-in user may do (spec §6.1); records may narrow update/delete in `_perm`. */
+  permissions?: { create: boolean; update: boolean; delete: boolean; purge: boolean };
   /**
    * Other resources whose relation fields point at this one (spec §9.4 Related): a record's related records are
    * `/<resource>?filter[<field>][<operator>]=<id>`.
@@ -294,7 +296,7 @@ export interface AccountSession {
 }
 
 export type AdminErrorCode =
-  | 'BAD_REQUEST' | 'VALIDATION' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'RATE_LIMITED' | 'BUSINESS_RULE' | 'INTERNAL';
+  | 'BAD_REQUEST' | 'VALIDATION' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'FORBIDDEN_FIELDS' | 'NOT_FOUND' | 'CONFLICT' | 'RATE_LIMITED' | 'BUSINESS_RULE' | 'INTERNAL';
 
 export interface AdminErrorBody {
   code: AdminErrorCode;

@@ -15,6 +15,7 @@ import {
 } from '../errors.js';
 import type { AdminPrincipal, AdminUser } from '../auth/auth-adapter.js';
 import { AdminAuthService } from '../auth/auth.service.js';
+import { AdminPolicy } from '../policy/admin-policy.service.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import { createAdminContext, runInAdminContext, type AdminContext } from '../resource/admin-context.js';
@@ -71,6 +72,7 @@ export class AdminHttpServer implements OnModuleInit {
     private readonly api: AdminApiService,
     private readonly registry: ResourceRegistry,
     private readonly auth: AdminAuthService,
+    private readonly policy: AdminPolicy,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {
     this.router
@@ -139,8 +141,8 @@ export class AdminHttpServer implements OnModuleInit {
         res.statusCode = 204;
         res.end();
       })
-      .add('GET', '/api/meta', ({ res, ctx }) => sendJson(res, 200, this.api.meta(ctx.locale)))
-      .add('GET', '/api/meta/resources/:resource', ({ res, ctx }, p) => sendJson(res, 200, this.api.schema(p.resource, ctx.locale)))
+      .add('GET', '/api/meta', ({ res, ctx }) => sendJson(res, 200, this.api.meta(ctx.locale, ctx)))
+      .add('GET', '/api/meta/resources/:resource', ({ res, ctx }, p) => sendJson(res, 200, this.api.schema(p.resource, ctx.locale, ctx)))
       .add('GET', '/api/search', async ({ res, url, ctx }) => sendJson(res, 200, await this.api.search(url.searchParams, ctx)))
       .add('GET', '/api/resources/:resource', async ({ res, url, ctx }, p) =>
         sendJson(res, 200, await this.api.list(p.resource, url.searchParams, ctx)),
@@ -252,6 +254,7 @@ export class AdminHttpServer implements OnModuleInit {
         if (PUBLIC_ROUTES.has(route)) principal = (await this.auth.principal(req)) ?? undefined;
         else principal = await this.auth.require(req);
         ctx.user = principal?.user;
+        if (principal) ctx.permissions = await this.policy.forUser(principal.user);
         // Labels follow Accept-Language; caches must keep the languages apart.
         ctx.locale = pickLocale(req.headers['accept-language'], this.options.locales, this.options.locale);
         res.setHeader('Content-Language', ctx.locale);

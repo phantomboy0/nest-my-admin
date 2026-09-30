@@ -96,7 +96,11 @@ async function login(username = 'ada'): Promise<{ cookie: string; csrf: string }
 }
 
 beforeAll(async () => {
-  app = await createTestApp({ imports: [AuthModule], admin: { auth: AdminAuth.custom(FakeAuth) } });
+  app = await createTestApp({
+    imports: [AuthModule],
+    // ada is a superuser; bob may use gadgets.
+    admin: { auth: AdminAuth.custom(FakeAuth), roles: [{ name: 'maker', permissions: ['gadget.*'] }], resolveRoles: (user) => (user.username === 'bob' ? ['maker'] : []) },
+  });
   fake = app.get(FakeAuth);
 });
 afterAll(async () => {

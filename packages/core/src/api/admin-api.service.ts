@@ -13,12 +13,13 @@ import { isLoadedField, loadReferences, relationRef } from '../crud/references.j
 import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
-import { AdminBadRequestError, AdminConflictError, AdminNotFoundError, AdminValidationError } from '../errors.js';
+import { AdminBadRequestError, AdminConflictError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
+import { AdminPolicy, type ResourceView } from '../policy/admin-policy.service.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
-import type { ListParams, RecordId, RecordLinkConfig } from '../resource/admin-resource-base.js';
+import { AdminResourceBase, type ListParams, type RecordId, type RecordLinkConfig } from '../resource/admin-resource-base.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
 const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
@@ -38,12 +39,24 @@ export class AdminApiService {
   constructor(
     private readonly registry: ResourceRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
+    private readonly policy: AdminPolicy,
   ) {}
 
+  /** The resource as this request's user sees it (cached per request). */
+  private readonly views = new WeakMap<AdminContext, Map<string, ResourceView>>();
+  private view(entry: RegisteredResource, ctx: AdminContext): ResourceView {
+    let byName = this.views.get(ctx);
+    if (!byName) this.views.set(ctx, (byName = new Map()));
+    let view = byName.get(entry.schema.name);
+    if (!view) byName.set(entry.schema.name, (view = this.policy.view(entry, entry.schema, ctx)));
+    return view;
+  }
+
   /** Sidebar data with labels in `locale` (the default locale when omitted). */
-  meta(locale = this.options.locale): MetaResponse {
+  meta(locale = this.options.locale, ctx?: AdminContext): MetaResponse {
     const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
-    const resources = this.registry.list();
+    // Only resources the user may view (spec §6.5: meta is filtered per user).
+    const resources = this.registry.list().filter((entry) => !ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view'));
     const groups = this.registry
       .groupList()
       .map((group) => ({
@@ -51,7 +64,11 @@ export class AdminApiService {
         label: text(group.label),
         resources: resources
           .filter((entry) => entry.schema.group === group.key)
-          .map(({ schema, label }) => ({ name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}), creatable: schema.creatable, searchable: schema.list.search.length > 0 }))
+          .map((entry) => {
+            const { schema, label } = entry;
+            const seen = ctx ? this.view(entry, ctx).schema : schema;
+            return { name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}), creatable: seen.creatable, searchable: seen.list.search.length > 0 };
+          })
           .sort((a, b) => a.label.localeCompare(b.label, locale)),
       }))
       .filter((entry) => entry.resources.length > 0)
@@ -66,8 +83,9 @@ export class AdminApiService {
   }
 
   /** A resource's schema with its labels in `locale`. */
-  schema(name: string, locale = this.options.locale): ResourceSchema {
+  schema(name: string, locale = this.options.locale, ctx?: AdminContext): ResourceSchema {
     const entry = this.registry.get(name);
+    if (ctx) this.policy.requireReach(entry, ctx);
     const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
     const related = entry.schema.related.map((item, index) => {
       const base = text(this.registry.get(item.resource).label);
@@ -77,17 +95,28 @@ export class AdminApiService {
     const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale));
     const layout = entry.resource.form?.layout;
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale) } : entry.schema.form;
-    return { ...entry.schema, label: text(entry.label), related, fields, form };
+    const localized = { ...entry.schema, label: text(entry.label), related, fields, form };
+    return ctx ? this.policy.view(entry, localized, ctx).schema : localized;
   }
 
   async list(name: string, query: URLSearchParams, ctx: AdminContext): Promise<ListResponse> {
     const entry = this.registry.get(name);
-    const { schema, resource } = entry;
+    this.policy.require(entry, 'view', ctx);
+    const { resource } = entry;
+    // Anti-oracle (spec §6.5): filters, sort and search accept only fields this user can see.
+    const schema = this.view(entry, ctx).schema;
     const params = parseListQuery(query, schema);
     // A relation sorted by its target's title column (`sort=customer` → `customer.name`).
     const sortPath = entry.sortPaths.get(params.sort.field);
     if (sortPath) params.sort = { ...params.sort, field: sortPath };
-    const { items, total, estimated, hasMore, nextCursor } = await resource.findMany(params, ctx);
+    const found = await resource.findMany(params, ctx);
+    const { total, estimated, hasMore, nextCursor } = found;
+    let items = found.items;
+    // A findMany override may ignore the scopes; rows outside them never leave (spec §6.4).
+    if (resource.findMany !== AdminResourceBase.prototype.findMany && this.policy.scoped(entry, 'view', ctx)) {
+      const allowed = await this.policy.allowedIds(entry, items.map((item) => this.idOf(entry, item)), 'view', ctx);
+      items = items.filter((item) => allowed.has(recordIdOf(item, schema.primaryKeys)));
+    }
     const mobile = schema.list.mobile;
     const shown = new Set([...schema.list.columns, ...(mobile ? [mobile.title, mobile.subtitle, mobile.badge, ...mobile.meta] : [])]);
     const loaded = schema.fields.filter((field) => isLoadedField(field) && shown.has(field.name));
@@ -113,10 +142,11 @@ export class AdminApiService {
     const limit = rawLimit === null ? 5 : Number(rawLimit);
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new AdminValidationError({ limit: ['must be an integer from 1 to 20'] });
     const locale = ctx.locale ?? this.options.locale;
-    const searchable = this.registry.list().filter((entry) => entry.schema.list.search.length > 0);
+    const perms = this.policy.permissionsOf(ctx);
+    const searchable = this.registry.list().filter((entry) => perms.canOn(entry.schema.name, 'view') && this.view(entry, ctx).schema.list.search.length > 0);
     const results = await Promise.all(
       searchable.map(async (entry) => {
-        const { schema } = entry;
+        const schema = this.view(entry, ctx).schema;
         const sortPath = entry.sortPaths.get(schema.list.defaultSort.field);
         const params: ListParams = {
           page: 1,
@@ -133,7 +163,10 @@ export class AdminApiService {
           return {
             resource: schema.name,
             label: resolveText(entry.label, locale, this.options.locale),
-            items: items.map((entity) => ({ _id: recordIdOf(entity, schema.primaryKeys), _title: entry.title(entity) })),
+            items: items.map((entity) => {
+              const id = recordIdOf(entity, schema.primaryKeys);
+              return { _id: id, _title: this.policy.titleVisible(entry, ctx) ? entry.title(entity) : `#${id}` };
+            }),
             hasMore: hasMore ?? items.length >= limit,
           };
         } catch (error) {
@@ -147,37 +180,50 @@ export class AdminApiService {
 
   async get(name: string, rawId: string, ctx: AdminContext): Promise<AdminRecord> {
     const entry = this.registry.get(name);
+    this.policy.require(entry, 'view', ctx);
     const { schema, resource } = entry;
-    const entity = await resource.findOne(parseRecordId(rawId, schema), ctx);
+    const id = parseRecordId(rawId, schema);
+    const entity = await resource.findOne(id, ctx);
     if (!entity) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+    await this.policy.requireInScope(entry, id, rawId, 'view', ctx); // a findOne override may ignore scopes
     return this.record(entry, entity, ctx);
   }
 
   /** Serializes entities with their relation values and paths (`fields`) loaded and their titles. */
   private async records(entry: RegisteredResource, entities: object[], fields: FieldSchema[], ctx: AdminContext): Promise<AdminRecord[]> {
-    const { schema } = entry;
+    // Only what this user may see is serialized (spec §6.5).
+    const schema = this.view(entry, ctx).schema;
+    const visible = new Set(schema.fields.map((field) => field.name));
+    fields = fields.filter((field) => visible.has(field.name));
+    const perms = await this.policy.recordPermissions(entry, entities, ctx);
+    const titled = this.policy.titleVisible(entry, ctx);
     const manager: EntityManager = ctx.manager ?? entry.dataSource.manager;
     const loaded = fields.length > 0 ? await loadReferences(entry, entities, fields, { registry: this.registry, manager }) : undefined;
     const discriminator = entry.metadata.discriminatorColumn?.propertyName;
     const kindOf = (entity: object) =>
       entry.metadata.childEntityMetadatas.find((child) => child.target === entity.constructor)?.discriminatorValue ?? entry.metadata.discriminatorValue;
     const locale = ctx.locale ?? this.options.locale;
-    return entities.map((entity) => {
+    const out = entities.map((entity) => {
       const id = recordIdOf(entity, schema.primaryKeys);
       const locked = this.lockedFields(entry, entity);
       const links = this.recordLinks(entry, entity, locale);
       // TypeORM does not load the discriminator into entities; each row's class says which kind it is.
       const values = discriminator && schema.fields.some((field) => field.name === discriminator) ? { ...loaded?.get(id), [discriminator]: kindOf(entity) } : loaded?.get(id);
-      const record = serializeRecord(entity, schema.fields, values, { id, title: entry.title(entity) });
+      const record = serializeRecord(entity, schema.fields, values, { id, title: titled ? entry.title(entity) : `#${id}` });
+      this.policy.maskReferences(entry, record, fields, ctx);
+      const perm = perms?.get(id);
+      if (perm) record._perm = perm;
       if (locked.length > 0) record._readonly = locked;
       if (links.length > 0) record._links = links;
       return record;
     });
+    await this.policy.maskOutOfScope(entry, out, fields, ctx);
+    return out;
   }
 
   /** One record with every relation field loaded (detail and write responses). */
   private async record(entry: RegisteredResource, entity: object, ctx: AdminContext): Promise<AdminRecord> {
-    const relations = entry.schema.fields.filter((field) => field.type === 'relation');
+    const relations = this.view(entry, ctx).schema.fields.filter((field) => field.type === 'relation');
     return (await this.records(entry, [entity], relations, ctx))[0]!;
   }
 
@@ -206,8 +252,11 @@ export class AdminApiService {
 
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
     const entry = this.registry.get(name);
-    const { schema, resource } = entry;
-    if (!schema.creatable) {
+    const { resource } = entry;
+    if (entry.schema.creatable) this.policy.require(entry, 'create', ctx);
+    else this.policy.requireReach(entry, ctx);
+    const schema = this.view(entry, ctx).schema;
+    if (!entry.schema.creatable) {
       const children = this.registry
         .list()
         .filter((candidate) => entry.metadata.childEntityMetadatas.some((child) => child.target === candidate.entity))
@@ -216,6 +265,7 @@ export class AdminApiService {
         `${schema.label} records are created as one of their kinds${children.length > 0 ? `: ${children.join(', ')}` : ''}`,
       );
     }
+    this.policy.checkWriteFields(entry, body, entry.schema.form.create, ctx);
     const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
@@ -230,8 +280,11 @@ export class AdminApiService {
 
   async update(name: string, rawId: string, body: unknown, ctx: AdminContext, version?: number): Promise<AdminRecord> {
     const entry = this.registry.get(name);
-    const { schema, resource } = entry;
+    this.policy.require(entry, 'update', ctx);
+    const { resource } = entry;
+    const schema = this.view(entry, ctx).schema;
     const id = parseRecordId(rawId, schema);
+    this.policy.checkWriteFields(entry, body, entry.schema.form.update, ctx);
     const updateDto = resource.form?.update;
     const dto = await validateWrite(body, {
       allowed: schema.form.update,
@@ -241,9 +294,13 @@ export class AdminApiService {
     });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
+      // Out of scope is "not found", before anything could reveal the record (a 409 carries it).
+      await this.policy.requireInScope(entry, id, rawId, 'view', tx);
+      await this.policy.requireInScope(entry, id, rawId, 'update', tx);
       await this.checkVersion(entry, id, version, tx);
       const existing = await resource.findOne(id, tx);
       if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+      this.policy.requireRecordRule(entry, 'update', existing, tx);
       const locked = this.lockedFields(entry, existing).filter((name) => Object.hasOwn(dto, name));
       if (locked.length > 0) throw new AdminValidationError(Object.fromEntries(locked.map((name) => [name, ['is read-only']])), 'Some fields are read-only');
       if ([...relationIds.values()].some((ids) => ids.length > 0)) {
@@ -258,11 +315,16 @@ export class AdminApiService {
 
   async remove(name: string, rawId: string, ctx: AdminContext, version?: number): Promise<void> {
     const entry = this.registry.get(name);
+    this.policy.require(entry, 'delete', ctx);
     const { schema, resource } = entry;
     const id = parseRecordId(rawId, schema);
     await this.write(entry, ctx, async (tx) => {
+      await this.policy.requireInScope(entry, id, rawId, 'view', tx);
+      await this.policy.requireInScope(entry, id, rawId, 'delete', tx);
       await this.checkVersion(entry, id, version, tx);
-      if (!(await resource.findOne(id, tx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+      const existing = await resource.findOne(id, tx);
+      if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+      this.policy.requireRecordRule(entry, 'delete', existing, tx);
       await resource.delete(id, tx);
     });
   }
@@ -294,7 +356,9 @@ export class AdminApiService {
     const qb = manager.getRepository(target.target).createQueryBuilder('option');
     // The target resource's query() restricts what may be picked, before this field's relationOptions().
     const targetEntry = this.registry.forEntity(target.target, entry.dataSource);
-    return entry.resource.relationOptions(field, targetEntry ? targetEntry.resource.query(qb, ctx) : qb, ctx, values);
+    // The target resource's query() and the user's view scopes there restrict what may be picked (spec §6.4).
+    const restricted = targetEntry ? this.policy.applyScopes(targetEntry.resource.query(qb, ctx), targetEntry, 'view', ctx) : qb;
+    return entry.resource.relationOptions(field, restricted, ctx, values);
   }
 
   /**
@@ -331,7 +395,8 @@ export class AdminApiService {
    */
   async fieldOptions(name: string, fieldName: string, query: URLSearchParams, ctx: AdminContext): Promise<OptionsResponse> {
     const entry = this.registry.get(name);
-    const field = entry.schema.fields.find((candidate) => candidate.name === fieldName);
+    this.policy.requireReach(entry, ctx);
+    const field = this.view(entry, ctx).schema.fields.find((candidate) => candidate.name === fieldName);
     if (!field) throw new AdminNotFoundError(`Unknown field "${fieldName}"`);
     if (field.type !== 'relation') throw new AdminBadRequestError(`"${fieldName}" is not a relation field`);
     const known = new Set(['search', 'ids', 'values']);
@@ -345,6 +410,11 @@ export class AdminApiService {
     const target = relation.inverseEntityMetadata;
     const key = target.primaryColumns[0]!.propertyName;
     const title = this.registry.titleFor(target, entry.dataSource);
+    const targetEntry = this.registry.forEntity(target.target, entry.dataSource);
+    // Picking a record means seeing it: the user must be able to view the target resource.
+    if (targetEntry && !this.policy.permissionsOf(ctx).canOn(targetEntry.schema.name, 'view')) {
+      throw new AdminForbiddenError(`You may not view ${targetEntry.schema.label} records`);
+    }
     const qb = this.optionsQuery(entry, fieldName, ctx, values);
 
     const rawIds = query.get('ids');
@@ -357,8 +427,7 @@ export class AdminApiService {
     } else {
       if (search.length > 200) throw new AdminValidationError({ search: ['must be at most 200 characters'] });
       if (search) {
-        const targetEntry = this.registry.forEntity(target.target, entry.dataSource);
-        const fields = targetEntry ? targetEntry.schema.list.search.filter((name) => !name.includes('.')) : title.column ? [title.column] : [];
+        const fields = targetEntry ? this.view(targetEntry, ctx).schema.list.search.filter((name) => !name.includes('.')) : title.column ? [title.column] : [];
         if (fields.length === 0) throw new AdminValidationError({ search: [`${field.label} options cannot be searched`] });
         const clauses = fields.map((name) => persianLike(`option.${name}`, search, 'nmaSearch', (text) => likePattern(text, 'anywhere')));
         qb.andWhere(`(${clauses.map((clause) => clause.sql).join(' OR ')})`, clauses[0]!.params);
@@ -368,7 +437,9 @@ export class AdminApiService {
     if (title.column) qb.orderBy(`option.${title.column}`, 'ASC').addOrderBy(`option.${key}`, 'ASC');
     else qb.orderBy(`option.${key}`, 'ASC');
     const rows = await qb.getMany();
-    return { items: rows.map((row) => relationRef(field, relation, row, title)) };
+    const titled = !targetEntry || this.policy.titleVisible(targetEntry, ctx);
+    const refs = rows.map((row) => relationRef(field, relation, row, title));
+    return { items: titled ? refs : refs.map((ref) => ({ ...ref, title: `#${String(ref.id)}` })) };
   }
 
   /**
@@ -377,6 +448,7 @@ export class AdminApiService {
    */
   async bulkDelete(name: string, body: unknown, ctx: AdminContext): Promise<BulkResult> {
     const entry = this.registry.get(name);
+    this.policy.require(entry, 'delete', ctx);
     const ids = (body as { ids?: unknown } | null)?.ids;
     if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BULK || ids.some((id) => typeof id !== 'string' || id === '')) {
       throw new AdminValidationError({ ids: [`must be a list of 1 to ${MAX_BULK} record ids`] });
@@ -402,16 +474,24 @@ export class AdminApiService {
   async restore(name: string, rawId: string, ctx: AdminContext): Promise<AdminRecord> {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
+    this.policy.require(entry, 'delete', ctx); // restoring undoes a delete
     if (!schema.softDelete) throw new AdminBadRequestError(`${schema.label} records have no trash`);
     const id = parseRecordId(rawId, schema);
-    return this.write(entry, ctx, async (tx) => this.record(entry, await resource.restore(id, tx), tx));
+    return this.write(entry, ctx, async (tx) => {
+      await this.policy.requireInScope(entry, id, rawId, 'view', tx, true);
+      await this.policy.requireInScope(entry, id, rawId, 'delete', tx, true);
+      return this.record(entry, await resource.restore(id, tx), tx);
+    });
   }
 
   /** Removes a record for good (trashed or not). */
   async purge(name: string, rawId: string, ctx: AdminContext, version?: number): Promise<void> {
     const entry = this.registry.get(name);
+    this.policy.require(entry, 'purge', ctx);
     const id = parseRecordId(rawId, entry.schema);
     await this.write(entry, ctx, async (tx) => {
+      await this.policy.requireInScope(entry, id, rawId, 'view', tx, true);
+      await this.policy.requireInScope(entry, id, rawId, 'delete', tx, true);
       await this.checkVersion(entry, id, version, tx, true);
       await entry.resource.purge(id, tx);
     });
@@ -451,6 +531,13 @@ export class AdminApiService {
     if (this.warned.has(message)) return;
     this.warned.add(message);
     this.logger.warn(message);
+  }
+
+  /** An entity's primary key as `findOne` takes it (a scalar, or `{ key: value }` for composite keys). */
+  private idOf(entry: RegisteredResource, entity: object): RecordId {
+    const keys = entry.schema.primaryKeys;
+    const values = entity as Record<string, unknown>;
+    return (keys.length === 1 ? values[keys[0]!] : Object.fromEntries(keys.map((key) => [key, values[key]]))) as RecordId;
   }
 
   /** Host services often return nothing from update(); fall back to reading the record. */
