@@ -137,6 +137,33 @@ relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext, v
 - **CHECK constraint** violations are a 422 on the columns the check's expression names. TypeORM does not create
   checks on MySQL.
 
+### Languages, theme and branding
+
+```ts
+AdminModule.forRoot({
+  title: { en: 'Demo shop', fa: 'فروشگاه نمونه' },
+  locale: 'en',             // default language
+  locales: ['en', 'fa'],    // the UI ships English and Persian; Persian is right-to-left
+  branding: { name: { en: 'Shop', fa: 'فروشگاه' }, logo: '/static/logo.svg', primaryColor: '#0f766e', radius: '0.5rem' },
+});
+@AdminGroup({ label: { en: 'Sales', fa: 'فروش' }, icon: 'cart' })
+@AdminResource(Order, { label: { en: 'Orders', fa: 'سفارش‌ها' }, icon: 'receipt' })
+```
+
+- **Languages.**
+  - The language switch appears when there is more than one locale, and the choice is remembered in the browser.
+  - The UI sends it as `Accept-Language`. Labels given per language answer in it, falling back to the default
+    locale.
+  - Resources and hooks see it as `ctx.locale`.
+  - Field labels are English until M2-3 adds per-language field labels.
+- **Branding.**
+  - `primaryColor` may be hex, `rgb()`, `hsl()` or `oklch()`, and `radius` a length. Text on the primary colour is
+    chosen from its lightness.
+  - `logo` must be an http(s) URL or a relative path.
+  - Anything else fails at boot, so no value can inject CSS.
+- **Theme.** Light, dark or system, from the header. It is applied before the page renders, so nothing flashes.
+- **Icons** for groups and resources: bell, book, box, boxes, briefcase, building, calendar, cart, chart, clock, credit-card, database, dollar, file, file-text, folder, globe, heart, history, home, image, inbox, key, layers, link, list, lock, mail, map, map-pin, message, package, phone, printer, receipt, server, settings, shield, shopping-bag, shopping-cart, star, store, tag, tags, ticket, truck, user, users, video, wallet, wrench, zap.
+
 ## Transactions, context and errors
 
 Every create, update and delete runs in one database transaction. Pass `ctx.manager` to your services so their writes

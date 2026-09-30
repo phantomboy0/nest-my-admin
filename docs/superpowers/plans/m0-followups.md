@@ -67,3 +67,10 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - `estimate` on MySQL is the optimizer's guess (it assumes 33% for unindexed ranges); it is labelled "about".
 - The related list filter is added to the other resource's filter bar too (visible there as a picker).
 - Dependent options send the form's short scalar values and relation ids as `?values=` (≤ 4 KB); long text and groups are left out.
+
+## M2-1 follow-ups
+- -> M2-3: field labels, help and enum value labels per language (`@AdminField`, `fields` config); server validation messages are English (class-validator's) in both UIs.
+- -> M2-4: Persian digits option, Jalali pickers (display already uses the Persian calendar through Intl for `fa`).
+- A resource named `g` is shadowed by the group landing route `/g/:group`.
+- Home page counts run one list request per resource (exact counts for `exact` resources); fine for tens of resources, revisit with dashboards (M5).
+- Pinned and recent resources and the sidebar state live in localStorage per browser; per user in M3.

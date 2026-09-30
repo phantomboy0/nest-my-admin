@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import { AdminLayout } from '@/app/admin-layout';
 import { FormPage } from '@/app/form-page';
+import { GroupPage } from '@/app/group-page';
 import { HomePage } from '@/app/home-page';
 import { ListPage } from '@/app/list-page';
 import { NotFound } from '@/app/not-found';
@@ -28,6 +29,7 @@ const router = createBrowserRouter(
       element: <AdminLayout />,
       children: [
         { index: true, element: <HomePage /> },
+        { path: 'g/:group', element: <GroupPage /> },
         { path: ':resource', element: <ListPage /> },
         { path: ':resource/new', element: <FormPage mode="create" /> },
         { path: ':resource/:id', element: <FormPage mode="edit" /> },

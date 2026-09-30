@@ -1,12 +1,17 @@
 import { expect, test } from '@playwright/test';
 
-test('opens the first resource and navigates with the sidebar', async ({ page, isMobile }) => {
+test('the home page lists resources with counts, and the sidebar navigates', async ({ page, isMobile }) => {
   await page.goto('/admin');
-  await expect(page).toHaveURL(/\/admin\/category$/); // resources are sorted by label
+  await expect(page.getByRole('heading', { name: 'Demo shop', level: 1 })).toBeVisible();
+  const card = page.getByRole('main').getByRole('link', { name: /^Product\s*\d+ records$/ });
+  await expect(card).toBeVisible();
+  await card.click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+  await page.goto('/admin/category');
   await expect(page.getByRole('heading', { name: 'Category' })).toBeVisible();
 
   if (isMobile) await page.getByRole('button', { name: 'Menu' }).click();
-  await page.getByRole('link', { name: 'Product' }).click();
+  await page.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Catalog' }).getByRole('link', { name: 'Product' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
   await expect(page.getByRole('heading', { name: 'Product' })).toBeVisible();
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
@@ -29,12 +34,12 @@ test('creates a product through the service and edits it', async ({ page }, test
   await created.click();
   await expect(page).toHaveURL(/\/admin\/product\/\d+$/);
   const editUrl = page.url();
-  await page.getByLabel('Stock').fill('3');
+  await page.getByLabel('Stock', { exact: true }).fill('3');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
 
   await page.goto(editUrl);
-  await expect(page.getByLabel('Stock')).toHaveValue('3');
+  await expect(page.getByLabel('Stock', { exact: true })).toHaveValue('3');
   await expect(page.getByLabel('Price')).toHaveValue('19.90');
 });
 
@@ -170,7 +175,7 @@ test('a second editor gets a conflict notice and can keep their changes', async 
 
   const other = await page.context().newPage();
   await other.goto(editUrl);
-  await other.getByLabel('Stock').fill('7');
+  await other.getByLabel('Stock', { exact: true }).fill('7');
   await other.getByRole('button', { name: 'Save' }).click();
   await expect(other).toHaveURL(/\/admin\/product$/);
   await other.close();
@@ -185,7 +190,7 @@ test('a second editor gets a conflict notice and can keep their changes', async 
 
   await page.goto(editUrl);
   await expect(page.getByLabel('Name')).toHaveValue('My lamp');
-  await expect(page.getByLabel('Stock')).toHaveValue('7');
+  await expect(page.getByLabel('Stock', { exact: true })).toHaveValue('7');
 });
 
 test('a product in the trash can be restored', async ({ page }, testInfo) => {
@@ -241,4 +246,50 @@ test('the stock log pages forward and back with a cursor', async ({ page }) => {
   await page.getByRole('button', { name: 'Previous page' }).click();
   await expect(page.getByText('Move 25', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+});
+
+test('switching to Persian turns the page right-to-left and survives a reload', async ({ page, isMobile }) => {
+  await page.goto('/admin');
+  await page.getByLabel('Language').selectOption('fa');
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fa');
+  await expect(page.getByRole('heading', { name: 'فروشگاه نمونه', level: 1 })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  if (isMobile) await page.getByRole('button', { name: 'منو' }).click();
+  await page.getByRole('navigation', { name: 'بخش‌ها' }).getByRole('list', { name: 'کاتالوگ' }).getByRole('link', { name: 'محصول' }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+  await expect(page.getByRole('link', { name: 'جدید' })).toBeVisible();
+});
+
+test('dark mode survives a reload', async ({ page }) => {
+  await page.goto('/admin/product');
+  await page.getByRole('radio', { name: 'Dark' }).click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.reload();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.getByRole('radio', { name: 'Light' }).click();
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
+});
+
+test('pinned resources, the collapsed sidebar and breadcrumbs', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the desktop sidebar (pins on hover, icon rail)');
+  await page.goto('/admin/product');
+  const nav = page.getByRole('navigation', { name: 'Resources' });
+  await nav.getByRole('button', { name: 'Pin Tag' }).click();
+  await expect(nav.getByRole('region', { name: 'Pinned' }).getByRole('link', { name: 'Tag' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await nav.getByRole('link', { name: 'Supplier' }).click(); // icon-only links keep their names
+  await expect(page).toHaveURL(/\/admin\/supplier$/);
+  await page.getByRole('button', { name: 'Expand sidebar' }).click();
+
+  await page.goto('/admin/product');
+  await page.getByText('DEMO-2', { exact: true }).filter({ visible: true }).click();
+  const crumbs = page.getByRole('navigation', { name: 'Breadcrumbs' });
+  await expect(crumbs).toContainText('Catalog');
+  await expect(crumbs).toContainText('Notebook');
+  await crumbs.getByRole('link', { name: 'Catalog' }).click();
+  await expect(page).toHaveURL(/\/admin\/g\/catalog$/);
+  await expect(page.getByRole('heading', { name: 'Catalog', level: 1 })).toBeVisible();
 });

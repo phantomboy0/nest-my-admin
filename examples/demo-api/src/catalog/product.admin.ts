@@ -3,7 +3,7 @@ import { CreateProductDto, UpdateProductDto } from './product.dto.js';
 import { Product } from './product.entity.js';
 import { ProductsService } from './products.service.js';
 
-@AdminResource(Product, { icon: 'package' })
+@AdminResource(Product, { icon: 'package', label: { en: 'Product', fa: 'محصول' } })
 export class ProductAdmin extends AdminResourceBase<Product> {
   constructor(private readonly products: ProductsService) {
     super();

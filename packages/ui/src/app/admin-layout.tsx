@@ -1,84 +1,82 @@
-import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router';
-import { Menu } from 'lucide-react';
-import type { MetaGroup } from '@nest-my-admin/core/contract';
-import { LocaleSwitch, ThemeSwitch } from '@/app/preferences';
+import { useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation } from 'react-router';
+import { X } from 'lucide-react';
+import { Header } from '@/app/header';
+import { Sidebar } from '@/app/sidebar';
 import { Button } from '@/components/ui/button';
-import { useT } from '@/i18n';
+import { useLocale } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
+import { navStore, useNavState } from '@/lib/nav-state';
 import { useMeta } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
+function labelIn(label: string | Record<string, string> | undefined, locale: string): string | undefined {
+  if (label === undefined || typeof label === 'string') return label;
+  return label[locale] ?? label[runtimeConfig.locale] ?? Object.values(label)[0];
+}
+
 export function AdminLayout() {
   const meta = useMeta();
+  const { t, locale } = useLocale();
+  const nav = useNavState();
   const location = useLocation();
-  const [navOpen, setNavOpen] = useState(false);
-  const t = useT();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const drawer = useRef<HTMLDivElement>(null);
+
+  const groups = meta.data?.groups ?? [];
+  const title = labelIn(runtimeConfig.branding.name, locale) ?? meta.data?.title ?? runtimeConfig.title;
+  const logo = runtimeConfig.branding.logo;
 
   useEffect(() => {
-    setNavOpen(false);
-  }, [location.pathname]);
+    setMenuOpen(false);
+    // A list or record page of a known resource counts as a visit (recents).
+    const resource = decodeURIComponent(location.pathname.split('/').filter(Boolean)[0] ?? '');
+    if (groups.some((group) => group.resources.some((candidate) => candidate.name === resource))) navStore.visit(resource);
+  }, [location.pathname, groups]);
 
-  const title = meta.data?.title ?? runtimeConfig.title;
-  const groups = meta.data?.groups ?? [];
+  useEffect(() => {
+    if (meta.data) document.title = meta.data.title;
+  }, [meta.data]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    drawer.current?.querySelector<HTMLElement>('a, button, input')?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
 
   return (
     <div className="flex min-h-svh bg-background text-foreground">
-      <aside className="hidden w-64 shrink-0 border-e bg-sidebar text-sidebar-foreground md:block">
-        <ResourceNav title={title} groups={groups} />
+      <aside className={cn('hidden shrink-0 border-e bg-sidebar text-sidebar-foreground md:block', nav.railCollapsed ? 'w-16' : 'w-64')}>
+        <Sidebar title={title} logo={logo} groups={groups} rail={nav.railCollapsed} />
       </aside>
 
-      {navOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
-          <div className="absolute inset-0 bg-black/40" aria-hidden onClick={() => setNavOpen(false)} />
-          <aside className="absolute inset-y-0 start-0 w-72 max-w-[85vw] border-e bg-sidebar text-sidebar-foreground shadow-xl">
-            <ResourceNav title={title} groups={groups} />
+      {menuOpen && (
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('shell.menu')} ref={drawer}>
+          <div className="absolute inset-0 bg-black/40" aria-hidden onClick={() => setMenuOpen(false)} />
+          <aside className="absolute inset-y-0 start-0 flex w-72 max-w-[85vw] flex-col border-e bg-sidebar text-sidebar-foreground shadow-xl">
+            <div className="flex justify-end p-2">
+              <Button variant="ghost" size="icon" aria-label={t('shell.closeMenu')} onClick={() => setMenuOpen(false)}>
+                <X />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <Sidebar title={title} logo={logo} groups={groups} />
+            </div>
           </aside>
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center gap-2 border-b px-4">
-          <Button variant="ghost" size="icon" className="md:hidden" aria-label={t('shell.menu')} onClick={() => setNavOpen(true)}>
-            <Menu />
-          </Button>
-          <span className="font-semibold md:hidden">{title}</span>
-          <div className="ms-auto flex items-center gap-2">
-            <LocaleSwitch />
-            <ThemeSwitch />
-          </div>
-        </header>
+      {/* inert while the drawer is open: focus and screen readers stay in the menu */}
+      <div className="flex min-w-0 flex-1 flex-col" inert={menuOpen || undefined}>
+        <Header meta={meta.data} onOpenMenu={() => setMenuOpen(true)} />
         <main className="flex-1 p-4 md:p-6">
           <Outlet />
         </main>
       </div>
     </div>
-  );
-}
-
-function ResourceNav({ title, groups }: { title: string; groups: MetaGroup[] }) {
-  return (
-    <nav aria-label={useT()('shell.resources')} className="flex h-full flex-col gap-4 overflow-y-auto p-3">
-      <div className="px-2 py-1 text-lg font-semibold">{title}</div>
-      {groups.map((group) => (
-        <div key={group.key}>
-          <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">{group.label}</div>
-          <ul className="flex flex-col gap-0.5">
-            {group.resources.map((resource) => (
-              <li key={resource.name}>
-                <NavLink
-                  to={`/${resource.name}`}
-                  className={({ isActive }) =>
-                    cn('block rounded-md px-2 py-1.5 text-sm hover:bg-sidebar-accent', isActive && 'bg-sidebar-accent font-medium')
-                  }
-                >
-                  {resource.label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </nav>
   );
 }

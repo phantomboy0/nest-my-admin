@@ -44,6 +44,13 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - `autoRegister` is a list of DataSource names.
   - `linkRelations` fills `schema.related`, adds the implied filters, and fills `sortPaths` (relation → title column).
   - `relationOptions` takes a 4th `values` argument (`?values=` JSON, or the body/stored record on writes).
+- UI shell and i18n (M2-1):
+  - Text lives in `packages/ui/src/i18n/{en,fa}.ts`. `fa` is typed as `Messages` from `en`, and a test checks keys, placeholders and physical Tailwind utilities.
+  - React components use `useT()`; non-React code uses `translate()` (module locale from `applyLocale`).
+  - Core resolves `LocalizedText` labels per request (`pickLocale(Accept-Language)` in `AdminHttpServer.handle`, `meta(locale)`/`schema(locale)`), and sets `Content-Language` and `Vary`.
+  - Theme and branding are applied in `main.tsx` before render (`lib/theme.ts`).
+  - Sidebar state lives in `lib/nav-state.ts`, and icons come from a curated map (`lib/icons.ts`).
+  - `/g/:group` is a group landing page, and `/` shows every group with counts.
 - Hooks (`@BeforeSave/@AfterSave/@BeforeDelete`) run only in `AdminResourceBase`'s default create/update/delete; resources that override those methods call their own services instead.
 - Writes run inside `AdminApiService.write()`: one `dataSource.transaction()`, `ctx.manager` set, and `AdminContext.run()` re-entered so `AdminContext.current()` sees the transactional context. `AdminResourceBase` defaults use `repositoryFor(ctx)`. Reads get no manager. On Postgres/MySQL a service that ignores `ctx.manager` writes on another pooled connection (outside the transaction, can block on its locks); SQLite-family writes are serialized per DataSource.
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.

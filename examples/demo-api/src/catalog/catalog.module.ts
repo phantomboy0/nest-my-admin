@@ -10,7 +10,7 @@ import { Supplier } from './supplier.entity.js';
 import { StockMove } from './stock-move.entity.js';
 import { CategoryAdmin, StockMoveAdmin, SupplierAdmin, TagAdmin } from './taxonomy.admin.js';
 
-@AdminGroup({ label: 'Catalog', icon: 'boxes' })
+@AdminGroup({ label: { en: 'Catalog', fa: 'کاتالوگ' }, icon: 'boxes' })
 @Module({
   imports: [TypeOrmModule.forFeature([Product, Category, Tag, Supplier, StockMove])],
   providers: [ProductsService, ProductAdmin, CategoryAdmin, TagAdmin, SupplierAdmin, StockMoveAdmin],

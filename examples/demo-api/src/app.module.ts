@@ -8,7 +8,13 @@ import { databaseOptions } from './database.js';
   imports: [
     // Async so DATABASE_URL is read at boot, not when this file is imported (tests set it per run).
     TypeOrmModule.forRootAsync({ useFactory: () => databaseOptions() }),
-    AdminModule.forRoot({ path: '/admin', title: 'Demo shop' }),
+    AdminModule.forRoot({
+      path: '/admin',
+      title: { en: 'Demo shop', fa: 'فروشگاه نمونه' },
+      locale: 'en',
+      locales: ['en', 'fa'],
+      branding: { primaryColor: '#0f766e' },
+    }),
     CatalogModule,
   ],
 })
