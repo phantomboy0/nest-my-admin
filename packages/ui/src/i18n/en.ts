@@ -89,6 +89,14 @@ export const en = {
   'filters.emptyValues': '{field}: empty values',
   'filters.selected': '{count} selected',
 
+  'display.title': 'Calendar and digits',
+  'display.calendar': 'Calendar',
+  'display.gregorian': 'Gregorian',
+  'display.jalali': 'Jalali',
+  'display.digits': 'Digits',
+  'display.latinDigits': 'Latin 123',
+  'display.persianDigits': 'Persian ۱۲۳',
+
   'form.new': 'New {name}',
   'form.save': 'Save',
   'form.saving': 'Saving…',
@@ -128,6 +136,7 @@ export const en = {
   'validation.required': 'is required',
   'validation.number': 'must be a number',
   'validation.json': 'must be valid JSON',
+  'validation.date': 'must be a valid date',
   'validation.datetime': 'must be a valid date and time',
   'validation.minLength': 'must be at least {min} characters',
   'validation.maxLength': 'must be at most {max} characters',

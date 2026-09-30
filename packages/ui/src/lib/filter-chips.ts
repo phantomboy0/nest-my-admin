@@ -1,5 +1,5 @@
 import type { FieldSchema, FilterOperator, ResourceSchema } from '@nest-my-admin/core/contract';
-import { formatDateTime, translate as tr } from '@/i18n';
+import { formatDate, formatDateTime, formatNumberText, translate as tr } from '@/i18n';
 
 /** One active filter as the chip row shows it. Relation chips carry ids; the chip looks their titles up. */
 export interface FilterChip {
@@ -18,6 +18,8 @@ const FILTER_KEY = /^filter\[([^\][]+)\]\[([^\][]+)\]$/;
 function display(field: FieldSchema, raw: string): string {
   if (field.type === 'boolean') return tr(raw === 'true' ? 'common.yes' : 'common.no');
   if (field.type === 'enum') return field.enumLabels?.[raw] ?? raw;
+  if (field.type === 'date') return formatDate(raw);
+  if (field.type === 'number' || field.type === 'decimal' || field.type === 'bigint') return formatNumberText(raw);
   if (field.type === 'datetime') {
     const date = new Date(raw);
     return Number.isNaN(date.getTime()) ? raw : formatDateTime(date);

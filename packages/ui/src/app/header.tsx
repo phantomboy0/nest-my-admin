@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { Link, useLocation } from 'react-router';
 import { ChevronRight, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { MetaResponse } from '@nest-my-admin/core/contract';
-import { LocaleSwitch, ThemeSwitch } from '@/app/preferences';
+import { DisplayMenu, LocaleSwitch, ThemeSwitch } from '@/app/preferences';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { navStore, useNavState } from '@/lib/nav-state';
@@ -78,7 +78,10 @@ export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; o
       </nav>
       <div className="flex items-center gap-2">
         <LocaleSwitch />
-        <ThemeSwitch />
+        <DisplayMenu />
+        <div className="hidden sm:flex">
+          <ThemeSwitch />
+        </div>
       </div>
     </header>
   );

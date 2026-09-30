@@ -1,4 +1,5 @@
 import type { FieldSchema } from '@nest-my-admin/core/contract';
+import { toLatinNumber } from '@/lib/digits';
 import { isRef, type FormValue, type FormValues } from '@/lib/form-values';
 
 type Expected = string | number | boolean | null;
@@ -8,7 +9,7 @@ function matches(current: FormValue | undefined, expected: Expected): boolean {
   if (expected === null) return value === null || value === undefined || value === '';
   if (typeof expected === 'boolean') return value === expected || value === String(expected);
   if (typeof value !== 'string' || value.trim() === '') return false;
-  if (typeof expected === 'number') return Number(value.trim().replace(/,/g, '')) === expected;
+  if (typeof expected === 'number') return Number(toLatinNumber(value).trim().replace(/,/g, '')) === expected;
   return value === expected;
 }
 

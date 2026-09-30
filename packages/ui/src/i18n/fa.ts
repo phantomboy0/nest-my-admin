@@ -91,6 +91,14 @@ export const fa: Messages = {
   'filters.emptyValues': '{field}: مقدارهای خالی',
   'filters.selected': '{count} مورد',
 
+  'display.title': 'تقویم و ارقام',
+  'display.calendar': 'تقویم',
+  'display.gregorian': 'میلادی',
+  'display.jalali': 'شمسی',
+  'display.digits': 'ارقام',
+  'display.latinDigits': 'لاتین 123',
+  'display.persianDigits': 'فارسی ۱۲۳',
+
   'form.new': '{name} جدید',
   'form.save': 'ذخیره',
   'form.saving': 'در حال ذخیره…',
@@ -130,6 +138,7 @@ export const fa: Messages = {
   'validation.required': 'الزامی است',
   'validation.number': 'باید عدد باشد',
   'validation.json': 'باید JSON معتبر باشد',
+  'validation.date': 'باید تاریخ معتبری باشد',
   'validation.datetime': 'باید تاریخ و زمان معتبر باشد',
   'validation.minLength': 'باید دست‌کم {min} نویسه باشد',
   'validation.maxLength': 'باید حداکثر {max} نویسه باشد',

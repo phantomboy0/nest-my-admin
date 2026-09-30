@@ -140,3 +140,13 @@ describe('dependencyValues', () => {
     expect(JSON.parse(json!)).toEqual({ customer: 3, name: 'Lamp' });
   });
 });
+
+describe('any digit set', () => {
+  test('numbers, decimals and dates typed with Persian digits are sent with Latin ones', () => {
+    const typed = [field('stock', 'number'), field('price', 'decimal', { scale: 2 }), field('on', 'date', { nullable: true })];
+    expect(toPayload(typed, { stock: '۱۲', price: '۱٬۲۳۴٫۵', on: '۲۰۲۴-۰۴-۰۳' })).toEqual({ payload: { stock: 12, price: '1234.5', on: '2024-04-03' }, errors: {} });
+  });
+  test('a malformed date is an error, not a 422 from the server', () => {
+    expect(toPayload([field('on', 'date', { nullable: true })], { on: '2024-02-30' }).errors).toEqual({ on: ['must be a valid date'] });
+  });
+});

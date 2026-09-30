@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { RelationInput } from '@/app/relation-input';
 import { useT } from '@/i18n';
 import { filterChips, type FilterChip } from '@/lib/filter-chips';
+import { toLatinNumber } from '@/lib/digits';
 import { toDatetimeLocal } from '@/lib/form-values';
 import { useRelationRefs } from '@/lib/queries';
 import { clearFilters, filterKey, hasActiveFilters, type ParamChanges } from '@/lib/list-state';
@@ -201,7 +202,7 @@ function MainFilterControl({ resource, field, operators, params, onChange }: Fil
 
   if (RANGE_TYPES.has(field.type) && operators.includes('gte') && operators.includes('lte')) {
     const inputType = field.type === 'date' ? 'date' : field.type === 'datetime' ? 'datetime-local' : 'text';
-    const toUrl = (value: string) => (field.type === 'datetime' && value ? new Date(value).toISOString() : value.trim());
+    const toUrl = (value: string) => (field.type === 'datetime' && value ? new Date(value).toISOString() : toLatinNumber(value.trim()).replace(/,/g, ''));
     const fromUrl = (value: string | null) => (value && field.type === 'datetime' ? toDatetimeLocal(value) : (value ?? ''));
     return (
       <fieldset className="flex flex-col gap-1.5">

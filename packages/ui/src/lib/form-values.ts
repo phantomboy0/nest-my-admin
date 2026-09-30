@@ -1,5 +1,6 @@
 import type { AdminRecord, FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
 import { translate as tr } from '@/i18n';
+import { toLatinDigits, toLatinNumber } from '@/lib/digits';
 import { groupMoney } from '@/lib/money';
 
 /**
@@ -127,7 +128,7 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
       case 'number':
       case 'decimal':
       case 'bigint': {
-        const numeric = normalizeNumeric(trimmed, field.type === 'bigint');
+        const numeric = normalizeNumeric(toLatinNumber(trimmed), field.type === 'bigint');
         if (numeric === undefined) errors[path] = [tr('validation.number')];
         else payload[field.name] = field.type === 'number' ? Number(numeric) : numeric;
         break;
@@ -139,8 +140,15 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
           errors[path] = [tr('validation.json')];
         }
         break;
+      case 'date': {
+        const date = toLatinDigits(trimmed);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`)) || new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date) {
+          errors[path] = [tr('validation.date')];
+        } else payload[field.name] = date;
+        break;
+      }
       case 'datetime': {
-        const date = new Date(trimmed);
+        const date = new Date(toLatinDigits(trimmed));
         if (Number.isNaN(date.getTime())) errors[path] = [tr('validation.datetime')];
         else payload[field.name] = date.toISOString();
         break;
