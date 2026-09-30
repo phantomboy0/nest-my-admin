@@ -148,3 +148,19 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
   }
   return { payload, errors };
 }
+
+/**
+ * The form's values as `relationOptions()` sees them (`?values=`): what a save would send, keeping ids, numbers,
+ * booleans and short text (long text and groups are left out). Undefined when that is still over 4 KB.
+ */
+export function dependencyValues(fields: FieldSchema[], values: FormValues): string | undefined {
+  const { payload } = toPayload(fields, values);
+  const small = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.every((item) => typeof item === 'string' || typeof item === 'number');
+    if (typeof value === 'string') return value.length <= 100;
+    return value === null || typeof value !== 'object';
+  };
+  const kept = Object.fromEntries(Object.entries(payload).filter(([, value]) => small(value)));
+  const json = JSON.stringify(kept);
+  return json.length <= 4000 ? json : undefined;
+}

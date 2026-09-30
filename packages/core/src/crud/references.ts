@@ -65,13 +65,13 @@ export async function loadReferences(
       const values = out.get(recordIdOf(row, keys));
       if (!values) continue;
       for (const { field, relation } of toOne) {
-        const target = read(row, relation.propertyName);
+        const target = await read(row, relation.propertyName); // lazy relations are promises, resolved from the join
         values[field.name] = isObject(target) ? toRef(field, relation, target) : null;
       }
       for (const { field, relations, column } of paths) {
         let current: unknown = row;
         for (const property of [...relations.map((relation) => relation.propertyName), ...column]) {
-          current = isObject(current) ? read(current, property) : undefined;
+          current = isObject(current) ? await read(current, property) : undefined;
         }
         values[field.name] = serializeValue(current ?? null, field);
       }
@@ -88,7 +88,7 @@ export async function loadReferences(
       .getMany();
     for (const row of rows) {
       const values = out.get(recordIdOf(row, keys));
-      const targets = read(row, relation.propertyName);
+      const targets = await read(row, relation.propertyName);
       if (values) values[field.name] = Array.isArray(targets) ? targets.map((target: object) => toRef(field, relation, target)) : [];
     }
   }

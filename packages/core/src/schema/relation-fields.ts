@@ -44,10 +44,10 @@ export function isToOne(relation: RelationLike): boolean {
 
 /**
  * Relations the admin edits: many-to-one and owning one-to-one with one join column, and owning many-to-many,
- * to an entity with one primary column, not lazy. Everything else is not a field (yet).
+ * to an entity with one primary column (lazy relations included). Everything else is not a field (yet).
  */
 export function isSupportedRelation(relation: RelationLike): boolean {
-  if (relation.isLazy || idTypeOf(relation.inverseEntityMetadata) === undefined) return false;
+  if (idTypeOf(relation.inverseEntityMetadata) === undefined) return false;
   if (isToOne(relation)) return relation.joinColumns.length === 1;
   return relation.relationType === 'many-to-many' && relation.isOwning;
 }

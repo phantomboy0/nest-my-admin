@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { FieldSchema, FieldType } from '@nest-my-admin/core/contract';
-import { toFormValues, toPayload } from './form-values';
+import { dependencyValues, toFormValues, toPayload } from './form-values';
 
 process.env.TZ = 'UTC';
 
@@ -125,5 +125,18 @@ describe('object fields', () => {
       'geo.lat': ['must be a number'],
       'lines.1.qty': ['must be a number'],
     });
+  });
+});
+
+describe('dependencyValues', () => {
+  test('sends what a save would, without long text or groups', () => {
+    const fields = [
+      field('customer', 'relation', { relation: { kind: 'to-one', idType: 'number' } }),
+      field('name', 'string'),
+      field('notes', 'text', { nullable: true }),
+      field('address', 'object', { fields: [field('city', 'string')] }),
+    ];
+    const json = dependencyValues(fields, { customer: { id: 3, title: 'Ada' }, name: 'Lamp', notes: 'x'.repeat(200), address: { city: 'Yazd' } });
+    expect(JSON.parse(json!)).toEqual({ customer: 3, name: 'Lamp' });
   });
 });

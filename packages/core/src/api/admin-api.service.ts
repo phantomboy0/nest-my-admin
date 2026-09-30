@@ -62,6 +62,9 @@ export class AdminApiService {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
     const params = parseListQuery(query, schema);
+    // A relation sorted by its target's title column (`sort=customer` → `customer.name`).
+    const sortPath = entry.sortPaths.get(params.sort.field);
+    if (sortPath) params.sort = { ...params.sort, field: sortPath };
     const { items, total, estimated, hasMore, nextCursor } = await resource.findMany(params, ctx);
     const loaded = schema.fields.filter((field) => isLoadedField(field) && schema.list.columns.includes(field.name));
     return {
@@ -143,7 +146,7 @@ export class AdminApiService {
     const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
-      await this.checkRelationsExist(entry, relationIds, tx);
+      await this.checkRelationsExist(entry, relationIds, tx, dto as Record<string, unknown>);
       const created: unknown = await resource.create(dto, tx);
       if (typeof created !== 'object' || created === null) {
         throw new Error(`${entry.className}.create() must return the created entity`);
@@ -166,8 +169,13 @@ export class AdminApiService {
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
       await this.checkVersion(entry, id, version, tx);
-      if (!(await resource.findOne(id, tx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
-      await this.checkRelationsExist(entry, relationIds, tx);
+      const existing = await resource.findOne(id, tx);
+      if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+      if ([...relationIds.values()].some((ids) => ids.length > 0)) {
+        // relationOptions() sees the record as it will be: what is stored, with the request's changes on top.
+        const values = { ...toValues(await this.record(entry, existing, tx)), ...(dto as Record<string, unknown>) };
+        await this.checkRelationsExist(entry, relationIds, tx, values);
+      }
       const updated: unknown = await resource.update(id, dto, tx);
       return this.record(entry, await this.reloadIfEmpty(entry, updated, id, tx), tx);
     });
@@ -205,26 +213,31 @@ export class AdminApiService {
    * A query for the records a relation field may point to (`option`), restricted by the target resource's query() and
    * this resource's relationOptions().
    */
-  private optionsQuery(entry: RegisteredResource, field: string, ctx: AdminContext) {
+  private optionsQuery(entry: RegisteredResource, field: string, ctx: AdminContext, values: Record<string, unknown>) {
     const target = entry.relations.get(field)!.inverseEntityMetadata;
     const manager = ctx.manager ?? entry.dataSource.manager;
     const qb = manager.getRepository(target.target).createQueryBuilder('option');
     // The target resource's query() restricts what may be picked, before this field's relationOptions().
     const targetEntry = this.registry.forEntity(target.target, entry.dataSource);
-    return entry.resource.relationOptions(field, targetEntry ? targetEntry.resource.query(qb, ctx) : qb, ctx);
+    return entry.resource.relationOptions(field, targetEntry ? targetEntry.resource.query(qb, ctx) : qb, ctx, values);
   }
 
   /**
    * Every id sent for a relation must name a record the field may point to (relationOptions()), else the write is a
    * 422 on that field before the resource method runs. Missing and not-allowed records get the same message.
    */
-  private async checkRelationsExist(entry: RegisteredResource, idsByField: Map<string, RelationId[]>, ctx: AdminContext): Promise<void> {
+  private async checkRelationsExist(
+    entry: RegisteredResource,
+    idsByField: Map<string, RelationId[]>,
+    ctx: AdminContext,
+    values: Record<string, unknown>,
+  ): Promise<void> {
     const errors: Record<string, string[]> = {};
     for (const [field, ids] of idsByField) {
       if (ids.length === 0) continue;
       const target = entry.relations.get(field)!.inverseEntityMetadata;
       const key = target.primaryColumns[0]!.propertyName;
-      const rows: Array<{ id: unknown }> = await this.optionsQuery(entry, field, ctx)
+      const rows: Array<{ id: unknown }> = await this.optionsQuery(entry, field, ctx, values)
         .andWhere(`option.${key} IN (:...nmaIds)`, { nmaIds: ids })
         .select(`option.${key}`, 'id')
         .getRawMany();
@@ -246,16 +259,18 @@ export class AdminApiService {
     const field = entry.schema.fields.find((candidate) => candidate.name === fieldName);
     if (!field) throw new AdminNotFoundError(`Unknown field "${fieldName}"`);
     if (field.type !== 'relation') throw new AdminBadRequestError(`"${fieldName}" is not a relation field`);
+    const known = new Set(['search', 'ids', 'values']);
     for (const key of new Set(query.keys())) {
-      if ((key !== 'search' && key !== 'ids') || query.getAll(key).length > 1) {
-        throw new AdminValidationError({ [key]: [key === 'search' || key === 'ids' ? 'must be given once' : 'is not a supported parameter'] });
+      if (!known.has(key) || query.getAll(key).length > 1) {
+        throw new AdminValidationError({ [key]: [known.has(key) ? 'must be given once' : 'is not a supported parameter'] });
       }
     }
+    const values = parseValues(query.get('values'));
     const relation = entry.relations.get(fieldName)!;
     const target = relation.inverseEntityMetadata;
     const key = target.primaryColumns[0]!.propertyName;
     const title = this.registry.titleFor(target, entry.dataSource);
-    const qb = this.optionsQuery(entry, fieldName, ctx);
+    const qb = this.optionsQuery(entry, fieldName, ctx, values);
 
     const rawIds = query.get('ids');
     const search = query.get('search')?.trim() ?? '';
@@ -307,4 +322,29 @@ export class AdminApiService {
     if (!reloaded) throw new AdminNotFoundError(`${entry.schema.label} "${typeof id === 'object' ? encodeRecordId(Object.values(id)) : id}" not found`);
     return reloaded;
   }
+}
+
+/** A serialized record as relationOptions() values: relation refs become ids. */
+function toValues(record: AdminRecord): Record<string, unknown> {
+  const isRef = (value: unknown): value is { id: unknown } => typeof value === 'object' && value !== null && 'id' in value && 'title' in value;
+  return Object.fromEntries(
+    Object.entries(record)
+      .filter(([key]) => !key.startsWith('_'))
+      .map(([key, value]) => [key, Array.isArray(value) ? value.map((item) => (isRef(item) ? item.id : item)) : isRef(value) ? value.id : value]),
+  );
+}
+
+/** `?values=` of the options endpoint: the form's current values as a JSON object (at most 4 KB). */
+function parseValues(raw: string | null): Record<string, unknown> {
+  if (raw === null) return {};
+  let parsed: unknown;
+  try {
+    parsed = raw.length <= 4096 ? JSON.parse(raw) : undefined;
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new AdminValidationError({ values: ['must be a JSON object of at most 4096 characters'] });
+  }
+  return parsed as Record<string, unknown>;
 }

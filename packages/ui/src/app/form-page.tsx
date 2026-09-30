@@ -1,5 +1,5 @@
 import { Fragment, useState, type FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, ResourceSchema } from '@nest-my-admin/core/contract';
 import { FieldInput } from '@/app/field-input';
@@ -8,7 +8,7 @@ import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
 import { formatCell } from '@/lib/format';
-import { toFormValues, toPayload, type FormValues } from '@/lib/form-values';
+import { dependencyValues, toFormValues, toPayload, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema } from '@/lib/queries';
 import { validatePayload } from '@/lib/validate';
 
@@ -51,6 +51,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
   const [values, setValues] = useState<FormValues>(initial);
   const version = schema.version ? base?.[schema.version] : undefined;
   const [conflict, setConflict] = useState<AdminRecord | null>(null);
+  const dependencies = dependencyValues(fields, values);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -166,6 +167,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
             value={values[field.name]}
             required={mode === 'create' && schema.form.requiredOnCreate.includes(field.name)}
             errors={fieldErrors[field.name]}
+            formValues={field.type === 'relation' ? dependencies : undefined}
             constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update'][field.name]}
             onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
           />
@@ -194,6 +196,22 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
             </Button>
           ))}
       </div>
+      {mode === 'edit' && record && schema.related.length > 0 && (
+        <nav aria-label="Related" className="flex flex-col gap-2 border-t pt-4">
+          <h2 className="text-sm font-medium text-muted-foreground">Related</h2>
+          <ul className="flex flex-wrap gap-2">
+            {schema.related.map((related) => (
+              <li key={`${related.resource}:${related.field}`}>
+                <Button asChild variant="outline" size="sm">
+                  <Link to={`/${related.resource}?${new URLSearchParams({ [`filter[${related.field}][${related.operator}]`]: String(record[schema.primaryKeys[0]!]) })}`}>
+                    {related.label}
+                  </Link>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      )}
     </form>
   );
 }

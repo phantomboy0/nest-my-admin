@@ -254,6 +254,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     ...(definition.icon ? { icon: definition.icon } : {}),
     primaryKeys,
     creatable: children.length === 0,
+    related: [], // filled in by the registry once every resource is known
     softDelete: metadata.columns.some((column) => column.isDeleteDate),
     ...(versionField ? { version: versionField } : {}),
     fields: [...entityFields, ...dtoOnly, ...paths.values()],

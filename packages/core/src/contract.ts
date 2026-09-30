@@ -51,6 +51,13 @@ export interface RelationSchema {
   idType: 'number' | 'bigint' | 'string' | 'uuid';
 }
 
+export interface RelatedList {
+  label: string;
+  resource: string;
+  field: string;
+  operator: 'eq' | 'in';
+}
+
 /** A related record as the admin shows it. */
 export interface RelationRef {
   id: string | number;
@@ -131,6 +138,11 @@ export interface ResourceSchema {
   };
   /** False for the root of a single-table inheritance: records are created through its child resources. */
   creatable: boolean;
+  /**
+   * Other resources whose relation fields point at this one (spec §9.4 Related): a record's related records are
+   * `/<resource>?filter[<field>][<operator>]=<id>`.
+   */
+  related: RelatedList[];
   /**
    * The `@VersionColumn` field. Send its value as `If-Match: "<version>"` with PATCH and DELETE: a record changed
    * since then answers 409 CONFLICT with `current`.

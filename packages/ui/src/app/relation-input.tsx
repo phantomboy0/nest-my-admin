@@ -17,6 +17,8 @@ interface RelationInputProps {
   onChange: (value: RelationValue) => void;
   /** Show a clear button for a picked record (nullable fields and filters). */
   clearable?: boolean;
+  /** The form's current values as JSON, sent so the server can narrow the options (`relationOptions`). */
+  values?: string;
   invalid?: boolean;
   describedBy?: string;
 }
@@ -36,7 +38,7 @@ const sameId = (a: RelationRef, b: RelationRef) => String(a.id) === String(b.id)
  * Picks related records by typing: an ARIA combobox whose listbox shows the field's options (searched on the
  * server). One record for to-one relations; chips plus the search box for to-many relations.
  */
-export function RelationInput({ id, resource, field, value, onChange, clearable, invalid, describedBy }: RelationInputProps) {
+export function RelationInput({ id, resource, field, value, onChange, clearable, values, invalid, describedBy }: RelationInputProps) {
   const multiple = field.relation?.kind === 'to-many';
   const selected = multiple && Array.isArray(value) ? value : [];
   const single = !multiple && value && !Array.isArray(value) ? value : null;
@@ -44,7 +46,7 @@ export function RelationInput({ id, resource, field, value, onChange, clearable,
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const search = useDebounced(text.trim(), 250);
-  const options = useOptions(resource, field.name, search, open);
+  const options = useOptions(resource, field.name, search, open, values);
   const items = (options.data?.items ?? []).filter((item) => !selected.some((picked) => sameId(picked, item)));
   const listId = `${id}-options`;
   const optionId = (index: number) => `${id}-option-${index}`;

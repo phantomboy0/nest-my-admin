@@ -17,10 +17,11 @@ export const useRecord = (resource: string, id: string | undefined) =>
   useQuery({ queryKey: ['record', resource, id], queryFn: () => api.get(resource, id!), enabled: id !== undefined });
 
 /** Picker options for `search` (runs only while `enabled`, i.e. while the picker is open). */
-export const useOptions = (resource: string, field: string, search: string, enabled: boolean) =>
+/** `values`: the form's current values as JSON, for options that depend on other fields. */
+export const useOptions = (resource: string, field: string, search: string, enabled: boolean, values?: string) =>
   useQuery({
-    queryKey: ['options', resource, field, search],
-    queryFn: () => api.options(resource, field, { search }),
+    queryKey: ['options', resource, field, search, values ?? ''],
+    queryFn: () => api.options(resource, field, { search, values }),
     enabled,
     placeholderData: keepPreviousData,
   });

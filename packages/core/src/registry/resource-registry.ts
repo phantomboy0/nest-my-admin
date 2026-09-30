@@ -10,6 +10,7 @@ import { getAdminResourceDefinition, type AdminResourceDefinition } from '../dec
 import { AdminNotFoundError } from '../errors.js';
 import { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { buildResourceSchema } from '../schema/build-resource-schema.js';
+import { operatorsFor } from '../schema/filter-operators.js';
 import { relationFields, type RelationLike } from '../schema/relation-fields.js';
 import { compileTitle, type TitleFn } from '../schema/titles.js';
 import { humanize, kebabCase } from '../schema/humanize.js';
@@ -29,6 +30,8 @@ export interface RegisteredResource {
   relations: ReadonlyMap<string, RelationMetadataLike>;
   /** The record's display name (`@AdminResource({ title })`). */
   title: TitleFn;
+  /** Relation fields sortable by their target's title column: field → path (`customer` → `customer.name`). */
+  sortPaths: Map<string, string>;
 }
 
 /** TypeORM's RelationMetadata as the admin reads it (TypeORM does not export the class from its root). */
@@ -185,16 +188,37 @@ export class ResourceRegistry implements OnModuleInit {
       metadata,
       relations,
       title,
+      sortPaths: new Map(),
     });
   }
 
   /** Points each relation field at the resource of its target entity, now that every resource is registered. */
+  /**
+   * Once every resource is known: points each relation field at its target's resource, lists it on the target as a
+   * related list (making the field filterable for that link), and makes to-one relations sortable by the target's
+   * title column when the title is one.
+   */
   private linkRelations(): void {
     for (const entry of this.resources.values()) {
+      const { schema } = entry;
       for (const [name, relation] of entry.relations) {
-        const target = this.forEntity(relation.inverseEntityMetadata.target, entry.dataSource);
-        const field = entry.schema.fields.find((candidate) => candidate.name === name);
-        if (target && field?.relation) field.relation.resource = target.schema.name;
+        const field = schema.fields.find((candidate) => candidate.name === name);
+        if (!field?.relation) continue;
+        const targetMetadata = relation.inverseEntityMetadata;
+        const target = this.forEntity(targetMetadata.target, entry.dataSource);
+        if (target) {
+          field.relation.resource = target.schema.name;
+          const operator = field.relation.kind === 'to-one' ? 'eq' : 'in';
+          const several = [...entry.relations.values()].filter((other) => other.inverseEntityMetadata === targetMetadata).length > 1;
+          target.schema.related.push({ label: several ? `${schema.label} (${field.label})` : schema.label, resource: schema.name, field: name, operator });
+          if (!schema.list.filters.some((filter) => filter.field === name)) schema.list.filters.push({ field: name, operators: operatorsFor(field) });
+        }
+        const titleColumn = this.titleFor(targetMetadata, entry.dataSource).column;
+        const nullableSortsOk = schema.list.pagination !== 'keyset';
+        if (field.relation.kind === 'to-one' && titleColumn && nullableSortsOk && !schema.list.sortable.includes(name)) {
+          schema.list.sortable.push(name);
+          entry.sortPaths.set(name, `${relation.propertyName}.${titleColumn}`);
+        }
       }
     }
   }

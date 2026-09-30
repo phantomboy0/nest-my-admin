@@ -51,9 +51,9 @@ describe('relationFields', () => {
     ]);
   });
 
-  test('inverse sides, lazy relations and targets with composite keys are not fields', () => {
+  test('inverse sides and targets with composite keys are not fields; lazy relations are', () => {
     expect(relationFields(dataSource.getMetadata(Author))).toEqual([]);
-    expect(relationFields(dataSource.getMetadata(Book)).map(({ field }) => field.name)).toEqual(['author']);
+    expect(relationFields(dataSource.getMetadata(Book)).map(({ field }) => field.name)).toEqual(['author', 'editor']);
     expect(relationFields(dataSource.getMetadata(Profile)).map(({ field }) => field.name)).toEqual(['book']);
   });
 });

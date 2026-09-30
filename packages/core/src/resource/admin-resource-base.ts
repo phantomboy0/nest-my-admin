@@ -175,9 +175,12 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
 
   /**
    * Restricts the records a relation field may point to: the picker's options and the ids accepted on create and
-   * update (a restricted id is a 422 on the field). `qb` selects the target entity as `option`. Default: all records.
+   * update (a restricted id is a 422 on the field). `qb` selects the target entity as `option`; the target resource's
+   * `query()` has already been applied. `values` are the record's values as the user sees them: the form's current
+   * values in the picker, the body on create, the stored record with the body on top on update (relations as ids),
+   * so one field's options can depend on another (`city` on `province`). Default: all records.
    */
-  relationOptions(_field: string, qb: SelectQueryBuilder<any>, _ctx: AdminContext): SelectQueryBuilder<any> {
+  relationOptions(_field: string, qb: SelectQueryBuilder<any>, _ctx: AdminContext, _values: Record<string, unknown>): SelectQueryBuilder<any> {
     return qb;
   }
 
@@ -200,7 +203,12 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeSave', dto, ctx, 'update');
     const repo = this.repositoryFor(ctx);
-    repo.merge(existing, toRelationReferences(dto, repo.metadata) as DeepPartial<T>);
+    const changes = toRelationReferences(dto, repo.metadata) as Record<string, unknown>;
+    repo.merge(existing, changes as DeepPartial<T>);
+    // merge() leaves lazy relations alone; their setters take the reference directly.
+    for (const relation of repo.metadata.relations) {
+      if (relation.isLazy && Object.hasOwn(changes, relation.propertyName)) (existing as Record<string, unknown>)[relation.propertyName] = changes[relation.propertyName];
+    }
     const saved = await repo.save(existing);
     await this.runHooks('afterSave', saved, ctx, 'update');
     return saved;

@@ -15,13 +15,15 @@ interface FieldInputProps {
   value: FormValue | undefined;
   required: boolean;
   errors?: string[];
+  /** The form's current values as JSON, for relation pickers whose options depend on them. */
+  formValues?: string;
   onChange: (value: FormValue) => void;
 }
 
 const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive';
 
-export function FieldInput({ resource, field, value, required, errors, constraints, onChange }: FieldInputProps) {
+export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange }: FieldInputProps) {
   const id = `field-${field.name}`;
   const errorId = `${id}-error`;
   const invalid = (errors?.length ?? 0) > 0;
@@ -61,6 +63,7 @@ export function FieldInput({ resource, field, value, required, errors, constrain
         value={(value ?? null) as RelationValue}
         onChange={onChange}
         clearable={field.nullable}
+        values={formValues}
         invalid={invalid}
         describedBy={invalid ? errorId : undefined}
       />
