@@ -80,6 +80,7 @@ test('filters and search narrow the list', async ({ page, isMobile }) => {
   await page.getByLabel('Status', { exact: true }).click();
   await page.getByRole('checkbox', { name: 'draft' }).click();
   await page.keyboard.press('Escape');
+  if (isMobile) await page.getByRole('button', { name: 'Show results' }).click();
   await expect(page).toHaveURL(/filter%5Bstatus%5D%5Bin%5D=draft/);
   await expect(page.getByRole('list', { name: 'Active filters' })).toContainText('Status:Draft');
   await expect(page.getByText('DEMO-3', { exact: true }).filter({ visible: true })).toBeVisible();
@@ -159,7 +160,7 @@ test('picks a category and tags, filters by category, and refuses to delete a ca
 
   const row = isMobile ? page.getByRole('listitem').filter({ hasText: sku }) : page.getByRole('row').filter({ hasText: sku });
   await expect(row).toContainText('Lighting');
-  await expect(row).toContainText('Bestseller, Eco');
+  if (!isMobile) await expect(row).toContainText('Bestseller, Eco'); // phone cards show list.mobile's fields
 
   if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
   await page.getByRole('combobox', { name: 'Category' }).fill('furn');
@@ -251,9 +252,18 @@ test("a category's related products open as a filtered list", async ({ page }) =
   await expect(page.getByText('DEMO-2', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });
 
-test('the stock log pages forward and back with a cursor', async ({ page }) => {
+test('the stock log pages forward and back with a cursor', async ({ page, isMobile }) => {
   await page.goto('/admin/stock-move');
   await expect(page.getByText('Move 25', { exact: true }).filter({ visible: true })).toBeVisible();
+  if (isMobile) {
+    // Phones scroll instead: every move once, in order (M2-4 Review Focus 3).
+    const cards = page.getByRole('list', { name: 'Stock move' }).getByRole('listitem');
+    await scrollUntil(page, cards, 25);
+    const titles = await cards.evaluateAll((items) => items.map((item) => item.textContent));
+    expect(new Set(titles).size).toBe(25);
+    await expect(page.getByText('25 shown')).toBeVisible(); // keyset lists are not counted
+    return;
+  }
   await expect(page.getByText('Page 1', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next page' }).click();
   await expect(page).toHaveURL(/after=/);
@@ -399,6 +409,14 @@ test('hidden columns survive a reload; a chip removes one filter (Review Focus 3
   await expect(page).not.toHaveURL(/status/);
 });
 
+/** Phones: scrolls the list until `count` cards have loaded (the end of the list loads the next page). */
+async function scrollUntil(page: Page, cards: ReturnType<Page['getByRole']>, count: number): Promise<void> {
+  await expect(async () => {
+    await page.mouse.wheel(0, 10_000);
+    await expect(cards).toHaveCount(count, { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+}
+
 /** A product made through the API, for tests that change it; returns its edit URL. */
 async function makeProduct(page: Page, data: Record<string, unknown>): Promise<string> {
   const res = await page.request.post('/admin/api/resources/product', { data });
@@ -539,7 +557,41 @@ test('Jalali dates: typed in any digits, picked from the calendar, and used in f
   const from = page.getByLabel('From', { exact: true }).and(page.locator('#filter-releasedOn-gte'));
   await from.fill('1403/02/01');
   await from.press('Enter');
+  if (isMobile) await page.getByRole('button', { name: 'Show results' }).click();
   await expect(page).toHaveURL(/filter%5BreleasedOn%5D%5Bgte%5D=2024-04-20/);
   await expect(page.getByRole('list', { name: 'Active filters' })).toContainText('1403');
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
+});
+
+test('phones: list.mobile cards, infinite scroll, sort in the drawer and select mode (M2-4 Review Focus 3)', async ({ page, isMobile }) => {
+  test.skip(!isMobile, 'the phone list');
+  await makeProduct(page, { name: 'Drawer draft A', sku: 'DRW-A', price: '1' });
+  await makeProduct(page, { name: 'Drawer draft B', sku: 'DRW-B', price: '2' });
+  const { total } = await (await page.request.get('/admin/api/resources/product')).json();
+
+  await page.goto('/admin/product?pageSize=2&sort=name');
+  const cards = page.getByRole('list', { name: 'Product' }).getByRole('listitem');
+  // Pages of two load while the end of the list is in view (and with Load more).
+  await scrollUntil(page, cards, total);
+  expect(new Set(await cards.evaluateAll((items) => items.map((item) => item.textContent))).size).toBe(total);
+  await expect(page.getByText(`${total} of ${total}`)).toBeVisible();
+  const brass = cards.filter({ hasText: 'DEMO-4' });
+  await expect(brass).toContainText('Brass lamp');
+  await expect(brass).toContainText('Lighting'); // subtitle: category.name
+  await expect(brass.locator('[data-color="gray"]')).toHaveText('Archived');
+
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await page.getByLabel('Sort by').selectOption('-price');
+  await page.getByRole('button', { name: 'Show results' }).click();
+  await expect(page).toHaveURL(/sort=-price/);
+  await expect(cards.first()).toContainText('Brass lamp'); // a new sort starts over from the first page
+
+  await page.goto('/admin/product?search=Drawer%20draft');
+  await expect(cards).toHaveCount(2);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Select Drawer draft A' }).check();
+  await page.getByRole('checkbox', { name: 'Select Drawer draft B' }).check();
+  await page.getByRole('button', { name: 'Delete selected' }).click();
+  await page.getByRole('button', { name: 'Delete 2' }).click();
+  await expect(page.getByText('No records match.')).toBeVisible();
 });

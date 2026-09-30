@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, X } from 'lucide-react';
-import { Checkbox, Popover } from 'radix-ui';
+import { Check, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
+import { Checkbox, Dialog, Popover } from 'radix-ui';
 import type { FieldSchema, FilterOperator, ResourceSchema } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { toLatinNumber } from '@/lib/digits';
 import { toDatetimeLocal } from '@/lib/form-values';
 import { useRelationRefs } from '@/lib/queries';
 import { clearFilters, filterKey, hasActiveFilters, type ParamChanges } from '@/lib/list-state';
+import { useIsMobile } from '@/lib/use-media';
 import { cn } from '@/lib/utils';
 import { enumLabel } from '@/lib/widgets';
 
@@ -28,6 +29,7 @@ const RANGE_TYPES = new Set(['number', 'decimal', 'bigint', 'date', 'datetime'])
 
 export function FilterBar({ schema, params, onChange }: FilterBarProps) {
   const t = useT();
+  const mobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const urlSearch = params.get('search') ?? '';
   const [search, setSearch] = useState(urlSearch);
@@ -39,7 +41,9 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
     .map((filter) => ({ operators: filter.operators, field: schema.fields.find((field) => field.name === filter.field) }))
     .filter((entry): entry is { operators: FilterOperator[]; field: FieldSchema } => entry.field !== undefined);
   const searchable = schema.list.search.length > 0;
-  if (filters.length === 0 && !searchable) return null;
+  // Phones sort in the drawer (there are no column headers).
+  const drawer = mobile && (filters.length > 0 || schema.list.sortable.length > 0);
+  if (filters.length === 0 && !searchable && !drawer) return null;
   const searchLabels = schema.list.search.map((name) => schema.fields.find((field) => field.name === name)?.label ?? name);
 
   return (
@@ -60,18 +64,55 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
             </Button>
           </form>
         )}
-        {filters.length > 0 && (
-          <Button type="button" variant="outline" className="md:hidden" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        {drawer && (
+          <Button type="button" variant="outline" aria-haspopup="dialog" onClick={() => setOpen(true)}>
+            <SlidersHorizontal />
             {t('filters.filters')}
           </Button>
         )}
       </div>
-      {filters.length > 0 && (
-        <div className={cn('gap-3 sm:grid-cols-2 lg:grid-cols-4', open ? 'grid' : 'hidden md:grid')}>
+      {!mobile && filters.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {filters.map(({ field, operators }) => (
             <FilterControl key={field.name} resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} />
           ))}
         </div>
+      )}
+      {drawer && (
+        <Dialog.Root open={open} onOpenChange={setOpen}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
+            <Dialog.Content
+              aria-describedby={undefined}
+              className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-2xl border-t bg-background shadow-xl outline-none"
+            >
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <Dialog.Title className="text-base font-semibold">{t('filters.filtersAndSort')}</Dialog.Title>
+                <Dialog.Close asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label={t('list.close')}>
+                    <X />
+                  </Button>
+                </Dialog.Close>
+              </div>
+              <div className="flex flex-col gap-4 overflow-y-auto p-4">
+                {schema.list.sortable.length > 0 && <SortSelect schema={schema} params={params} onChange={onChange} />}
+                {filters.map(({ field, operators }) => (
+                  <FilterControl key={field.name} resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} />
+                ))}
+              </div>
+              <div className="flex gap-2 border-t p-4">
+                {hasActiveFilters(params) && (
+                  <Button type="button" variant="outline" onClick={() => onChange(clearFilters(params))}>
+                    {t('filters.clear')}
+                  </Button>
+                )}
+                <Dialog.Close asChild>
+                  <Button className="flex-1">{t('filters.showResults')}</Button>
+                </Dialog.Close>
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       )}
       {hasActiveFilters(params) && (
         <div className="flex flex-wrap items-center gap-2">
@@ -81,6 +122,29 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Sort on phones: one choice per sortable field and direction (the URL's `sort`, like the column headers). */
+function SortSelect({ schema, params, onChange }: FilterBarProps) {
+  const t = useT();
+  const { field: defaultField, direction } = schema.list.defaultSort;
+  const current = params.get('sort') ?? (direction === 'desc' ? `-${defaultField}` : defaultField);
+  const label = (name: string) => schema.fields.find((field) => field.name === name)?.label ?? name;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="list-sort">{t('filters.sortBy')}</Label>
+      <select id="list-sort" className={selectClass} value={current} onChange={(event) => onChange({ sort: event.target.value, page: null, after: null })}>
+        {schema.list.sortable.flatMap((name) => [
+          <option key={name} value={name}>
+            {t('filters.ascending', { name: label(name) })}
+          </option>,
+          <option key={`-${name}`} value={`-${name}`}>
+            {t('filters.descending', { name: label(name) })}
+          </option>,
+        ])}
+      </select>
     </div>
   );
 }

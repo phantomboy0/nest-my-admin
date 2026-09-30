@@ -34,6 +34,11 @@ export const en = {
   'shell.records': '{count} records',
   'shell.aboutRecords': 'about {count} records',
 
+  'list.select': 'Select',
+  'list.done': 'Done',
+  'list.loadMore': 'Load more',
+  'list.showing': '{shown} shown',
+  'list.showingOf': '{shown} of {total}',
   'list.new': 'New',
   'list.trash': 'Trash',
   'list.trashNote': 'Records in the trash. Restore one to edit it again.',
@@ -73,6 +78,11 @@ export const en = {
 
   'filters.search': 'Search',
   'filters.searchIn': 'Search {fields}',
+  'filters.filtersAndSort': 'Filters and sort',
+  'filters.showResults': 'Show results',
+  'filters.sortBy': 'Sort by',
+  'filters.ascending': '{name}, ascending',
+  'filters.descending': '{name}, descending',
   'filters.filters': 'Filters',
   'filters.clear': 'Clear filters',
   'filters.from': 'From',

@@ -36,6 +36,11 @@ export const fa: Messages = {
   'shell.records': '{count} رکورد',
   'shell.aboutRecords': 'حدود {count} رکورد',
 
+  'list.select': 'انتخاب',
+  'list.done': 'تمام',
+  'list.loadMore': 'بیشتر',
+  'list.showing': '{shown} مورد',
+  'list.showingOf': '{shown} از {total}',
   'list.new': 'جدید',
   'list.trash': 'سطل زباله',
   'list.trashNote': 'رکوردهای سطل زباله. برای ویرایش دوباره، آن را بازگردانید.',
@@ -75,6 +80,11 @@ export const fa: Messages = {
 
   'filters.search': 'جست‌وجو',
   'filters.searchIn': 'جست‌وجو در {fields}',
+  'filters.filtersAndSort': 'فیلتر و مرتب‌سازی',
+  'filters.showResults': 'نمایش نتایج',
+  'filters.sortBy': 'مرتب‌سازی بر اساس',
+  'filters.ascending': '{name}، صعودی',
+  'filters.descending': '{name}، نزولی',
   'filters.filters': 'فیلترها',
   'filters.clear': 'پاک کردن فیلترها',
   'filters.from': 'از',

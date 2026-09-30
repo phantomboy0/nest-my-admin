@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ListChecks, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { AdminRecord, BulkResult, FieldSchema } from '@nest-my-admin/core/contract';
 import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
 import { EditableCell } from '@/app/editable-cell';
 import { FilterBar } from '@/app/filter-bar';
+import { MobileList } from '@/app/mobile-list';
 import { QuickView } from '@/app/quick-view';
 import { DisplayValue } from '@/app/widgets/badge';
 import { PageMessage } from '@/components/page-message';
@@ -15,6 +16,7 @@ import { useT } from '@/i18n';
 import { api, describeError } from '@/lib/api';
 import { useColumnPrefs, visibleColumns } from '@/lib/column-prefs';
 import { formatCell } from '@/lib/format';
+import { useIsMobile } from '@/lib/use-media';
 import { cn } from '@/lib/utils';
 import { isRef } from '@/lib/form-values';
 import { encodeRecordId } from '@/lib/record-id';
@@ -27,7 +29,10 @@ export function ListPage() {
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const sortParam = searchParams.get('sort') ?? undefined;
   const schema = useSchema(resource);
-  const list = useList(resource, listQueryFromUrl(searchParams)); // same key as listQuery below
+  const mobile = useIsMobile();
+  // Phones load their own pages (infinite scroll), so the paged table query does not run there.
+  const list = useList(resource, listQueryFromUrl(searchParams), !mobile); // same key as listQuery below
+  const [selectMode, setSelectMode] = useState(false);
   const queryClient = useQueryClient();
   const t = useT();
   const restore = useMutation({
@@ -37,6 +42,12 @@ export function ListPage() {
   const trash = searchParams.get('trashed') === 'only';
   const prefs = useColumnPrefs(resource);
   const listQuery = listQueryFromUrl(searchParams);
+  const cardQuery = (() => {
+    const query = new URLSearchParams(listQuery);
+    query.delete('page');
+    query.delete('after');
+    return query.toString();
+  })();
   // Selection belongs to the page on screen: a new page, filter or sort starts empty.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   useEffect(() => setSelected(new Set()), [listQuery, resource]);
@@ -113,6 +124,19 @@ export function ListPage() {
             {t('list.trash')}
           </Button>
         )}
+        {mobile && !trash && (
+          <Button
+            variant={selectMode ? 'secondary' : 'outline'}
+            aria-pressed={selectMode}
+            onClick={() => {
+              setSelectMode(!selectMode);
+              setSelected(new Set());
+            }}
+          >
+            <ListChecks />
+            {t(selectMode ? 'list.done' : 'list.select')}
+          </Button>
+        )}
         {s.creatable && !trash && (
           <Button asChild>
             <Link to={`/${s.name}/new`}>
@@ -159,161 +183,172 @@ export function ListPage() {
       {bulkDelete.data && <BulkSummary result={bulkDelete.data} items={items} />}
       {bulkDelete.isError && <PageMessage tone="error">{describeError(bulkDelete.error)}</PageMessage>}
 
-      <div className="hidden overflow-x-auto rounded-lg border md:block">
-        <Table className={cn(prefs.density === 'compact' && '[&_td]:py-1 [&_th]:h-8')}>
-          <TableHeader>
-            <TableRow>
-              {selectable && (
-                <TableHead className="w-0">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-primary"
-                    aria-label={t('list.selectPage')}
-                    checked={items.length > 0 && items.every((item) => selected.has(String(item._id)))}
-                    onChange={(event) => setSelected(event.target.checked ? new Set(items.map((item) => String(item._id))) : new Set())}
-                  />
-                </TableHead>
+      {mobile ? (
+        <MobileList
+          schema={s}
+          query={cardQuery}
+          columns={detailColumns}
+          trash={trash}
+          selectMode={selectMode}
+          selected={selected}
+          onSelect={setSelected}
+          restore={(item) => <RestoreButton item={item} pending={restore.isPending} onRestore={(id) => restore.mutate(id)} />}
+          empty={
+            <>
+              {t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}
+              {!hasActiveFilters(searchParams) && s.creatable && !trash && (
+                <Button asChild size="sm" variant="outline">
+                  <Link to={`/${s.name}/new`}>
+                    <Plus />
+                    {t('list.new')}
+                  </Link>
+                </Button>
               )}
-              {columns.map((column) => (
-                <TableHead
-                  key={column.name}
-                  className="relative"
-                  style={prefs.widths[column.name] ? { width: prefs.widths[column.name], minWidth: prefs.widths[column.name] } : undefined}
-                  aria-sort={sort.field === column.name ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
-                >
-                  {s.list.sortable.includes(column.name) ? (
-                    <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(column.name)}>
-                      {column.label}
-                      {sort.field === column.name &&
-                        (sort.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />)}
-                    </button>
-                  ) : (
-                    column.label
+            </>
+          }
+        />
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-lg border">
+            <Table className={cn(prefs.density === 'compact' && '[&_td]:py-1 [&_th]:h-8')}>
+              <TableHeader>
+                <TableRow>
+                  {selectable && (
+                    <TableHead className="w-0">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-primary"
+                        aria-label={t('list.selectPage')}
+                        checked={items.length > 0 && items.every((item) => selected.has(String(item._id)))}
+                        onChange={(event) => setSelected(event.target.checked ? new Set(items.map((item) => String(item._id))) : new Set())}
+                      />
+                    </TableHead>
                   )}
-                  <ResizeHandle resource={s.name} column={column.name} label={column.label} width={prefs.widths[column.name]} />
-                </TableHead>
-              ))}
-              {trash && <TableHead className="w-0"><span className="sr-only">{t('list.actions')}</span></TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {list.isPending &&
-              Array.from({ length: 5 }, (_, row) => (
-                <TableRow key={`skeleton-${row}`} aria-hidden>
-                  {selectable && <TableCell />}
                   {columns.map((column) => (
-                    <TableCell key={column.name}>
-                      <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
-                    </TableCell>
+                    <TableHead
+                      key={column.name}
+                      className="relative"
+                      style={prefs.widths[column.name] ? { width: prefs.widths[column.name], minWidth: prefs.widths[column.name] } : undefined}
+                      aria-sort={sort.field === column.name ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                    >
+                      {s.list.sortable.includes(column.name) ? (
+                        <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(column.name)}>
+                          {column.label}
+                          {sort.field === column.name &&
+                            (sort.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />)}
+                        </button>
+                      ) : (
+                        column.label
+                      )}
+                      <ResizeHandle resource={s.name} column={column.name} label={column.label} width={prefs.widths[column.name]} />
+                    </TableHead>
                   ))}
+                  {trash && <TableHead className="w-0"><span className="sr-only">{t('list.actions')}</span></TableHead>}
                 </TableRow>
-              ))}
-            {items.map((item) => (
-              <TableRow
-                key={String(item._id)}
-                className={trash ? undefined : 'cursor-pointer focus-visible:bg-muted/50 focus-visible:outline-none'}
-                tabIndex={trash ? undefined : 0}
-                onClick={trash ? undefined : () => setQuickView(item)}
-                onKeyDown={
-                  trash
-                    ? undefined
-                    : (event) => {
-                        if (event.key !== 'Enter' || event.target !== event.currentTarget) return;
-                        // Without this, the same Enter would activate the sheet's first button (Close) as it opens.
-                        event.preventDefault();
-                        setQuickView(item);
-                      }
-                }
-              >
-                {selectable && (
-                  <TableCell onClick={(event) => event.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
-                      aria-label={t('list.selectRow', { name: String(item._title ?? item._id) })}
-                      checked={selected.has(String(item._id))}
-                      onChange={(event) => {
-                        const next = new Set(selected);
-                        if (event.target.checked) next.add(String(item._id));
-                        else next.delete(String(item._id));
-                        setSelected(next);
-                      }}
-                    />
-                  </TableCell>
-                )}
-                {columns.map((column, index) => (
-                  <TableCell key={column.name}>
-                    {index === 0 && !trash ? (
-                      <Link to={recordPath(item)} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
-                        {formatCell(item[column.name], column)}
-                      </Link>
-                    ) : !trash && s.list.editable.includes(column.name) && !(Array.isArray(item._readonly) && item._readonly.includes(column.name)) ? (
-                      <EditableCell schema={s} item={item} field={column} />
-                    ) : (
-                      <CellValue value={item[column.name]} field={column} />
+              </TableHeader>
+              <TableBody>
+                {list.isPending &&
+                  Array.from({ length: 5 }, (_, row) => (
+                    <TableRow key={`skeleton-${row}`} aria-hidden>
+                      {selectable && <TableCell />}
+                      {columns.map((column) => (
+                        <TableCell key={column.name}>
+                          <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                {items.map((item) => (
+                  <TableRow
+                    key={String(item._id)}
+                    className={trash ? undefined : 'cursor-pointer focus-visible:bg-muted/50 focus-visible:outline-none'}
+                    tabIndex={trash ? undefined : 0}
+                    onClick={trash ? undefined : () => setQuickView(item)}
+                    onKeyDown={
+                      trash
+                        ? undefined
+                        : (event) => {
+                            if (event.key !== 'Enter' || event.target !== event.currentTarget) return;
+                            // Without this, the same Enter would activate the sheet's first button (Close) as it opens.
+                            event.preventDefault();
+                            setQuickView(item);
+                          }
+                    }
+                  >
+                    {selectable && (
+                      <TableCell onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          aria-label={t('list.selectRow', { name: String(item._title ?? item._id) })}
+                          checked={selected.has(String(item._id))}
+                          onChange={(event) => {
+                            const next = new Set(selected);
+                            if (event.target.checked) next.add(String(item._id));
+                            else next.delete(String(item._id));
+                            setSelected(next);
+                          }}
+                        />
+                      </TableCell>
                     )}
-                  </TableCell>
+                    {columns.map((column, index) => (
+                      <TableCell key={column.name}>
+                        {index === 0 && !trash ? (
+                          <Link to={recordPath(item)} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
+                            {formatCell(item[column.name], column)}
+                          </Link>
+                        ) : !trash && s.list.editable.includes(column.name) && !(Array.isArray(item._readonly) && item._readonly.includes(column.name)) ? (
+                          <EditableCell schema={s} item={item} field={column} />
+                        ) : (
+                          <CellValue value={item[column.name]} field={column} />
+                        )}
+                      </TableCell>
+                    ))}
+                    {trash && (
+                      <TableCell>
+                        <RestoreButton item={item} pending={restore.isPending} onRestore={(id) => restore.mutate(id)} />
+                      </TableCell>
+                    )}
+                  </TableRow>
                 ))}
-                {trash && (
-                  <TableCell>
-                    <RestoreButton item={item} pending={restore.isPending} onRestore={(id) => restore.mutate(id)} />
-                  </TableCell>
+                {list.isSuccess && items.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={columns.length + (trash || selectable ? 1 : 0)} className="text-center text-muted-foreground">
+                      <div className="flex flex-col items-center gap-2 py-6">
+                        {t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}
+                        {!hasActiveFilters(searchParams) && s.creatable && !trash && (
+                          <Button asChild size="sm" variant="outline">
+                            <Link to={`/${s.name}/new`}>
+                              <Plus />
+                              {t('list.new')}
+                            </Link>
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 )}
-              </TableRow>
-            ))}
-            {list.isSuccess && items.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={columns.length + (trash || selectable ? 1 : 0)} className="text-center text-muted-foreground">
-                  <div className="flex flex-col items-center gap-2 py-6">
-                    {t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}
-                    {!hasActiveFilters(searchParams) && s.creatable && !trash && (
-                      <Button asChild size="sm" variant="outline">
-                        <Link to={`/${s.name}/new`}>
-                          <Plus />
-                          {t('list.new')}
-                        </Link>
-                      </Button>
-                    )}
-                  </div>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+              </TableBody>
+            </Table>
+          </div>
 
-      <ul className="flex flex-col gap-2 md:hidden">
-        {items.map((item) => (
-          <li key={String(item._id)}>
-            {trash ? (
-              <div className="flex items-start justify-between gap-2 rounded-lg border p-3">
-                <Card item={item} columns={detailColumns} />
-                <RestoreButton item={item} pending={restore.isPending} onRestore={(id) => restore.mutate(id)} />
-              </div>
-            ) : (
-              <Link to={recordPath(item)} className="block rounded-lg border p-3 active:bg-muted">
-                <Card item={item} columns={detailColumns} />
-              </Link>
-            )}
-          </li>
-        ))}
-        {list.isSuccess && items.length === 0 && <li className="text-center text-sm text-muted-foreground">{t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}</li>}
-      </ul>
 
-      <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-        <span>{pager.summary}</span>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon-sm" aria-label={t('list.previousPage')} disabled={!hasPrevious} onClick={previousPage}>
-            <ChevronLeft className="rtl:rotate-180" />
-          </Button>
-          <span>
-            {pager.label}
-          </span>
-          <Button variant="outline" size="icon-sm" aria-label={t('list.nextPage')} disabled={!pager.hasNext} onClick={nextPage}>
-            <ChevronRight className="rtl:rotate-180" />
-          </Button>
-        </div>
-      </div>
+          <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+            <span>{pager.summary}</span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon-sm" aria-label={t('list.previousPage')} disabled={!hasPrevious} onClick={previousPage}>
+                <ChevronLeft className="rtl:rotate-180" />
+              </Button>
+              <span>
+                {pager.label}
+              </span>
+              <Button variant="outline" size="icon-sm" aria-label={t('list.nextPage')} disabled={!pager.hasNext} onClick={nextPage}>
+                <ChevronRight className="rtl:rotate-180" />
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
       <QuickView schema={s} item={quickView} onClose={() => setQuickView(undefined)} />
     </div>
   );
@@ -339,26 +374,6 @@ function CellValue({ value, field }: { value: unknown; field: FieldSchema }) {
   );
 }
 
-/** A mobile card's content: the record title, then the other columns. */
-function Card({ item, columns }: { item: AdminRecord; columns: FieldSchema[] }) {
-  return (
-    <div className="min-w-0 flex-1">
-      <div className="font-medium">{typeof item._title === 'string' ? item._title : String(item._id)}</div>
-      <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
-        {columns
-          .filter((column) => formatCell(item[column.name], column) !== item._title) // the title is shown above
-          .map((column) => (
-            <Fragment key={column.name}>
-              <dt className="text-muted-foreground">{column.label}</dt>
-              <dd className="truncate">
-                <DisplayValue value={item[column.name]} field={column} />
-              </dd>
-            </Fragment>
-          ))}
-      </dl>
-    </div>
-  );
-}
 
 function RestoreButton({ item, pending, onRestore }: { item: AdminRecord; pending: boolean; onRestore: (id: string) => void }) {
   const t = useT();

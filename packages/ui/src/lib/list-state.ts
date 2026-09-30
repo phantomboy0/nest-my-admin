@@ -3,7 +3,7 @@ import { formatNumber, translate as tr } from '@/i18n';
 
 export type ParamChanges = Record<string, string | null>;
 
-const LIST_KEYS = new Set(['page', 'sort', 'search', 'trashed', 'after']);
+const LIST_KEYS = new Set(['page', 'pageSize', 'sort', 'search', 'trashed', 'after']);
 const isListKey = (key: string) => LIST_KEYS.has(key) || key.startsWith('filter[');
 
 /** The API list query is the page URL's list parameters, passed through unchanged (spec §11 syntax). */

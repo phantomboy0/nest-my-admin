@@ -19,6 +19,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
     editable: ['status', 'stock'],
     filters: ['status', 'categoryId', 'tags', 'price', 'stock', 'releasedOn'],
     search: ['name', 'sku', 'category.name'],
+    mobile: { title: 'name', subtitle: 'category.name', badge: 'status', meta: ['sku', 'price', 'stock'] },
   };
   /** Archived products are read-only except their status (the service refuses other changes too). */
   fields: FieldsConfig<Product> = {

@@ -13,11 +13,12 @@ export const useSchema = (resource: string) => {
   return useQuery({ queryKey: ['schema', resource, locale], queryFn: () => api.schema(resource) });
 };
 
-export const useList = (resource: string, query: string) =>
+export const useList = (resource: string, query: string, enabled = true) =>
   useQuery({
     queryKey: ['list', resource, query],
     queryFn: () => api.list(resource, new URLSearchParams(query)),
     placeholderData: keepPreviousData,
+    enabled,
   });
 
 export const useRecord = (resource: string, id: string | undefined) =>
