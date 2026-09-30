@@ -1,7 +1,9 @@
-import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { DiscoveryService, ModuleRef } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import type { DataSource } from 'typeorm';
+import { ADMIN_OPTIONS } from '../constants.js';
+import type { ResolvedAdminOptions } from '../options.js';
 import type { ResourceSchema } from '../contract.js';
 import { getAdminGroupOptions } from '../decorators/admin-group.js';
 import { getAdminResourceDefinition, type AdminResourceDefinition } from '../decorators/admin-resource.js';
@@ -14,6 +16,7 @@ export interface RegisteredResource {
   schema: ResourceSchema;
   resource: AdminResourceBase<any>;
   className: string;
+  entity: Function;
   /** Database column name → entity property name (for mapping constraint errors to fields). */
   columnProperties: ReadonlyMap<string, string>;
 }
@@ -27,14 +30,21 @@ export interface RegisteredGroup {
 
 const DEFAULT_GROUP_ORDER = 100;
 
+const AUTO_GROUP = { key: 'entities', label: 'Entities', order: 1000 } as const;
+
+/** Default resource used by autoRegister. */
+class AutoRegisteredResource extends AdminResourceBase {}
+
 @Injectable()
 export class ResourceRegistry implements OnModuleInit {
+  private readonly logger = new Logger('NestMyAdmin');
   private readonly resources = new Map<string, RegisteredResource>();
   private readonly groups = new Map<string, RegisteredGroup>();
 
   constructor(
     private readonly discovery: DiscoveryService,
     private readonly moduleRef: ModuleRef,
+    @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {}
 
   onModuleInit(): void {
@@ -57,6 +67,7 @@ export class ResourceRegistry implements OnModuleInit {
       const moduleGroup = this.registerModuleGroup(wrapper.host?.metatype);
       this.register(metatype.name, definition, instance, moduleGroup);
     }
+    if (this.options.autoRegister) this.registerAutoResources();
   }
 
   get(name: string): RegisteredResource {
@@ -125,7 +136,32 @@ export class ResourceRegistry implements OnModuleInit {
       schema,
       resource,
       className,
+      entity: definition.entity,
       columnProperties: new Map(metadata.columns.map((column) => [column.databaseName, column.propertyName])),
     });
+  }
+
+  private registerAutoResources(): void {
+    let dataSource: DataSource;
+    try {
+      dataSource = this.moduleRef.get<DataSource>(getDataSourceToken(), { strict: false });
+    } catch {
+      throw new Error('nest-my-admin: autoRegister needs the default TypeORM DataSource (TypeOrmModule.forRoot())');
+    }
+    const covered = new Set(this.list().map((entry) => entry.entity));
+    for (const metadata of dataSource.entityMetadatas) {
+      const entity = metadata.target;
+      if (typeof entity !== 'function' || covered.has(entity) || metadata.tableType !== 'regular') continue;
+      if (metadata.primaryColumns.length !== 1) {
+        this.logger.warn(`autoRegister skipped ${entity.name}: composite primary keys are not supported yet`);
+        continue;
+      }
+      if (this.resources.has(kebabCase(entity.name))) {
+        this.logger.warn(`autoRegister skipped ${entity.name}: a resource named "${kebabCase(entity.name)}" already exists`);
+        continue;
+      }
+      if (!this.groups.has(AUTO_GROUP.key)) this.groups.set(AUTO_GROUP.key, { ...AUTO_GROUP });
+      this.register(`${entity.name}Admin (auto)`, { entity, group: AUTO_GROUP.key }, new AutoRegisteredResource(), AUTO_GROUP.key);
+    }
   }
 }

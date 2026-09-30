@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { Module, type INestApplication } from '@nestjs/common';
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, PrimaryColumn, PrimaryGeneratedColumn } from 'typeorm';
 import { AdminResource, AdminResourceBase, ResourceRegistry, type AdminContext } from '../src/index.js';
 import { Widget } from './fixtures/widgets.js';
 import { createTestApp } from './helpers/create-app.js';
+import request from 'supertest';
 
 let app: INestApplication | undefined;
 afterEach(async () => {
@@ -67,5 +68,35 @@ describe('ResourceRegistry', () => {
     await expect(createTestApp({ imports: [OrphanModule] })).rejects.toThrow(
       'OrphanAdmin: entity Orphan is not registered in DataSource "default"',
     );
+  });
+
+  @Entity()
+  class Gizmo {
+    @PrimaryGeneratedColumn() id: number;
+    @Column() label: string;
+  }
+
+  @Entity()
+  class Pairing {
+    @PrimaryColumn() first: string;
+    @PrimaryColumn() second: string;
+  }
+
+  describe('autoRegister', () => {
+    test('is off by default', async () => {
+      app = await createTestApp({ entities: [Gizmo] });
+      expect(app.get(ResourceRegistry).list().map((entry) => entry.schema.name)).toEqual(['widget']);
+    });
+
+    test('exposes entities without a resource under "Entities" and skips composite keys', async () => {
+      app = await createTestApp({ admin: { autoRegister: true }, entities: [Gizmo, Pairing] });
+      const registry = app.get(ResourceRegistry);
+      expect(registry.list().map((entry) => entry.schema.name).sort()).toEqual(['gizmo', 'widget']);
+      expect(registry.get('gizmo').schema.group).toBe('entities');
+      expect(registry.get('widget').schema.group).toBe('widgets');
+      expect(registry.groupList().find((group) => group.key === 'entities')).toEqual({ key: 'entities', label: 'Entities', order: 1000 });
+      const created = await request(app.getHttpServer()).post('/admin/api/resources/gizmo').send({ label: 'Auto' });
+      expect(created.status).toBe(201);
+    });
   });
 });
