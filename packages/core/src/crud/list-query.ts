@@ -131,8 +131,25 @@ function parseScalar(field: FieldSchema, raw: string): Parsed<string | number | 
       return field.enumValues?.includes(raw) ? { value: raw } : { error: `must be one of: ${(field.enumValues ?? []).join(', ')}` };
     case 'uuid':
       return UUID.test(raw) ? { value: raw } : { error: 'must be a UUID' };
+    case 'relation':
+      return parseId(field, raw);
     default:
       return raw.length <= MAX_TEXT ? { value: raw } : { error: `must be at most ${MAX_TEXT} characters` };
+  }
+}
+
+/** An id of a relation's target, typed like its primary key. */
+export function parseId(field: FieldSchema, raw: string): Parsed<string | number> {
+  switch (field.relation?.idType) {
+    case 'number':
+      if (field.integer) return INTEGER.test(raw) && Number.isSafeInteger(Number(raw)) ? { value: Number(raw) } : { error: 'must be an id (an integer)' };
+      return NUMBER.test(raw) && Number.isFinite(Number(raw)) ? { value: Number(raw) } : { error: 'must be an id (a number)' };
+    case 'bigint':
+      return INTEGER.test(raw) && BigInt(raw) <= MAX_INT64 && BigInt(raw) >= -MAX_INT64 ? { value: raw } : { error: 'must be an id (an integer)' };
+    case 'uuid':
+      return UUID.test(raw) ? { value: raw } : { error: 'must be an id (a UUID)' };
+    default:
+      return raw.length > 0 && raw.length <= MAX_TEXT ? { value: raw } : { error: `must be an id of 1 to ${MAX_TEXT} characters` };
   }
 }
 

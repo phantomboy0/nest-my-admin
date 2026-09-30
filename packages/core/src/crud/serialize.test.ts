@@ -50,3 +50,18 @@ describe('serializeRecord', () => {
     expect(record).toEqual({ id: 1, price: '2.50' });
   });
 });
+
+describe('serializeRecord with loaded values', () => {
+  const fields = [field('id', 'number'), field('owner', 'relation'), field('owner.name', 'string', { readonly: true }), field('tags', 'relation')];
+
+  test('relation fields and paths come from the loaded values, and are left out when not loaded', () => {
+    const entity = { id: 1, owner: { id: 2, name: 'raw entity value' } };
+    expect(serializeRecord(entity, fields, { owner: { id: 2, title: 'Ada' }, 'owner.name': 'Ada' }, 'Order 1')).toEqual({
+      id: 1,
+      owner: { id: 2, title: 'Ada' },
+      'owner.name': 'Ada',
+      _title: 'Order 1',
+    });
+    expect(serializeRecord(entity, fields)).toEqual({ id: 1 });
+  });
+});

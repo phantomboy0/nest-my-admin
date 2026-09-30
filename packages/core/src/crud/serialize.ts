@@ -1,12 +1,21 @@
 import type { AdminRecord, FieldSchema } from '../contract.js';
 
-/** Entity → JSON-safe record containing only the schema's persisted fields. */
-export function serializeRecord(entity: object, fields: FieldSchema[]): AdminRecord {
+/**
+ * Entity → JSON-safe record containing only the schema's persisted fields. Relation fields and dotted paths come
+ * from `loaded` (the reference loader) and are left out when it has none for them; `title` becomes `_title`.
+ */
+export function serializeRecord(entity: object, fields: FieldSchema[], loaded?: Record<string, unknown>, title?: string): AdminRecord {
   const source = entity as Record<string, unknown>;
   const out: AdminRecord = {};
   for (const field of fields) {
-    if (field.persisted) out[field.name] = serializeValue(source[field.name], field);
+    if (!field.persisted) continue;
+    if (field.type === 'relation' || field.name.includes('.')) {
+      if (loaded && Object.hasOwn(loaded, field.name)) out[field.name] = loaded[field.name];
+      continue;
+    }
+    out[field.name] = serializeValue(source[field.name], field);
   }
+  if (title !== undefined) out._title = title;
   return out;
 }
 

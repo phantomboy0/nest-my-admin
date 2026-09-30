@@ -94,7 +94,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    */
   protected buildListQuery(params: ListParams, ctx?: AdminContext, alias = 'entity'): SelectQueryBuilder<T> {
     const repository = ctx ? this.repositoryFor(ctx) : this.repository;
-    return applyListParams(repository.createQueryBuilder(alias), params, this.primaryKey);
+    return applyListParams(repository.createQueryBuilder(alias), params, repository.metadata);
   }
 
   /**

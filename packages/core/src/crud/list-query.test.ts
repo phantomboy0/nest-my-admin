@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { FieldSchema, ResourceSchema } from '../contract.js';
 import { AdminValidationError } from '../errors.js';
-import { parseListQuery } from './list-query.js';
+import { parseId, parseListQuery } from './list-query.js';
 
 const f = (name: string, type: FieldSchema['type'], extra: Partial<FieldSchema> = {}): FieldSchema => ({
   name, label: name, type, nullable: false, primary: false, readonly: false, persisted: true, ...extra,
@@ -172,5 +172,23 @@ describe('parseListQuery: search', () => {
     expect(errorsOf(() => parse(`search=${'x'.repeat(201)}`))).toEqual({ search: ['must be at most 200 characters'] });
     const unsearchable = { ...schema, list: { ...schema.list, search: [] } };
     expect(errorsOf(() => parse('search=lamp', unsearchable))).toEqual({ search: ['this resource is not searchable'] });
+  });
+});
+
+describe('parseId', () => {
+  const relation = (idType: 'number' | 'bigint' | 'string' | 'uuid', integer = idType === 'number') =>
+    f('owner', 'relation', { relation: { kind: 'to-one', idType }, ...(integer ? { integer } : {}) });
+
+  test.each([
+    ['number', '42', { value: 42 }],
+    ['number', '4.2', { error: 'must be an id (an integer)' }],
+    ['number', '9007199254740993', { error: 'must be an id (an integer)' }],
+    ['bigint', '9007199254740993', { value: '9007199254740993' }],
+    ['bigint', '99999999999999999999', { error: 'must be an id (an integer)' }],
+    ['uuid', '0f8fad5b-d9cb-469f-a165-70867728950e', { value: '0f8fad5b-d9cb-469f-a165-70867728950e' }],
+    ['uuid', 'nope', { error: 'must be an id (a UUID)' }],
+    ['string', 'ab-1', { value: 'ab-1' }],
+  ] as const)('%s %p', (idType, raw, expected) => {
+    expect(parseId(relation(idType), raw)).toEqual(expected);
   });
 });

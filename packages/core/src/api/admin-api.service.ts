@@ -1,9 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { DataSource } from 'typeorm';
-import type { AdminRecord, ListResponse, MetaResponse, ResourceSchema } from '../contract.js';
+import type { DataSource, EntityManager } from 'typeorm';
+import type { AdminRecord, FieldSchema, ListResponse, MetaResponse, ResourceSchema } from '../contract.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
 import { parseRecordId } from '../crud/record-id.js';
+import { isLoadedField, loadReferences, recordKey } from '../crud/references.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
 import { AdminNotFoundError } from '../errors.js';
@@ -54,17 +55,37 @@ export class AdminApiService {
   }
 
   async list(name: string, query: URLSearchParams, ctx: AdminContext): Promise<ListResponse> {
-    const { schema, resource } = this.registry.get(name);
+    const entry = this.registry.get(name);
+    const { schema, resource } = entry;
     const params = parseListQuery(query, schema);
     const { items, total } = await resource.findMany(params, ctx);
-    return { items: items.map((item) => serializeRecord(item, schema.fields)), total, page: params.page, pageSize: params.pageSize };
+    const loaded = schema.fields.filter((field) => isLoadedField(field) && schema.list.columns.includes(field.name));
+    return { items: await this.records(entry, items, loaded, ctx), total, page: params.page, pageSize: params.pageSize };
   }
 
   async get(name: string, rawId: string, ctx: AdminContext): Promise<AdminRecord> {
-    const { schema, resource } = this.registry.get(name);
+    const entry = this.registry.get(name);
+    const { schema, resource } = entry;
     const entity = await resource.findOne(parseRecordId(rawId, schema), ctx);
     if (!entity) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
-    return serializeRecord(entity, schema.fields);
+    return this.record(entry, entity, ctx);
+  }
+
+  /** Serializes entities with their relation values and paths (`fields`) loaded and their titles. */
+  private async records(entry: RegisteredResource, entities: object[], fields: FieldSchema[], ctx: AdminContext): Promise<AdminRecord[]> {
+    const { schema } = entry;
+    const manager: EntityManager = ctx.manager ?? entry.dataSource.manager;
+    const loaded = fields.length > 0 ? await loadReferences(entry, entities, fields, { registry: this.registry, manager }) : undefined;
+    return entities.map((entity) => {
+      const id = (entity as Record<string, unknown>)[schema.primaryKey];
+      return serializeRecord(entity, schema.fields, loaded?.get(recordKey(id)), entry.title(entity));
+    });
+  }
+
+  /** One record with every relation field loaded (detail and write responses). */
+  private async record(entry: RegisteredResource, entity: object, ctx: AdminContext): Promise<AdminRecord> {
+    const relations = entry.schema.fields.filter((field) => field.type === 'relation');
+    return (await this.records(entry, [entity], relations, ctx))[0]!;
   }
 
   /** Runs a write in one transaction (unless disabled) with ctx.manager set and AdminContext.current() pointing at it. */
@@ -99,7 +120,7 @@ export class AdminApiService {
       if (typeof created !== 'object' || created === null) {
         throw new Error(`${entry.className}.create() must return the created entity`);
       }
-      return serializeRecord(created, schema.fields);
+      return this.record(entry, created, tx);
     });
   }
 
@@ -116,7 +137,7 @@ export class AdminApiService {
     return this.write(entry, ctx, async (tx) => {
       if (!(await resource.findOne(id, tx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       const updated: unknown = await resource.update(id, dto, tx);
-      return serializeRecord(await this.reloadIfEmpty(entry, updated, id, tx), schema.fields);
+      return this.record(entry, await this.reloadIfEmpty(entry, updated, id, tx), tx);
     });
   }
 

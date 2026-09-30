@@ -14,6 +14,8 @@ export interface TestAppOptions {
   imports?: Array<Type | DynamicModule>;
   providers?: Provider[];
   entities?: Function[];
+  /** Extra TypeORM options for the app's DataSource (a logger, for instance). */
+  dataSource?: Record<string, unknown>;
   beforeInit?: (app: INestApplication) => void;
 }
 
@@ -25,7 +27,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<INest
     const moduleRef = await Test.createTestingModule({
       imports: [
         // retryAttempts: 0 — a schema that cannot be created fails the test at once instead of retrying for 30 s
-        TypeOrmModule.forRoot({ ...db.options, retryAttempts: 0 }),
+        TypeOrmModule.forRoot({ ...db.options, ...(options.dataSource as object), retryAttempts: 0 }),
         AdminModule.forRoot({ uiDistPath: FIXTURE_UI_DIST, ...options.admin }),
         WidgetsModule,
         ...(options.imports ?? []),
