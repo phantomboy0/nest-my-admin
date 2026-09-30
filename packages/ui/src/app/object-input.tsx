@@ -2,6 +2,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import type { FieldConstraints, FieldSchema } from '@nest-my-admin/core/contract';
 import { FieldInput } from '@/app/field-input';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/i18n';
 import { toFormValues, type FormValue, type FormValues } from '@/lib/form-values';
 
 interface ObjectInputProps {
@@ -24,6 +25,7 @@ const asGroup = (value: FormValue | undefined): FormValues =>
 
 /** A sub-form (embedded entity or nested DTO), or a list of them with Add and Remove when the field is `many`. */
 export function ObjectInput({ resource, field, path, pattern, value, constraints, markRequired, errors, onChange }: ObjectInputProps) {
+  const t = useT();
   const own = errors[path];
   if (field.many) {
     const items = Array.isArray(value) ? (value as FormValues[]) : [];
@@ -46,7 +48,7 @@ export function ObjectInput({ resource, field, path, pattern, value, constraints
             <div>
               <Button type="button" variant="ghost" size="sm" onClick={() => onChange(items.filter((_, at) => at !== index))}>
                 <Trash2 />
-                Remove {field.label.toLowerCase()} {index + 1}
+                {t('form.remove', { name: field.label, index: index + 1 })}
               </Button>
             </div>
           </div>
@@ -54,7 +56,7 @@ export function ObjectInput({ resource, field, path, pattern, value, constraints
         <div>
           <Button type="button" variant="outline" size="sm" onClick={() => onChange([...items, toFormValues(field.fields ?? [])])}>
             <Plus />
-            Add {field.label.toLowerCase()}
+            {t('form.add', { name: field.label })}
           </Button>
         </div>
         {own && <p className="text-sm text-destructive">{own.join(' ')}</p>}

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RelationInput } from '@/app/relation-input';
+import { useT } from '@/i18n';
 import { toDatetimeLocal } from '@/lib/form-values';
 import { useRelationRefs } from '@/lib/queries';
 import { clearFilters, filterKey, hasActiveFilters, type ParamChanges } from '@/lib/list-state';
@@ -20,6 +21,7 @@ const selectClass =
 const RANGE_TYPES = new Set(['number', 'decimal', 'bigint', 'date', 'datetime']);
 
 export function FilterBar({ schema, params, onChange }: FilterBarProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const urlSearch = params.get('search') ?? '';
   const [search, setSearch] = useState(urlSearch);
@@ -46,15 +48,15 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
               onChange({ search: search.trim() || null });
             }}
           >
-            <Input aria-label="Search" placeholder={`Search ${searchLabels.join(', ').toLowerCase()}`} value={search} onChange={(event) => setSearch(event.target.value)} />
+            <Input aria-label={t('filters.search')} placeholder={t('filters.searchIn', { fields: searchLabels.join(', ') })} value={search} onChange={(event) => setSearch(event.target.value)} />
             <Button type="submit" variant="outline">
-              Search
+              {t('filters.search')}
             </Button>
           </form>
         )}
         {filters.length > 0 && (
           <Button type="button" variant="outline" className="md:hidden" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-            Filters
+            {t('filters.filters')}
           </Button>
         )}
       </div>
@@ -68,7 +70,7 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
       {hasActiveFilters(params) && (
         <div>
           <Button type="button" variant="ghost" size="sm" onClick={() => onChange(clearFilters(params))}>
-            Clear filters
+            {t('filters.clear')}
           </Button>
         </div>
       )}
@@ -85,6 +87,7 @@ interface FilterControlProps {
 }
 
 function FilterControl({ resource, field, operators, params, onChange }: FilterControlProps) {
+  const t = useT();
   const id = `filter-${field.name}`;
 
   if (field.type === 'relation') {
@@ -96,12 +99,12 @@ function FilterControl({ resource, field, operators, params, onChange }: FilterC
   if ((field.type === 'enum' || field.type === 'boolean') && operators.includes('eq')) {
     const key = filterKey(field.name, 'eq');
     const options: Array<[string, string]> =
-      field.type === 'boolean' ? [['true', 'Yes'], ['false', 'No']] : (field.enumValues ?? []).map((value) => [value, value]);
+      field.type === 'boolean' ? [['true', t('common.yes')], ['false', t('common.no')]] : (field.enumValues ?? []).map((value) => [value, value]);
     return (
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={id}>{field.label}</Label>
         <select id={id} className={selectClass} value={params.get(key) ?? ''} onChange={(event) => onChange({ [key]: event.target.value || null })}>
-          <option value="">All</option>
+          <option value="">{t('common.all')}</option>
           {options.map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -126,7 +129,7 @@ function FilterControl({ resource, field, operators, params, onChange }: FilterC
             return (
               <div key={operator} className="flex flex-1 flex-col gap-1">
                 <Label htmlFor={inputId} className="text-xs text-muted-foreground">
-                  {operator === 'gte' ? 'From' : 'To'}
+                  {t(operator === 'gte' ? 'filters.from' : 'filters.to')}
                 </Label>
                 <CommitInput
                   id={inputId}
@@ -148,7 +151,7 @@ function FilterControl({ resource, field, operators, params, onChange }: FilterC
   const key = filterKey(field.name, operator);
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id}>{operator === 'contains' ? `${field.label} contains` : field.label}</Label>
+      <Label htmlFor={id}>{operator === 'contains' ? t('filters.contains', { field: field.label }) : field.label}</Label>
       <CommitInput id={id} value={params.get(key) ?? ''} onCommit={(value) => onChange({ [key]: value.trim() || null })} />
     </div>
   );

@@ -8,6 +8,7 @@ import { FormPage } from '@/app/form-page';
 import { HomePage } from '@/app/home-page';
 import { ListPage } from '@/app/list-page';
 import { NotFound } from '@/app/not-found';
+import { LocaleProvider } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
 
 document.title = runtimeConfig.title;
@@ -32,8 +33,10 @@ const router = createBrowserRouter(
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>
+    <LocaleProvider locales={runtimeConfig.locales} fallback={runtimeConfig.locale}>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </LocaleProvider>
   </StrictMode>,
 );

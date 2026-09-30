@@ -1,10 +1,17 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useLocale } from '@/i18n';
 import { api } from './api';
 
-export const useMeta = () => useQuery({ queryKey: ['meta'], queryFn: api.meta });
+// Labels depend on the language, so meta and schemas are cached per locale.
+export const useMeta = () => {
+  const { locale } = useLocale();
+  return useQuery({ queryKey: ['meta', locale], queryFn: api.meta });
+};
 
-export const useSchema = (resource: string) =>
-  useQuery({ queryKey: ['schema', resource], queryFn: () => api.schema(resource) });
+export const useSchema = (resource: string) => {
+  const { locale } = useLocale();
+  return useQuery({ queryKey: ['schema', resource, locale], queryFn: () => api.schema(resource) });
+};
 
 export const useList = (resource: string, query: string) =>
   useQuery({

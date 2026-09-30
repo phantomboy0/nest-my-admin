@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from 'react-router';
 import { Menu } from 'lucide-react';
 import type { MetaGroup } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
 import { useMeta } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -11,6 +12,7 @@ export function AdminLayout() {
   const meta = useMeta();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
+  const t = useT();
 
   useEffect(() => {
     setNavOpen(false);
@@ -36,7 +38,7 @@ export function AdminLayout() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center gap-2 border-b px-4">
-          <Button variant="ghost" size="icon" className="md:hidden" aria-label="Menu" onClick={() => setNavOpen(true)}>
+          <Button variant="ghost" size="icon" className="md:hidden" aria-label={t('shell.menu')} onClick={() => setNavOpen(true)}>
             <Menu />
           </Button>
           <span className="font-semibold md:hidden">{title}</span>
@@ -51,7 +53,7 @@ export function AdminLayout() {
 
 function ResourceNav({ title, groups }: { title: string; groups: MetaGroup[] }) {
   return (
-    <nav aria-label="Resources" className="flex h-full flex-col gap-4 overflow-y-auto p-3">
+    <nav aria-label={useT()('shell.resources')} className="flex h-full flex-col gap-4 overflow-y-auto p-3">
       <div className="px-2 py-1 text-lg font-semibold">{title}</div>
       {groups.map((group) => (
         <div key={group.key}>

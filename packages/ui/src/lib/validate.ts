@@ -1,4 +1,5 @@
 import type { FieldConstraints } from '@nest-my-admin/core/contract';
+import { translate as tr } from '@/i18n';
 
 const EMAIL = /^.+@[^\s@]+\.[^\s@]+$/; // the local part may be quoted, so it may hold spaces and @
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,18 +37,18 @@ function check(value: unknown, c: FieldConstraints): string[] {
   const messages: string[] = [];
   if (typeof value === 'string') {
     const length = characterCount(value);
-    if (c.minLength !== undefined && length < c.minLength) messages.push(`must be at least ${c.minLength} characters`);
-    if (c.maxLength !== undefined && length > c.maxLength) messages.push(`must be at most ${c.maxLength} characters`);
-    if (c.pattern && !matchesPattern(value, c.pattern)) messages.push(c.pattern.message ?? 'is not in the expected format');
-    if (c.format === 'email' && !EMAIL.test(value)) messages.push('must be an email address');
-    if (c.format === 'url' && !isUrl(value)) messages.push('must be a URL');
-    if (c.format === 'uuid' && !UUID.test(value)) messages.push('must be a UUID');
-    if (c.oneOf && !c.oneOf.includes(value)) messages.push(`must be one of: ${c.oneOf.join(', ')}`);
+    if (c.minLength !== undefined && length < c.minLength) messages.push(tr('validation.minLength', { min: c.minLength }));
+    if (c.maxLength !== undefined && length > c.maxLength) messages.push(tr('validation.maxLength', { max: c.maxLength }));
+    if (c.pattern && !matchesPattern(value, c.pattern)) messages.push(c.pattern.message ?? tr('validation.pattern'));
+    if (c.format === 'email' && !EMAIL.test(value)) messages.push(tr('validation.email'));
+    if (c.format === 'url' && !isUrl(value)) messages.push(tr('validation.url'));
+    if (c.format === 'uuid' && !UUID.test(value)) messages.push(tr('validation.uuid'));
+    if (c.oneOf && !c.oneOf.includes(value)) messages.push(tr('validation.oneOf', { values: c.oneOf.join(', ') }));
   }
   if (typeof value === 'number') {
-    if (c.integer && !Number.isInteger(value)) messages.push('must be an integer');
-    if (c.min !== undefined && value < c.min) messages.push(`must be at least ${c.min}`);
-    if (c.max !== undefined && value > c.max) messages.push(`must be at most ${c.max}`);
+    if (c.integer && !Number.isInteger(value)) messages.push(tr('validation.integer'));
+    if (c.min !== undefined && value < c.min) messages.push(tr('validation.min', { min: c.min }));
+    if (c.max !== undefined && value > c.max) messages.push(tr('validation.max', { max: c.max }));
   }
   return messages;
 }
@@ -66,7 +67,7 @@ export function validatePayload(
     for (const { path, value, sent, parentSent } of valuesAt(payload, pattern.split('.'))) {
       if (value === undefined || value === null || value === '') {
         // Inside an object that was not sent at all (a partial update), there is nothing to require.
-        if (c.required && parentSent && (mode === 'create' || sent)) errors[path] = ['is required'];
+        if (c.required && parentSent && (mode === 'create' || sent)) errors[path] = [tr('validation.required')];
         continue;
       }
       const messages = check(value, c);

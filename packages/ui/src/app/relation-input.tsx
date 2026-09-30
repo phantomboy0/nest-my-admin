@@ -2,6 +2,7 @@ import { useEffect, useState, type KeyboardEvent } from 'react';
 import { X } from 'lucide-react';
 import type { FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
 import { Input } from '@/components/ui/input';
+import { useT } from '@/i18n';
 import { describeError } from '@/lib/api';
 import { useOptions } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -39,6 +40,7 @@ const sameId = (a: RelationRef, b: RelationRef) => String(a.id) === String(b.id)
  * server). One record for to-one relations; chips plus the search box for to-many relations.
  */
 export function RelationInput({ id, resource, field, value, onChange, clearable, values, invalid, describedBy }: RelationInputProps) {
+  const t = useT();
   const multiple = field.relation?.kind === 'to-many';
   const selected = multiple && Array.isArray(value) ? value : [];
   const single = !multiple && value && !Array.isArray(value) ? value : null;
@@ -82,14 +84,14 @@ export function RelationInput({ id, resource, field, value, onChange, clearable,
   return (
     <div className="relative flex flex-col gap-1.5">
       {multiple && selected.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5" aria-label={`Selected ${field.label.toLowerCase()}`}>
+        <ul className="flex flex-wrap gap-1.5" aria-label={t('picker.selected', { name: field.label })}>
           {selected.map((ref) => (
             <li key={String(ref.id)} className="inline-flex items-center gap-1 rounded-md bg-muted py-0.5 ps-2 pe-1 text-sm">
               {ref.title}
               <button
                 type="button"
                 className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
-                aria-label={`Remove ${ref.title}`}
+                aria-label={t('picker.remove', { name: ref.title })}
                 onClick={() => onChange(selected.filter((picked) => !sameId(picked, ref)))}
               >
                 <X className="size-3.5" />
@@ -110,7 +112,7 @@ export function RelationInput({ id, resource, field, value, onChange, clearable,
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
           className={cn(single && clearable && 'pe-8')}
-          placeholder={single ? single.title : multiple ? 'Type to add…' : 'Type to search…'}
+          placeholder={single ? single.title : t(multiple ? 'picker.typeToAdd' : 'picker.typeToSearch')}
           value={open || text ? text : (single?.title ?? '')}
           onChange={(event) => {
             setText(event.target.value);
@@ -127,7 +129,7 @@ export function RelationInput({ id, resource, field, value, onChange, clearable,
           <button
             type="button"
             className="absolute inset-y-0 end-0 flex items-center px-2 text-muted-foreground hover:text-foreground"
-            aria-label={`Clear ${field.label}`}
+            aria-label={t('picker.clear', { name: field.label })}
             onClick={() => onChange(null)}
           >
             <X className="size-4" />
@@ -154,7 +156,7 @@ export function RelationInput({ id, resource, field, value, onChange, clearable,
           </ul>
           {items.length === 0 && (
             <p className="px-2 py-1.5 text-sm text-muted-foreground">
-              {options.isError ? describeError(options.error) : options.isFetching || options.isPending ? 'Searching…' : 'No matches'}
+              {options.isError ? describeError(options.error) : t(options.isFetching || options.isPending ? 'picker.searching' : 'picker.noMatches')}
             </p>
           )}
         </div>

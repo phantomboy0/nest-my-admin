@@ -178,7 +178,7 @@ test('a second editor gets a conflict notice and can keep their changes', async 
   await page.getByLabel('Name').fill('My lamp');
   await page.getByRole('button', { name: 'Save' }).click();
   const notice = page.getByRole('alertdialog');
-  await expect(notice).toContainText('Someone else saved this product');
+  await expect(notice).toContainText('Someone else saved this record');
   await expect(notice).toContainText('Stock');
   await notice.getByRole('button', { name: 'Keep my changes' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);

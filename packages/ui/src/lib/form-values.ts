@@ -1,4 +1,5 @@
 import type { AdminRecord, FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
+import { translate as tr } from '@/i18n';
 
 /**
  * What an input edits: text, a checkbox, a picked record (to-one relation), picked records (to-many), or the values
@@ -125,7 +126,7 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
       case 'decimal':
       case 'bigint': {
         const numeric = normalizeNumeric(trimmed, field.type === 'bigint');
-        if (numeric === undefined) errors[path] = ['must be a number'];
+        if (numeric === undefined) errors[path] = [tr('validation.number')];
         else payload[field.name] = field.type === 'number' ? Number(numeric) : numeric;
         break;
       }
@@ -133,12 +134,12 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
         try {
           payload[field.name] = JSON.parse(trimmed);
         } catch {
-          errors[path] = ['must be valid JSON'];
+          errors[path] = [tr('validation.json')];
         }
         break;
       case 'datetime': {
         const date = new Date(trimmed);
-        if (Number.isNaN(date.getTime())) errors[path] = ['must be a valid date and time'];
+        if (Number.isNaN(date.getTime())) errors[path] = [tr('validation.datetime')];
         else payload[field.name] = date.toISOString();
         break;
       }

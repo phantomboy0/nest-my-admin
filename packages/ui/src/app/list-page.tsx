@@ -7,6 +7,7 @@ import { FilterBar } from '@/app/filter-bar';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useT } from '@/i18n';
 import { api, describeError } from '@/lib/api';
 import { formatCell } from '@/lib/format';
 import { isRef } from '@/lib/form-values';
@@ -23,6 +24,7 @@ export function ListPage() {
   const schema = useSchema(resource);
   const list = useList(resource, listQueryFromUrl(searchParams));
   const queryClient = useQueryClient();
+  const t = useT();
   const restore = useMutation({
     mutationFn: (id: string) => api.restore(resource, id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['list', resource] }),
@@ -34,7 +36,7 @@ export function ListPage() {
     if (!hasAfter) setTrail([]); // back on the first page (a new filter or sort, or Previous from page 2)
   }, [hasAfter]);
 
-  if (schema.isPending) return <PageMessage>Loading…</PageMessage>;
+  if (schema.isPending) return <PageMessage>{t('common.loading')}</PageMessage>;
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
 
   const s = schema.data;
@@ -50,7 +52,7 @@ export function ListPage() {
   const after = searchParams.get('after');
   // Keyset lists: the cursors of the pages before this one ('' is the first page), so Previous can walk back.
   const pager = keyset
-    ? { summary: paging(list.data, 1).summary, label: `Page ${trail.length + 1}`, hasNext: Boolean(list.data?.nextCursor) }
+    ? { summary: paging(list.data, 1).summary, label: t('list.page', { page: trail.length + 1 }), hasNext: Boolean(list.data?.nextCursor) }
     : paging(list.data, page);
   const hasPrevious = keyset ? trail.length > 0 : page > 1;
 
@@ -84,14 +86,14 @@ export function ListPage() {
         {s.softDelete && (
           <Button variant={trash ? 'secondary' : 'outline'} className="ms-auto" aria-pressed={trash} onClick={() => updateParams({ trashed: trash ? null : 'only' })}>
             <Trash2 />
-            Trash
+            {t('list.trash')}
           </Button>
         )}
         {s.creatable && !trash && (
           <Button asChild>
             <Link to={`/${s.name}/new`}>
               <Plus />
-              New
+              {t('list.new')}
             </Link>
           </Button>
         )}
@@ -101,7 +103,7 @@ export function ListPage() {
 
       {list.isError && <PageMessage tone="error">{describeError(list.error)}</PageMessage>}
       {restore.isError && <PageMessage tone="error">{describeError(restore.error)}</PageMessage>}
-      {trash && <p className="text-sm text-muted-foreground">Records in the trash. Restore one to edit it again.</p>}
+      {trash && <p className="text-sm text-muted-foreground">{t('list.trashNote')}</p>}
 
       <div className="hidden overflow-x-auto rounded-lg border md:block">
         <Table>
@@ -120,7 +122,7 @@ export function ListPage() {
                   )}
                 </TableHead>
               ))}
-              {trash && <TableHead className="w-0"><span className="sr-only">Actions</span></TableHead>}
+              {trash && <TableHead className="w-0"><span className="sr-only">{t('list.actions')}</span></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -147,7 +149,7 @@ export function ListPage() {
             {list.isSuccess && items.length === 0 && (
               <TableRow>
                 <TableCell colSpan={columns.length + (trash ? 1 : 0)} className="text-center text-muted-foreground">
-                  {hasActiveFilters(searchParams) ? 'No records match.' : 'No records yet.'}
+                  {t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}
                 </TableCell>
               </TableRow>
             )}
@@ -170,19 +172,19 @@ export function ListPage() {
             )}
           </li>
         ))}
-        {list.isSuccess && items.length === 0 && <li className="text-center text-sm text-muted-foreground">{hasActiveFilters(searchParams) ? 'No records match.' : 'No records yet.'}</li>}
+        {list.isSuccess && items.length === 0 && <li className="text-center text-sm text-muted-foreground">{t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}</li>}
       </ul>
 
       <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
         <span>{pager.summary}</span>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={!hasPrevious} onClick={previousPage}>
+          <Button variant="outline" size="icon-sm" aria-label={t('list.previousPage')} disabled={!hasPrevious} onClick={previousPage}>
             <ChevronLeft className="rtl:rotate-180" />
           </Button>
           <span>
             {pager.label}
           </span>
-          <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={!pager.hasNext} onClick={nextPage}>
+          <Button variant="outline" size="icon-sm" aria-label={t('list.nextPage')} disabled={!pager.hasNext} onClick={nextPage}>
             <ChevronRight className="rtl:rotate-180" />
           </Button>
         </div>
@@ -231,10 +233,11 @@ function Card({ item, columns }: { item: AdminRecord; columns: FieldSchema[] }) 
 }
 
 function RestoreButton({ item, pending, onRestore }: { item: AdminRecord; pending: boolean; onRestore: (id: string) => void }) {
+  const t = useT();
   return (
-    <Button type="button" variant="outline" size="sm" disabled={pending} aria-label={`Restore ${String(item._title ?? item._id)}`} onClick={() => onRestore(String(item._id))}>
+    <Button type="button" variant="outline" size="sm" disabled={pending} aria-label={t('list.restoreRecord', { name: String(item._title ?? item._id) })} onClick={() => onRestore(String(item._id))}>
       <RotateCcw />
-      Restore
+      {t('list.restore')}
     </Button>
   );
 }

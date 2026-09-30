@@ -1,11 +1,12 @@
 import type { AdminErrorBody } from '@nest-my-admin/core/contract';
+import { translate as tr } from '@/i18n';
 
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly body: AdminErrorBody,
   ) {
-    super(body.code === 'INTERNAL' && body.correlationId ? `${body.message} (reference: ${body.correlationId})` : body.message);
+    super(body.code === 'INTERNAL' && body.correlationId ? tr('common.reference', { message: body.message, id: body.correlationId }) : body.message);
     this.name = 'ApiError';
   }
 

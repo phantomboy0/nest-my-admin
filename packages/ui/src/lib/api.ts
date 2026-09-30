@@ -1,4 +1,5 @@
 import type { AdminErrorBody, AdminRecord, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '@nest-my-admin/core/contract';
+import { activeLocale, translate as tr } from '@/i18n';
 import { runtimeConfig } from './config';
 import { ApiError } from './api-error';
 
@@ -12,7 +13,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${runtimeConfig.apiBase}${path}`, {
     ...init,
     credentials: 'same-origin',
-    headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
+    headers: {
+      Accept: 'application/json',
+      'Accept-Language': activeLocale(), // labels in meta and schemas follow it
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init.headers,
+    },
   });
   const text = await res.text();
   let data: unknown;
@@ -24,7 +30,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!res.ok) {
     throw new ApiError(
       res.status,
-      isErrorBody(data) ? data : { code: 'INTERNAL', message: `Request failed (${res.status})`, correlationId: '' },
+      isErrorBody(data) ? data : { code: 'INTERNAL', message: tr('common.requestFailed', { status: res.status }), correlationId: '' },
     );
   }
   return data as T;

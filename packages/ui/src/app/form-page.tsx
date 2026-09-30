@@ -7,6 +7,7 @@ import { ObjectInput } from '@/app/object-input';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
+import { useT } from '@/i18n';
 import { formatCell } from '@/lib/format';
 import { dependencyValues, toFormValues, toPayload, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema } from '@/lib/queries';
@@ -21,11 +22,12 @@ function recordHeading(label: string, record: AdminRecord | undefined, id: strin
 }
 
 export function FormPage({ mode }: { mode: Mode }) {
+  const t = useT();
   const { resource = '', id } = useParams();
   const schema = useSchema(resource);
   const record = useRecord(resource, mode === 'edit' ? id : undefined);
 
-  if (schema.isPending || (mode === 'edit' && record.isPending)) return <PageMessage>Loading…</PageMessage>;
+  if (schema.isPending || (mode === 'edit' && record.isPending)) return <PageMessage>{t('common.loading')}</PageMessage>;
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
   if (mode === 'edit' && record.isError) return <PageMessage tone="error">{record.error.message}</PageMessage>;
   return <RecordForm key={`${resource}:${id ?? 'new'}`} schema={schema.data} mode={mode} id={id} record={record.data} />;
@@ -39,6 +41,7 @@ interface RecordFormProps {
 }
 
 function RecordForm({ schema, mode, id, record }: RecordFormProps) {
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const names = mode === 'create' ? schema.form.create : schema.form.update;
@@ -128,10 +131,9 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
 
   return (
     <form onSubmit={submit} noValidate className="flex max-w-2xl flex-col gap-5">
-      <h1 className="text-xl font-semibold">{mode === 'create' ? `New ${schema.label.toLowerCase()}` : recordHeading(schema.label, record, id)}</h1>
+      <h1 className="text-xl font-semibold">{mode === 'create' ? t('form.new', { name: schema.label }) : recordHeading(schema.label, record, id)}</h1>
       {conflict && (
         <ConflictNotice
-          label={schema.label}
           fields={fields}
           before={base}
           current={conflict}
@@ -175,30 +177,30 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
       )}
       <div className="sticky bottom-0 flex gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
         <Button type="submit" disabled={save.isPending}>
-          {save.isPending ? 'Saving…' : 'Save'}
+          {t(save.isPending ? 'form.saving' : 'form.save')}
         </Button>
         <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
-          Cancel
+          {t('common.cancel')}
         </Button>
         {mode === 'edit' &&
           (confirmingDelete ? (
             <div className="ms-auto flex gap-2">
               <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
-                {remove.isPending ? 'Deleting…' : schema.softDelete ? 'Confirm move to trash' : 'Confirm delete'}
+                {t(remove.isPending ? 'form.deleting' : schema.softDelete ? 'form.confirmMoveToTrash' : 'form.confirmDelete')}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
-                Keep
+                {t('form.keep')}
               </Button>
             </div>
           ) : (
             <Button type="button" variant="outline" className="ms-auto" onClick={() => setConfirmingDelete(true)}>
-              {schema.softDelete ? 'Move to trash' : 'Delete'}
+              {t(schema.softDelete ? 'form.moveToTrash' : 'form.delete')}
             </Button>
           ))}
       </div>
       {mode === 'edit' && record && schema.related.length > 0 && (
-        <nav aria-label="Related" className="flex flex-col gap-2 border-t pt-4">
-          <h2 className="text-sm font-medium text-muted-foreground">Related</h2>
+        <nav aria-label={t('form.related')} className="flex flex-col gap-2 border-t pt-4">
+          <h2 className="text-sm font-medium text-muted-foreground">{t('form.related')}</h2>
           <ul className="flex flex-wrap gap-2">
             {schema.related.map((related) => (
               <li key={`${related.resource}:${related.field}`}>
@@ -217,7 +219,6 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
 }
 
 interface ConflictNoticeProps {
-  label: string;
   fields: FieldSchema[];
   before?: AdminRecord;
   current: AdminRecord;
@@ -227,12 +228,13 @@ interface ConflictNoticeProps {
 }
 
 /** 409 on a stale version (spec §9.4): what the other person changed, and the two ways forward. */
-function ConflictNotice({ label, fields, before, current, busy, onKeepMine, onLoadTheirs }: ConflictNoticeProps) {
+function ConflictNotice({ fields, before, current, busy, onKeepMine, onLoadTheirs }: ConflictNoticeProps) {
+  const t = useT();
   const changed = fields.filter((field) => JSON.stringify(before?.[field.name] ?? null) !== JSON.stringify(current[field.name] ?? null));
   return (
     <div role="alertdialog" aria-labelledby="conflict-title" aria-describedby="conflict-body" className="flex flex-col gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
       <p id="conflict-title" className="font-medium">
-        Someone else saved this {label.toLowerCase()} while you were editing it.
+        {t('form.conflictTitle')}
       </p>
       <div id="conflict-body">
         {changed.length > 0 ? (
@@ -247,15 +249,15 @@ function ConflictNotice({ label, fields, before, current, busy, onKeepMine, onLo
             ))}
           </dl>
         ) : (
-          <p>None of the fields on this form changed.</p>
+          <p>{t('form.conflictNone')}</p>
         )}
       </div>
       <div className="flex flex-wrap gap-2">
         <Button type="button" disabled={busy} onClick={onKeepMine}>
-          Keep my changes
+          {t('form.keepMine')}
         </Button>
         <Button type="button" variant="outline" onClick={onLoadTheirs}>
-          Load theirs
+          {t('form.loadTheirs')}
         </Button>
       </div>
     </div>
