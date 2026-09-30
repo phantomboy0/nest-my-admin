@@ -4,7 +4,7 @@ import { resolveAdminOptions } from './options.js';
 describe('resolveAdminOptions', () => {
   test('defaults', () => {
     expect(resolveAdminOptions()).toEqual({
-      path: '/admin', title: 'Admin', uiDistPath: undefined, autoRegister: false, transactions: true,
+      path: '/admin', title: 'Admin', uiDistPath: undefined, autoRegister: false, transactions: true, errorMapper: undefined,
     });
   });
 

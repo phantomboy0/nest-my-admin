@@ -108,7 +108,7 @@ export class AdminHttpServer implements OnModuleInit {
       }
       const correlationId = createAdminContext(req).correlationId;
       if (error instanceof AdminError || error instanceof HttpException) {
-        const { status, body } = toErrorResponse(error, correlationId, this.logger);
+        const { status, body } = toErrorResponse(error, correlationId, this.logger, undefined, this.options.errorMapper);
         sendJson(res, status, body);
         return;
       }
@@ -117,7 +117,7 @@ export class AdminHttpServer implements OnModuleInit {
         sendJson(res, early.status, { code: early.code, message: early.message, correlationId });
         return;
       }
-      const { status, body } = toErrorResponse(error, correlationId, this.logger);
+      const { status, body } = toErrorResponse(error, correlationId, this.logger, undefined, this.options.errorMapper);
       sendJson(res, status, body);
     });
     this.logger.log(`Admin mounted at ${this.options.path}`);
@@ -156,7 +156,7 @@ export class AdminHttpServer implements OnModuleInit {
         return;
       }
       const columns = resourceName ? this.registry.find(resourceName)?.columnProperties : undefined;
-      const { status, body } = toErrorResponse(error, correlationId, this.logger, columns);
+      const { status, body } = toErrorResponse(error, correlationId, this.logger, columns, this.options.errorMapper);
       sendJson(res, status, body);
     }
   }

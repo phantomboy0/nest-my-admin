@@ -2,6 +2,7 @@ import { HttpException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import type { AdminErrorBody, AdminErrorCode } from '../contract.js';
 import { AdminError } from '../errors.js';
+import type { ErrorMapper } from '../options.js';
 
 export interface ErrorResponse {
   status: number;
@@ -18,7 +19,16 @@ export function toErrorResponse(
   correlationId: string,
   logger: ErrorLogger,
   columnProperties?: ReadonlyMap<string, string>,
+  errorMapper?: ErrorMapper,
 ): ErrorResponse {
+  if (errorMapper && !(error instanceof AdminError)) {
+    try {
+      const mapped = errorMapper(error);
+      if (mapped instanceof AdminError) error = mapped;
+    } catch (mapperError) {
+      logger.error(`[${correlationId}] errorMapper threw: ${mapperError instanceof Error ? (mapperError.stack ?? mapperError.message) : String(mapperError)}`);
+    }
+  }
   if (error instanceof AdminError) {
     return {
       status: error.status,

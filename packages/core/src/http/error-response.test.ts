@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { BadRequestException, ConflictException, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
-import { AdminFieldError, AdminNotFoundError } from '../errors.js';
+import { AdminError, AdminFieldError, AdminNotFoundError } from '../errors.js';
 import { codeForStatus, toErrorResponse } from './error-response.js';
 
 const logger = () => ({ error: mock((_message: string) => {}) });
@@ -111,5 +111,34 @@ describe('toErrorResponse: invalid values reaching the database', () => {
     expect(toErrorResponse(dbError({ code: '22003', message: 'out of range', column: 'stock' }), 'c', logger()).body.fields).toEqual({
       stock: ['is invalid'],
     });
+  });
+
+  test('errorMapper translates host exceptions (Review Focus 4)', () => {
+    class OutOfStock extends Error {}
+    const mapper = (error: unknown) => (error instanceof OutOfStock ? new AdminFieldError({ stock: 'out of stock' }) : undefined);
+    expect(toErrorResponse(new OutOfStock(), 'c', logger(), undefined, mapper).body).toEqual({
+      code: 'VALIDATION', message: 'Validation failed', fields: { stock: ['out of stock'] }, correlationId: 'c',
+    });
+    expect(toErrorResponse(new Error('other'), 'c', logger(), undefined, mapper).status).toBe(500);
+  });
+
+  test('a mapper that throws or returns a non-AdminError is ignored and logged', () => {
+    const log = logger();
+    const throwing = () => {
+      throw new Error('mapper bug');
+    };
+    expect(toErrorResponse(new NotFoundException(), 'c', log, undefined, throwing).body.code).toBe('NOT_FOUND');
+    expect(log.error).toHaveBeenCalledTimes(1);
+    const bogus = () => ({ code: 'NOT_A_REAL_ERROR' }) as unknown as AdminError;
+    expect(toErrorResponse(new NotFoundException(), 'c', logger(), undefined, bogus).body.code).toBe('NOT_FOUND');
+  });
+
+  test('AdminErrors are never passed to the mapper', () => {
+    let called = false;
+    toErrorResponse(new AdminNotFoundError(), 'c', logger(), undefined, () => {
+      called = true;
+      return undefined;
+    });
+    expect(called).toBe(false);
   });
 });
