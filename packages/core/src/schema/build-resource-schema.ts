@@ -2,6 +2,7 @@ import type { FieldConstraints, FieldSchema, FilterSchema, ResourceSchema, SortD
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
+import { dtoObjectField, embeddedField, nestedTypeOf, topEmbedded, type EmbeddedLike } from './nested-fields.js';
 import { isToOne, pathField as toPathField, relationFields, resolvePath, type RelatedMetadataLike } from './relation-fields.js';
 import { dtoConstraints, hasDtoInitializer, isConditionalProperty } from './dto-constraints.js';
 import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional, type DtoClass } from './dto-fields.js';
@@ -39,7 +40,16 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const relations = relationFields(metadata);
   const entityFields: FieldSchema[] = [];
   const columnByName = new Map<string, ColumnLike>();
+  /** Columns of embeddeds by dotted path (`address.city`), for their constraints. */
+  const columnByPath = new Map<string, ColumnLike>();
   for (const column of metadata.columns) {
+    if (column.embeddedMetadata) {
+      // An embedded is one object field, placed where its first column is.
+      const top = topEmbedded(column.embeddedMetadata as EmbeddedLike);
+      if (column.isSelect && !column.relationMetadata && column.propertyPath) columnByPath.set(column.propertyPath, column);
+      if (!entityFields.some((field) => field.name === top.propertyName)) entityFields.push(embeddedField(top));
+      continue;
+    }
     const relationField = relations.find(({ relation }) => isToOne(relation) && relation.joinColumns[0] === column);
     const field = relationField?.field ?? (isSupportedColumn(column) ? columnToField(column) : undefined);
     if (!field) continue;
@@ -63,7 +73,14 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     for (const name of names) {
       const field = byName.get(name);
       if (field?.readonly) fail(`DTO property "${name}" maps to read-only column ${entityName}.${name}`);
-      if (!field && dto && !dtoOnly.some((extra) => extra.name === name)) dtoOnly.push(dtoOnlyField(dto, name));
+      const nested = dto ? nestedTypeOf(dto, name) : undefined;
+      if (field?.type === 'json' && nested) {
+        // A json column written through a nested DTO is edited as a sub-form (or a list of them).
+        const objectField: FieldSchema = { ...dtoObjectField(dto!, name, nested), persisted: true, nullable: field.nullable, label: field.label };
+        entityFields[entityFields.indexOf(field)] = objectField;
+        byName.set(name, objectField);
+      }
+      if (!field && dto && !dtoOnly.some((extra) => extra.name === name)) dtoOnly.push(nested ? dtoObjectField(dto, name, nested) : dtoOnlyField(dto, name));
     }
   }
   for (const field of dtoOnly) if (field.name.startsWith('_')) fail(`DTO property "${field.name}": names starting with "_" are reserved for the admin`);
@@ -98,12 +115,12 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     if (renamed) return fail(`${setting}: "${name}" is the relation; its field is "${renamed.field.name}" (paths use "${name}.<column>")`);
     return fail(`${setting}: unknown column "${name}" on ${entityName}${didYouMean(name, [...byName.keys()])}`);
   };
-  const isSortable = (field: FieldSchema) => field.type !== 'json' && field.type !== 'relation';
+  const isSortable = (field: FieldSchema) => field.type !== 'json' && field.type !== 'relation' && field.type !== 'object';
 
   const columns: string[] =
     resource.list?.columns ??
     entityFields
-      .filter((field) => field.type !== 'json' && field.type !== 'text' && field.relation?.kind !== 'to-many')
+      .filter((field) => field.type !== 'json' && field.type !== 'text' && field.type !== 'object' && field.relation?.kind !== 'to-many')
       .map((field) => field.name);
   if (columns.length === 0) fail('list.columns must name at least one column');
   for (const column of columns) lookup('list.columns', column);
@@ -138,18 +155,22 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
 
   const sortable = [...plainSortable, ...[...paths.values()].filter(isSortable).map((field) => field.name)];
 
-  const entityConstraints = (name: string): FieldConstraints => {
-    const field = byName.get(name);
+  const entityConstraints = (name: string, field = byName.get(name), column = columnByName.get(name)): FieldConstraints => {
     if (!field) return {};
     const constraints: FieldConstraints = {};
-    const length = Number(columnByName.get(name)?.length);
+    const length = Number(column?.length);
     if ((field.type === 'string' || field.type === 'text') && Number.isInteger(length) && length > 0) constraints.maxLength = length;
     if (field.enumValues) constraints.oneOf = field.enumValues;
     if (field.integer) constraints.integer = true;
     if (field.type === 'uuid') constraints.format = 'uuid';
     return constraints;
   };
-  const compile = (names: string[], dto: DtoClass | undefined, isRequired: (name: string, fromDto?: FieldConstraints) => boolean) => {
+  const compile = (
+    names: string[],
+    dto: DtoClass | undefined,
+    isRequired: (name: string, fromDto?: FieldConstraints) => boolean,
+    childrenRequired: boolean,
+  ) => {
     const fromDto = dto ? dtoConstraints(dto) : {};
     const out: Record<string, FieldConstraints> = {};
     for (const name of names) {
@@ -158,13 +179,45 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       delete merged.required;
       if (isRequired(name, fromDto[name])) merged.required = true;
       out[name] = merged;
+      const field = byName.get(name) ?? dtoOnly.find((extra) => extra.name === name);
+      if (field?.type === 'object' && !(dto && isConditionalProperty(dto, name))) {
+        addObjectConstraints(out, field, name, dto ? nestedTypeOf(dto, name)?.type : undefined, childrenRequired);
+      }
     }
     return out;
   };
+  /**
+   * Constraints of the fields inside an object, keyed `address.city` (`lines.*.qty` for lists). A child is
+   * required when its nested DTO says so, or, without one, when its column is NOT NULL without a default; on update
+   * only a dedicated update DTO makes anything required (as for top-level fields).
+   */
+  const addObjectConstraints = (
+    out: Record<string, FieldConstraints>,
+    field: FieldSchema,
+    path: string,
+    nestedDto: DtoClass | undefined,
+    childrenRequired: boolean,
+  ) => {
+    const fromDto = nestedDto ? dtoConstraints(nestedDto) : {};
+    for (const child of field.fields ?? []) {
+      const childPath = `${path}.${field.many ? '*.' : ''}${child.name}`;
+      const columnPath = childPath.replace(/\.\*\./g, '.');
+      const column = columnByPath.get(columnPath);
+      const conditional = nestedDto !== undefined && isConditionalProperty(nestedDto, child.name);
+      const merged: FieldConstraints = conditional ? {} : { ...entityConstraints(child.name, child, column), ...fromDto[child.name] };
+      delete merged.required;
+      const required = nestedDto
+        ? fromDto[child.name]?.required === true
+        : column !== undefined && !child.readonly && !column.isNullable && column.default === undefined;
+      if (required && childrenRequired) merged.required = true;
+      out[childPath] = merged;
+      if (child.type === 'object') addObjectConstraints(out, child, childPath, nestedDto ? nestedTypeOf(nestedDto, child.name)?.type : undefined, childrenRequired);
+    }
+  };
   const dedicatedUpdateDto = resource.form?.update;
   const constraints = {
-    create: compile(create, createDto, (name) => requiredOnCreate.includes(name)),
-    update: compile(update, updateDto, (_name, fromDto) => dedicatedUpdateDto !== undefined && fromDto?.required === true),
+    create: compile(create, createDto, (name) => requiredOnCreate.includes(name), true),
+    update: compile(update, updateDto, (_name, fromDto) => dedicatedUpdateDto !== undefined && fromDto?.required === true, dedicatedUpdateDto !== undefined),
   };
 
   return {

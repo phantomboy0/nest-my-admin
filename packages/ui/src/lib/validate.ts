@@ -62,15 +62,38 @@ export function validatePayload(
   mode: 'create' | 'update',
 ): Record<string, string[]> {
   const errors: Record<string, string[]> = {};
-  for (const [name, c] of Object.entries(constraints)) {
-    const sent = Object.hasOwn(payload, name);
-    const value = payload[name];
-    if (value === undefined || value === null || value === '') {
-      if (c.required && (mode === 'create' || sent)) errors[name] = ['is required'];
-      continue;
+  for (const [pattern, c] of Object.entries(constraints)) {
+    for (const { path, value, sent, parentSent } of valuesAt(payload, pattern.split('.'))) {
+      if (value === undefined || value === null || value === '') {
+        // Inside an object that was not sent at all (a partial update), there is nothing to require.
+        if (c.required && parentSent && (mode === 'create' || sent)) errors[path] = ['is required'];
+        continue;
+      }
+      const messages = check(value, c);
+      if (messages.length > 0) errors[path] = messages;
     }
-    const messages = check(value, c);
-    if (messages.length > 0) errors[name] = messages;
   }
   return errors;
+}
+
+interface Located {
+  path: string;
+  value: unknown;
+  sent: boolean;
+  parentSent: boolean;
+}
+
+/** Every value a constraint key names: `address.city`, and `hours.*.day` for each item of `hours`. */
+function valuesAt(source: unknown, segments: string[], prefix = '', parentSent = true): Located[] {
+  const [head, ...rest] = segments;
+  const container = typeof source === 'object' && source !== null ? (source as Record<string, unknown>) : undefined;
+  if (head === '*') {
+    const items = Array.isArray(source) ? source : [];
+    return items.flatMap((item, index) => valuesAt(item, rest, `${prefix}${index}.`, true));
+  }
+  const sent = container !== undefined && Object.hasOwn(container, head!);
+  const value = container?.[head!];
+  const path = `${prefix}${head}`;
+  if (rest.length === 0) return [{ path, value, sent, parentSent }];
+  return valuesAt(value, rest, `${path}.`, parentSent && sent);
 }

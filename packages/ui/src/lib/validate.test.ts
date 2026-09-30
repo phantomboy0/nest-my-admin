@@ -69,3 +69,21 @@ describe('validatePayload', () => {
     expect(validatePayload({ email: '"a@b"@example.com' }, { email: constraints.email! }, 'create')).toEqual({});
   });
 });
+
+describe('validatePayload with nested constraints', () => {
+  const rules = { 'address.city': { required: true, maxLength: 5 }, 'hours.*.day': { required: true, oneOf: ['mon'] } };
+
+  test('checks fields inside objects and every list item', () => {
+    expect(validatePayload({ address: { city: 'Tehran' }, hours: [{ day: 'mon' }, { day: 'sun' }, {}] }, rules, 'create')).toEqual({
+      'address.city': ['must be at most 5 characters'],
+      'hours.1.day': ['must be one of: mon'],
+      'hours.2.day': ['is required'],
+    });
+  });
+
+  test('a partial update requires nothing inside an object it did not send', () => {
+    expect(validatePayload({ address: { zip: '1' } }, rules, 'update')).toEqual({});
+    expect(validatePayload({ address: { city: '' } }, rules, 'update')).toEqual({ 'address.city': ['is required'] });
+    expect(validatePayload({}, rules, 'update')).toEqual({});
+  });
+});

@@ -70,9 +70,9 @@ describe('resolvePath', () => {
 
   test('explains paths that cannot work', () => {
     const metadata = dataSource.getMetadata(Order);
-    expect(resolvePath(metadata, 'customer.nam')).toMatchObject({ error: 'unknown path', candidates: ['customer.id', 'customer.name', 'customer.active'] });
+    expect(resolvePath(metadata, 'customer.nam')).toMatchObject({ error: 'unknown path', candidates: ['customer.id', 'customer.name', 'customer.active', 'customer.company.name'] });
     expect(resolvePath(metadata, 'tags.label')).toMatchObject({ error: '"tags" is not a many-to-one or owning one-to-one relation' });
-    expect(resolvePath(metadata, 'nope.name')).toMatchObject({ error: 'unknown path', candidates: ['customer.name', 'seller.name'] });
+    expect(resolvePath(metadata, 'nope.name')).toMatchObject({ error: 'unknown path', candidates: ['id', 'number', 'customer.name', 'seller.name'] });
     expect(resolvePath(metadata, 'customer.company.name.x')).toMatchObject({ error: 'paths have at most 3 segments' });
     expect(resolvePath(metadata, 'customer.company')).toMatchObject({ error: 'unknown path' }); // a relation, not a column
   });

@@ -94,3 +94,36 @@ describe('relation values', () => {
     expect(toPayload(relationFields, { customer: ada, seller: bob, tags: [] }, initial).payload).toEqual({ tags: [] });
   });
 });
+
+describe('object fields', () => {
+  const address = field('address', 'object', { fields: [field('city', 'string'), field('zip', 'string', { nullable: true })] });
+  const hours = field('hours', 'object', { many: true, nullable: true, fields: [field('day', 'string'), field('opens', 'string')] });
+
+  test('records become nested values', () => {
+    expect(toFormValues([address, hours], { address: { city: 'Yazd', zip: null }, hours: [{ day: 'mon', opens: '09:00' }] })).toEqual({
+      address: { city: 'Yazd', zip: '' },
+      hours: [{ day: 'mon', opens: '09:00' }],
+    });
+    expect(toFormValues([address, hours])).toEqual({ address: { city: '', zip: '' }, hours: [] });
+  });
+
+  test('create sends the whole group; edit sends only changed children; lists are sent whole when changed', () => {
+    const values = { address: { city: 'Yazd', zip: '' }, hours: [{ day: 'mon', opens: '09:00' }] };
+    expect(toPayload([address, hours], values).payload).toEqual({ address: { city: 'Yazd', zip: null }, hours: [{ day: 'mon', opens: '09:00' }] });
+    const initial = toFormValues([address, hours], { address: { city: 'Yazd', zip: null }, hours: [{ day: 'mon', opens: '09:00' }] });
+    expect(toPayload([address, hours], { ...initial, address: { city: 'Yazd', zip: '12345' } }, initial).payload).toEqual({ address: { zip: '12345' } });
+    expect(toPayload([address, hours], { ...initial, hours: [...(initial.hours as never[]), { day: 'tue', opens: '10:00' }] }, initial).payload).toEqual({
+      hours: [{ day: 'mon', opens: '09:00' }, { day: 'tue', opens: '10:00' }],
+    });
+    expect(toPayload([address, hours], initial, initial).payload).toEqual({});
+  });
+
+  test('conversion errors inside groups use dotted paths', () => {
+    const geo = field('geo', 'object', { fields: [field('lat', 'decimal')] });
+    const lines = field('lines', 'object', { many: true, fields: [field('qty', 'number')] });
+    expect(toPayload([geo, lines], { geo: { lat: 'x' }, lines: [{ qty: '1' }, { qty: 'many' }] }).errors).toEqual({
+      'geo.lat': ['must be a number'],
+      'lines.1.qty': ['must be a number'],
+    });
+  });
+});

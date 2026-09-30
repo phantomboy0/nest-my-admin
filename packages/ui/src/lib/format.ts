@@ -7,7 +7,7 @@ export function formatCell(value: unknown, field: FieldSchema): string {
     return refs.length === 0 ? '—' : refs.map((ref) => String(ref.title)).join(', ');
   }
   if (field.type === 'boolean') return value ? 'Yes' : 'No';
-  if (field.type === 'json') return JSON.stringify(value);
+  if (field.type === 'json' || field.type === 'object') return JSON.stringify(value);
   if (field.type === 'datetime') {
     const date = new Date(String(value));
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();

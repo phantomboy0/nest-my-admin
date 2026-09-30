@@ -26,7 +26,8 @@ function targetOf(qb: SelectQueryBuilder<any>, metadata: EntityMetadata, name: s
     const resolved = resolvePath(metadata, name);
     if ('error' in resolved) throw new Error(`nest-my-admin: cannot resolve list path "${name}": ${resolved.error}`);
     const joinAlias = ensureJoins(qb, resolved.relations);
-    return { column: `${joinAlias}.${resolved.column.propertyName}`, joinAlias };
+    const column = `${joinAlias}.${resolved.column.propertyPath ?? resolved.column.propertyName}`;
+    return resolved.relations.length > 0 ? { column, joinAlias } : { column };
   }
   const relation = (metadata.relations as ManyToMany[]).find((candidate) => candidate.propertyName === name && !isToOne(candidate));
   if (relation?.relationType === 'many-to-many') return { manyToMany: relation };

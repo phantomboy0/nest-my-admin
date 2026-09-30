@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, ResourceSchema } from '@nest-my-admin/core/contract';
 import { FieldInput } from '@/app/field-input';
+import { ObjectInput } from '@/app/object-input';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
@@ -62,8 +63,9 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
         return;
       }
       const entries = Object.entries(error.fields);
-      const shown = Object.fromEntries(entries.filter(([name]) => names.includes(name)));
-      const hidden = entries.filter(([name]) => !names.includes(name)).map(([name, messages]) => `${name}: ${messages.join(', ')}`);
+      const onForm = (name: string) => names.includes(name.split('.')[0]!); // `address.city` shows in the address group
+      const shown = Object.fromEntries(entries.filter(([name]) => onForm(name)));
+      const hidden = entries.filter(([name]) => !onForm(name)).map(([name, messages]) => `${name}: ${messages.join(', ')}`);
       setFieldErrors(shown);
       setFormError(Object.keys(shown).length > 0 && hidden.length === 0 ? null : [error.message, ...hidden].join(' — '));
     },
@@ -102,18 +104,33 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
           {formError}
         </div>
       )}
-      {fields.map((field) => (
-        <FieldInput
-          key={field.name}
-          resource={schema.name}
-          field={field}
-          value={values[field.name]}
-          required={mode === 'create' && schema.form.requiredOnCreate.includes(field.name)}
-          errors={fieldErrors[field.name]}
-          constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update'][field.name]}
-          onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
-        />
-      ))}
+      {fields.map((field) =>
+        field.type === 'object' ? (
+          <ObjectInput
+            key={field.name}
+            resource={schema.name}
+            field={field}
+            path={field.name}
+            pattern={field.name}
+            value={values[field.name]}
+            constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update']}
+            markRequired={mode === 'create'}
+            errors={fieldErrors}
+            onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
+          />
+        ) : (
+          <FieldInput
+            key={field.name}
+            resource={schema.name}
+            field={field}
+            value={values[field.name]}
+            required={mode === 'create' && schema.form.requiredOnCreate.includes(field.name)}
+            errors={fieldErrors[field.name]}
+            constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update'][field.name]}
+            onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
+          />
+        ),
+      )}
       <div className="sticky bottom-0 flex gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
         <Button type="submit" disabled={save.isPending}>
           {save.isPending ? 'Saving…' : 'Save'}

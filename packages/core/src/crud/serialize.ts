@@ -18,11 +18,30 @@ export function serializeRecord(
       if (loaded && Object.hasOwn(loaded, field.name)) out[field.name] = loaded[field.name];
       continue;
     }
-    out[field.name] = serializeValue(source[field.name], field);
+    out[field.name] = field.type === 'object' ? serializeObject(source[field.name], field) : serializeValue(source[field.name], field);
   }
   if (meta.id !== undefined) out._id = meta.id;
   if (meta.title !== undefined) out._title = meta.title;
   return out;
+}
+
+/**
+ * An embedded object (or list of them) with each child serialized by its type. An object backed by a json column
+ * (children not persisted) is returned as stored, so keys the DTO does not describe survive a round trip.
+ */
+export function serializeObject(value: unknown, field: FieldSchema): unknown {
+  if (value === null || value === undefined) return null;
+  const children = field.fields ?? [];
+  if (!children.some((child) => child.persisted)) return value;
+  const group = (item: unknown): unknown => {
+    if (typeof item !== 'object' || item === null) return null;
+    const source = item as Record<string, unknown>;
+    return Object.fromEntries(
+      children.map((child) => [child.name, child.type === 'object' ? serializeObject(source[child.name], child) : serializeValue(source[child.name], child)]),
+    );
+  };
+  if (field.many) return Array.isArray(value) ? value.map(group) : null;
+  return group(value);
 }
 
 export function serializeValue(value: unknown, field: FieldSchema): unknown {

@@ -44,13 +44,15 @@ export async function loadReferences(
   const query = (): SelectQueryBuilder<any> => manager.getRepository(metadata.target).createQueryBuilder('ref').whereInIds(ids);
 
   const toOne: Array<{ field: FieldSchema; relation: RelationLike }> = [];
-  const paths: Array<{ field: FieldSchema; relations: RelationLike[]; column: string }> = [];
+  const paths: Array<{ field: FieldSchema; relations: RelationLike[]; column: string[] }> = [];
   for (const field of fields) {
     const relation = entry.relations.get(field.name);
     if (relation && field.relation?.kind === 'to-one') toOne.push({ field, relation });
     if (field.name.includes('.')) {
       const resolved = resolvePath(metadata, field.name);
-      if (!('error' in resolved)) paths.push({ field, relations: resolved.relations, column: resolved.column.propertyName });
+      if (!('error' in resolved)) {
+        paths.push({ field, relations: resolved.relations, column: (resolved.column.propertyPath ?? resolved.column.propertyName).split('.') });
+      }
     }
   }
 
@@ -68,8 +70,10 @@ export async function loadReferences(
       }
       for (const { field, relations, column } of paths) {
         let current: unknown = row;
-        for (const relation of relations) current = isObject(current) ? read(current, relation.propertyName) : undefined;
-        values[field.name] = serializeValue(isObject(current) ? read(current, column) : null, field);
+        for (const property of [...relations.map((relation) => relation.propertyName), ...column]) {
+          current = isObject(current) ? read(current, property) : undefined;
+        }
+        values[field.name] = serializeValue(current ?? null, field);
       }
     }
   }

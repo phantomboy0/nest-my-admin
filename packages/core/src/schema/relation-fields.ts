@@ -84,9 +84,14 @@ export interface ResolvedPath {
 
 export const MAX_PATH_SEGMENTS = 3;
 
+/** Columns a path may end at: plain and embedded columns (not join columns). */
+const isPathColumn = (column: ColumnLike) => column.isSelect && !column.relationMetadata;
+const pathOf = (column: ColumnLike) => column.propertyPath ?? column.propertyName;
+
 /**
- * Resolves `customer.company.name`: every segment but the last is a supported to-one relation, the last is a
- * column of the entity reached. Returns an explanation instead when the path is not usable.
+ * Resolves `customer.company.name` or `address.city`: leading segments walk supported to-one relations, the rest
+ * is a column of the entity reached, embedded columns included (`address.city`). Returns an explanation instead when
+ * the path is not usable.
  */
 export function resolvePath(metadata: RelatedMetadataLike, path: string): ResolvedPath | { error: string; candidates: string[] } {
   const segments = path.split('.');
@@ -94,22 +99,28 @@ export function resolvePath(metadata: RelatedMetadataLike, path: string): Resolv
   const relations: RelationLike[] = [];
   let current = metadata;
   let prefix = '';
-  for (const segment of segments.slice(0, -1)) {
+  for (let index = 0; index < segments.length; index++) {
+    const rest = segments.slice(index).join('.');
+    const column = current.columns.find((candidate) => isPathColumn(candidate) && pathOf(candidate) === rest);
+    if (column) return { relations, column };
+    const segment = segments[index]!;
     const relation = current.relations.find((candidate) => candidate.propertyName === segment);
     const toOne = current.relations.filter((candidate) => isSupportedRelation(candidate) && isToOne(candidate));
-    if (!relation || !toOne.includes(relation)) {
-      const reason = relation ? `"${prefix}${segment}" is not a many-to-one or owning one-to-one relation` : 'unknown path';
-      return { error: reason, candidates: toOne.map((candidate) => `${prefix}${candidate.propertyName}.${firstColumn(candidate)}`) };
+    if (relation && !toOne.includes(relation) && index < segments.length - 1) {
+      return { error: `"${prefix}${segment}" is not a many-to-one or owning one-to-one relation`, candidates: [] };
+    }
+    if (!relation || index === segments.length - 1) {
+      const candidates = [
+        ...current.columns.filter(isPathColumn).map((candidate) => `${prefix}${pathOf(candidate)}`),
+        ...toOne.map((candidate) => `${prefix}${candidate.propertyName}.${firstColumn(candidate)}`),
+      ];
+      return { error: 'unknown path', candidates };
     }
     relations.push(relation);
     current = relation.inverseEntityMetadata;
     prefix += `${segment}.`;
   }
-  const last = segments[segments.length - 1]!;
-  const columns = current.columns.filter(isSupportedColumn);
-  const column = columns.find((candidate) => candidate.propertyName === last);
-  if (!column) return { error: 'unknown path', candidates: columns.map((candidate) => `${prefix}${candidate.propertyName}`) };
-  return { relations, column };
+  return { error: 'unknown path', candidates: [] };
 }
 
 function firstColumn(relation: RelationLike): string {

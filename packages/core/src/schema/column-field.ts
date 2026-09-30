@@ -4,6 +4,8 @@ import { humanize } from './humanize.js';
 /** The subset of TypeORM's ColumnMetadata this package reads (TypeORM does not export ColumnMetadata from its root). */
 export interface ColumnLike {
   propertyName: string;
+  /** `address.city` for a column of an embedded; equal to propertyName otherwise. */
+  propertyPath?: string;
   type: unknown;
   isNullable: boolean;
   isPrimary: boolean;

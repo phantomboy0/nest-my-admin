@@ -1,8 +1,17 @@
 import type { AdminRecord, FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
 
-/** What an input edits: text, a checkbox, a picked record (to-one relation) or picked records (to-many). */
-export type FormValue = string | boolean | RelationRef | null | RelationRef[];
-export type FormValues = Record<string, FormValue>;
+/**
+ * What an input edits: text, a checkbox, a picked record (to-one relation), picked records (to-many), or the values
+ * of a sub-form (object field) or of a list of sub-forms (`many`).
+ */
+export type FormValue = string | boolean | RelationRef | null | RelationRef[] | FormValues | FormValues[];
+export interface FormValues {
+  [name: string]: FormValue;
+}
+
+const asGroup = (value: FormValue | undefined): FormValues =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as FormValues) : {};
+const asGroups = (value: FormValue | undefined): FormValues[] => (Array.isArray(value) ? (value as FormValues[]) : []);
 
 export function isRef(value: unknown): value is RelationRef {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && 'id' in value && 'title' in value;
@@ -32,7 +41,12 @@ export function toFormValues(fields: FieldSchema[], record?: AdminRecord): FormV
   const values: FormValues = {};
   for (const field of fields) {
     const value = record?.[field.name];
-    if (field.relation?.kind === 'to-many') values[field.name] = Array.isArray(value) ? value.filter(isRef) : [];
+    if (field.type === 'object') {
+      const children = field.fields ?? [];
+      values[field.name] = field.many
+        ? (Array.isArray(value) ? value : []).map((item) => toFormValues(children, item as AdminRecord))
+        : toFormValues(children, (value ?? undefined) as AdminRecord | undefined);
+    } else if (field.relation?.kind === 'to-many') values[field.name] = Array.isArray(value) ? value.filter(isRef) : [];
     else if (field.type === 'relation') values[field.name] = isRef(value) ? value : null;
     else if (field.type === 'boolean') values[field.name] = value === true;
     else if (value === null || value === undefined) values[field.name] = '';
@@ -58,16 +72,34 @@ function normalizeNumeric(text: string, integerOnly: boolean): string | undefine
  * cleared input is sent as null. On create, an empty input is null for nullable fields and omitted otherwise,
  * so the server reports "required" (or applies the column default) instead of receiving "" or 0.
  */
-export function toPayload(fields: FieldSchema[], values: FormValues, initial?: FormValues): PayloadResult {
+export function toPayload(fields: FieldSchema[], values: FormValues, initial?: FormValues, prefix = ''): PayloadResult {
   const payload: Record<string, unknown> = {};
   const errors: Record<string, string[]> = {};
   for (const field of fields) {
     const raw = values[field.name];
     if (initial && raw === initial[field.name]) continue;
+    const path = `${prefix}${field.name}`;
+    if (field.type === 'object') {
+      const children = field.fields ?? [];
+      if (field.many) {
+        // A list is sent whole (each item as on create); in edit mode only when it changed.
+        const items = asGroups(raw).map((item, index) => toPayload(children, item, undefined, `${path}.${index}.`));
+        for (const item of items) Object.assign(errors, item.errors);
+        const list = items.map((item) => item.payload);
+        const before = initial ? asGroups(initial[field.name]).map((item) => toPayload(children, item).payload) : undefined;
+        if (before ? JSON.stringify(before) !== JSON.stringify(list) : list.length > 0) payload[field.name] = list;
+        continue;
+      }
+      // One sub-form: in edit mode only its changed fields (a partial update); on create all of them.
+      const group = toPayload(children, asGroup(raw), initial ? asGroup(initial[field.name]) : undefined, `${path}.`);
+      Object.assign(errors, group.errors);
+      if (Object.keys(group.payload).length > 0 || (!initial && !field.nullable)) payload[field.name] = group.payload;
+      continue;
+    }
     if (field.relation?.kind === 'to-many') {
-      const refs = Array.isArray(raw) ? raw : [];
+      const refs = Array.isArray(raw) ? raw.filter(isRef) : [];
       const before = initial?.[field.name];
-      if (initial ? !sameIds(refs, Array.isArray(before) ? before : []) : refs.length > 0) payload[field.name] = refs.map((ref) => ref.id);
+      if (initial ? !sameIds(refs, Array.isArray(before) ? before.filter(isRef) : []) : refs.length > 0) payload[field.name] = refs.map((ref) => ref.id);
       continue;
     }
     if (field.type === 'relation') {
@@ -93,7 +125,7 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
       case 'decimal':
       case 'bigint': {
         const numeric = normalizeNumeric(trimmed, field.type === 'bigint');
-        if (numeric === undefined) errors[field.name] = ['must be a number'];
+        if (numeric === undefined) errors[path] = ['must be a number'];
         else payload[field.name] = field.type === 'number' ? Number(numeric) : numeric;
         break;
       }
@@ -101,12 +133,12 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
         try {
           payload[field.name] = JSON.parse(trimmed);
         } catch {
-          errors[field.name] = ['must be valid JSON'];
+          errors[path] = ['must be valid JSON'];
         }
         break;
       case 'datetime': {
         const date = new Date(trimmed);
-        if (Number.isNaN(date.getTime())) errors[field.name] = ['must be a valid date and time'];
+        if (Number.isNaN(date.getTime())) errors[path] = ['must be a valid date and time'];
         else payload[field.name] = date.toISOString();
         break;
       }

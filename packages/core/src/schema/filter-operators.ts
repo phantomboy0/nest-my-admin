@@ -16,6 +16,7 @@ const OPERATORS_BY_TYPE: Record<FieldType, FilterOperator[]> = {
   boolean: ['eq', 'ne'],
   json: [],
   other: [],
+  object: [],
   relation: EQUALITY, // to-one; to-many relations only support `in` (has any of), see operatorsFor
 };
 

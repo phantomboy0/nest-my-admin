@@ -118,7 +118,7 @@ export class AdminApiService {
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
-    const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create });
+    const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
       await this.checkRelationsExist(entry, relationIds, tx);
@@ -139,6 +139,7 @@ export class AdminApiService {
       allowed: schema.form.update,
       dto: updateDto ?? resource.form?.create,
       partial: true, // PATCH validates only the keys that were sent, dedicated update DTO or not
+      fields: schema.fields,
     });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {

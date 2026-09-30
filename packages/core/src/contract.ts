@@ -10,7 +10,9 @@ export type FieldType =
   /** A column type the admin can display and edit as text but not filter or search (time, inet, bytea, ...). */
   | 'other'
   /** A related record (many-to-one, owning one-to-one) or records (owning many-to-many); see `FieldSchema.relation`. */
-  | 'relation';
+  | 'relation'
+  /** A group of fields (an embedded entity or a nested DTO), or a list of such groups when `many`; see `FieldSchema.fields`. */
+  | 'object';
 
 export interface FieldSchema {
   name: string;
@@ -30,6 +32,10 @@ export interface FieldSchema {
   integer?: boolean;
   /** Set when `type` is `relation`. */
   relation?: RelationSchema;
+  /** Set when `type` is `object`: the group's fields, named relative to it (`city` in `address`). */
+  fields?: FieldSchema[];
+  /** An `object` field holding a list of groups (an array of nested DTOs). */
+  many?: boolean;
 }
 
 /**
@@ -56,7 +62,10 @@ export interface OptionsResponse {
   items: RelationRef[];
 }
 
-/** Rules the browser checks before submitting (spec §9.4). The server re-validates; these only save a round trip. */
+/**
+ * Rules the browser checks before submitting (spec §9.4). The server re-validates; these only save a round trip.
+ * Keyed by field name; fields inside objects by dotted path (`address.city`, `lines.*.qty` for every list item).
+ */
 export interface FieldConstraints {
   required?: boolean;
   minLength?: number;
