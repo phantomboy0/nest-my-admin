@@ -44,7 +44,7 @@ test('deep link refresh works and errors are shown where they belong', async ({ 
   await page.getByLabel('Sku').fill('bad-price');
   await page.getByLabel('Price').fill('abc');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.locator('#field-price-error')).toContainText('decimal');
+  await expect(page.locator('#field-price-error')).toContainText('must be a number');
 
   await page.getByLabel('Price').fill('10');
   await page.getByLabel('Status').selectOption('active');
