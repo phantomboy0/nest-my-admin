@@ -18,9 +18,9 @@ bun test -t "rejects unknown fields"            # tests matching a name
 bun run db:up                                   # Postgres + MySQL in Docker for the lines below
 bun run test:postgres                           # whole suite on Postgres (test:mysql for MySQL); or NMA_TEST_DB=postgres bun test <file>
 bun run compat                                  # core suite on NestJS 11.0 + TypeORM 0.3.20 (scripts/oldest-supported.ts), in a temp copy
-bun run e2e:screens                             # screenshot matrix (desktop/mobile × en/fa × light/dark) against committed baselines; add `-- --update-snapshots` after a deliberate UI change
+bun run e2e:screens                             # screenshot matrix (desktop/mobile × en/fa × light/dark) against committed baselines; add `-- --update-snapshots=all` after a deliberate UI change
 bun run e2e                                     # build + Playwright on examples/demo-api (desktop + mobile); needs `bunx playwright install chromium` once (or, if that download is blocked, `PW_CHANNEL=chrome bun run e2e` to use installed Chrome)
-bun run pack:smoke                              # pack core+ui, npm-install into a temp app, boot on node and bun
+bun run pack:smoke                              # pack core+ui+auth (a signed-in consumer too), npm-install into a temp app, boot on node and bun
 cd examples/demo-api && bun src/main.ts         # demo at http://localhost:3000/admin
 cd packages/ui && bun run dev                   # UI dev server :5173, proxies /admin/api to :3000
 ```
@@ -82,6 +82,13 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - Phones: `useIsMobile()` switches `ListPage` to `app/mobile-list.tsx` (`useInfiniteQuery` under `['list', resource, 'cards', query]`) and `FilterBar` to a bottom drawer with a sort select.
   - `app/command-palette.tsx` uses `lib/palette.ts` for matching.
   - Screenshot baselines live in `examples/demo-api/e2e/__screenshots__` (`playwright.screens.config.ts`, its own server on :3320).
+- Authentication (M3-1):
+  - `AdminAuthService` (auth/auth.service.ts) resolves `options.auth` at module init (`AdminAuth.custom` via ModuleRef, `AdminAuth.factory`, `none`).
+  - `AdminHttpServer.handle` authenticates every `/api/*` request except `GET`/`POST /api/session` (401), checks `X-CSRF-Token` on writes when the principal has a `csrfToken` (403), and sets `ctx.user`.
+  - `/api/session` and `/api/account/*` call the adapter's optional methods (404 when missing).
+  - `packages/auth` (`@nest-my-admin/auth`) is the built-in adapter; it imports core's built `dist`, so its tests build their own app with `AdminModule` from `@nest-my-admin/core` (never core's `createTestApp`, whose src classes would differ from dist).
+  - UI: `lib/session.ts` holds the CSRF token and the signed-out handler (set in `main.tsx`); `AdminLayout` gates on `useSession()`; `/login` is outside the shell.
+  - E2E: the `setup` project signs in and saves `e2e/.auth/*.json` (not committed); `page.request` writes need the `csrf(page)` header.
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.
 - `packages/core/src/contract.ts` is the JSON contract with the UI. It is types only; the UI imports it from source through a tsconfig path.
 - `packages/ui` is a Vite + React + shadcn SPA published as static `dist/` only (all its deps are devDependencies). The shadcn primitives and theme tokens were copied from crm-next (`radix-nova`, neutral).

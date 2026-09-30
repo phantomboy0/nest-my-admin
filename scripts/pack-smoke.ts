@@ -38,6 +38,7 @@ console.log(`pack-smoke: working in ${work}`);
 await $`bun run build`.cwd(root);
 await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/ui'));
 await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/core'));
+await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/auth'));
 const files = readdirSync(tarballs);
 function tarball(prefix: string): string {
   const file = files.find((name) => name.startsWith(prefix));
@@ -46,11 +47,18 @@ function tarball(prefix: string): string {
 }
 const uiTgz = tarball('nest-my-admin-ui-');
 const coreTgz = tarball('nest-my-admin-core-');
+const authTgz = tarball('nest-my-admin-auth-');
 
 // 1. The packed core depends on an exact ui version, never on a workspace: range.
 const corePackage = await $`tar -xzOf ${coreTgz} package/package.json`.text();
 assert(!corePackage.includes('workspace:'), 'core tarball still contains a workspace: range');
 assert(/"@nest-my-admin\/ui":\s*"\d+\.\d+\.\d+/.test(corePackage), 'core tarball does not pin @nest-my-admin/ui');
+
+// The packed auth peers on an exact core version and ships only its build.
+const authPackage = await $`tar -xzOf ${authTgz} package/package.json`.text();
+assert(!authPackage.includes('workspace:'), 'auth tarball still contains a workspace: range');
+const authEntries = (await $`tar -tzf ${authTgz}`.text()).trim().split('\n');
+assert(authEntries.includes('package/dist/index.js') && !authEntries.some((entry) => entry.includes('/test/') || entry.endsWith('.test.js')), 'auth tarball must ship dist/ without tests');
 
 // 2. The ui tarball ships only the build (no React, no sources).
 const uiEntries = (await $`tar -tzf ${uiTgz}`.text()).trim().split('\n');
@@ -72,12 +80,21 @@ const consumers: Array<{
   name: string;
   fixture?: string;
   tsconfig?: string;
+  /** Uses @nest-my-admin/auth: the checks sign in first. */
+  auth?: boolean;
   type: 'module' | undefined;
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
 }> = [
   {
     name: 'esm',
+    type: 'module' as const,
+    dependencies: pick([...hostDeps, ...runtimeDeps], coreDev),
+    devDependencies: pick(['typescript', '@types/node'], rootDev),
+  },
+  {
+    name: 'esm-auth',
+    auth: true,
     type: 'module' as const,
     dependencies: pick([...hostDeps, ...runtimeDeps], coreDev),
     devDependencies: pick(['typescript', '@types/node'], rootDev),
@@ -110,9 +127,14 @@ for (const consumer of consumers) {
         name: `nma-consumer-${consumer.name}`,
         private: true,
         ...(consumer.type ? { type: consumer.type } : {}),
-        dependencies: { '@nest-my-admin/ui': `file:${uiTgz}`, '@nest-my-admin/core': `file:${coreTgz}`, ...consumer.dependencies },
+        dependencies: {
+          '@nest-my-admin/ui': `file:${uiTgz}`,
+          '@nest-my-admin/core': `file:${coreTgz}`,
+          ...(consumer.auth ? { '@nest-my-admin/auth': `file:${authTgz}` } : {}),
+          ...consumer.dependencies,
+        },
         devDependencies: consumer.devDependencies,
-        overrides: { '@nest-my-admin/ui': '$@nest-my-admin/ui' },
+        overrides: { '@nest-my-admin/ui': '$@nest-my-admin/ui', ...(consumer.auth ? { '@nest-my-admin/core': '$@nest-my-admin/core' } : {}) },
       },
       null,
       2,
@@ -127,7 +149,20 @@ for (const consumer of consumers) {
     const server = Bun.spawn([runtime, 'dist/main.js'], { cwd: app, env: { ...process.env, PORT: String(port) }, stdout: 'inherit', stderr: 'inherit' });
     try {
       const origin = `http://localhost:${port}`;
-      await waitFor(`${origin}/admin/api/meta`);
+      await waitFor(`${origin}/admin/`);
+      // With @nest-my-admin/auth the API is closed until the bootstrap superuser signs in.
+      const headers: Record<string, string> = {};
+      if (consumer.auth) {
+        assert((await fetch(`${origin}/admin/api/meta`)).status === 401, `${label}: the API answers without a session`);
+        const login = await fetch(`${origin}/admin/api/session`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ username: 'smoke', password: 'smoke-password' }),
+        });
+        assert(login.status === 200, `${label}: sign-in returned ${login.status}`);
+        headers.cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]!;
+        headers['x-csrf-token'] = ((await login.json()) as { csrfToken: string }).csrfToken;
+      }
 
       const html = await (await fetch(`${origin}/admin/note/42`)).text();
       assert(html.includes('<base href="/admin/">') && html.includes('id="nma-config"'), `${label}: index.html missing runtime injection`);
@@ -136,15 +171,15 @@ for (const consumer of consumers) {
       const js = await fetch(`${origin}/admin/${asset}`);
       assert(js.status === 200 && (js.headers.get('content-type') ?? '').includes('javascript'), `${label}: asset not served`);
 
-      const meta = (await (await fetch(`${origin}/admin/api/meta`)).json()) as { groups: { resources: { name: string }[] }[] };
+      const meta = (await (await fetch(`${origin}/admin/api/meta`, { headers })).json()) as { groups: { resources: { name: string }[] }[] };
       assert(meta.groups[0]?.resources[0]?.name === 'note', `${label}: meta does not list the note resource`);
       const created = await fetch(`${origin}/admin/api/resources/note`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...headers },
         body: JSON.stringify({ title: 'hello' }),
       });
       assert(created.status === 201, `${label}: create returned ${created.status}`);
-      const found = (await (await fetch(`${origin}/admin/api/resources/note?search=hel`)).json()) as { total: number };
+      const found = (await (await fetch(`${origin}/admin/api/resources/note?search=hel`, { headers })).json()) as { total: number };
       assert(found.total === 1, `${label}: search found ${found.total} notes`);
       console.log(`pack-smoke: ✓ ${label}`);
     } finally {

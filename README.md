@@ -3,7 +3,7 @@
 A Django-admin-class admin panel for **NestJS + TypeORM**: declarative resources, forms from your DTOs,
 admin writes that go through your own services, and a prebuilt shadcn UI served by Nest itself.
 
-> Status: pre-alpha (milestone M0 — walking skeleton). APIs will change.
+> Status: pre-alpha (M3 in progress: sign-in done, permissions next). APIs will change.
 
 Requires NestJS 11 or 12, TypeORM 0.3.20+ or 1.x, Node 20.19+ (or Bun), and Postgres, MySQL 8 or SQLite.
 The package is ESM; CommonJS apps load it through Node's `require(esm)`. A CommonJS app compiled with
@@ -303,17 +303,35 @@ sent fields), including dedicated update DTOs. A DTO property with a class initi
 required, and a `@ValidateIf` property gets no browser rules at all. Column length (`varchar(n)`) is checked in the
 browser even on SQLite, which does not enforce it.
 
-## Security (pre-alpha)
-
-M0 has **no authentication**. Anyone who can reach the port can read every column of the registered entities that is not `select: false`, and create, update or delete records (the default delete uses `repository.remove`; override `delete` to call your service instead). Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers).
-
-Gate it yourself with Express middleware registered in `main.ts` before `listen`:
+## Sign-in
 
 ```ts
-app.use('/admin', yourAuthMiddleware); // use app.use, not a string-prefix check: Express path matching is case-insensitive
+import { ADMIN_AUTH_ENTITIES, builtinAuth } from '@nest-my-admin/auth';
+
+TypeOrmModule.forRoot({ /* … */ entities: [/* yours */, ...ADMIN_AUTH_ENTITIES] }),
+AdminModule.forRoot({
+  auth: builtinAuth({ bootstrapSuperuser: { username: 'admin', password: process.env.ADMIN_PASSWORD! } }),
+}),
 ```
 
-Do not enable wildcard CORS for it. Catch-all routes the host registered earlier take precedence over the admin.
+- **`@nest-my-admin/auth`** (built in).
+  - Admin users live in `nma_user`, with scrypt password hashes (`node:crypto`, no native module).
+  - Sessions live in `nma_session`, stored as the SHA-256 of an opaque token. The cookie `nma_session` is HttpOnly and SameSite=Lax, has Path set to the admin path, and is Secure on https (Express's `trust proxy` decides behind a proxy).
+  - A session ends after 12 hours without a request or 30 days after sign-in.
+  - Five wrong passwords lock an account for 15 minutes. Sign-in attempts are limited to 20 per minute per IP, with 429 and `Retry-After`.
+  - Unknown users, wrong passwords and locked accounts get the same answer.
+  - The account page changes the password (which signs out every other session), lists signed-in devices, and signs out one or all others.
+  - `bootstrapSuperuser` creates the first user when `nma_user` is empty (it runs in module init, so call `app.init()` before seeding other users). `createAdminUser(dataSource, { … })` adds more.
+- **CSRF.** Every POST, PATCH and DELETE of a cookie session must send the session's token as `X-CSRF-Token` (the UI does). The API also accepts only `application/json` bodies.
+- **Your own users:**
+  - `auth: AdminAuth.custom(MyAdapter)` takes a provider of your app implementing `AdminAuthAdapter`.
+  - `authenticate(req)` is required; `login`, `logout`, `listSessions`, `revokeSession`, `revokeOtherSessions` and `changePassword` are optional, and the UI shows only what exists.
+  - Return a `csrfToken` from `authenticate` when you use cookies.
+  - `ctx.user` and `AdminContext.current().user` carry the result into resource methods and your services.
+- **No sign-in.** `AdminAuth.none()` makes everyone a superuser, for local tools. Without `auth` the admin behaves the same with a warning at boot, and **refuses to boot under `NODE_ENV=production`**.
+- Permissions (roles, scopes, field rules) come in M3-2; until then every signed-in user can do everything.
+
+Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers); middleware registered in `main.ts` before `listen` still runs. Do not enable wildcard CORS for it. Catch-all routes the host registered earlier take precedence over the admin.
 
 ## Develop
 

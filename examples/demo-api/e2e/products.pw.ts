@@ -21,7 +21,7 @@ test('the home page lists resources with counts, and the sidebar navigates', asy
   await page.goto('/admin/category');
   await expect(page.getByRole('heading', { name: 'Category' })).toBeVisible();
 
-  if (isMobile) await page.getByRole('button', { name: 'Menu' }).click();
+  if (isMobile) await page.getByRole('button', { name: 'Menu', exact: true }).click();
   await page.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Catalog' }).getByRole('link', { name: 'Product' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
   await expect(page.getByRole('heading', { name: 'Product' })).toBeVisible();
@@ -282,7 +282,7 @@ test('switching to Persian turns the page right-to-left and survives a reload', 
   await expect(page.getByRole('heading', { name: 'فروشگاه نمونه', level: 1 })).toBeVisible();
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  if (isMobile) await page.getByRole('button', { name: 'منو' }).click();
+  if (isMobile) await page.getByRole('button', { name: 'منو', exact: true }).click();
   await page.getByRole('navigation', { name: 'بخش‌ها' }).getByRole('list', { name: 'کاتالوگ' }).getByRole('link', { name: 'محصول' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
   await expect(page.getByRole('link', { name: 'جدید' })).toBeVisible();
@@ -417,9 +417,15 @@ async function scrollUntil(page: Page, cards: ReturnType<Page['getByRole']>, cou
   }).toPass({ timeout: 15_000 });
 }
 
+/** The session's CSRF token as a header, for writes through `page.request` (it shares the signed-in cookie). */
+async function csrf(page: Page): Promise<Record<string, string>> {
+  const session = await (await page.request.get('/admin/api/session')).json();
+  return { 'X-CSRF-Token': session.csrfToken };
+}
+
 /** A product made through the API, for tests that change it; returns its edit URL. */
 async function makeProduct(page: Page, data: Record<string, unknown>): Promise<string> {
-  const res = await page.request.post('/admin/api/resources/product', { data });
+  const res = await page.request.post('/admin/api/resources/product', { data, headers: await csrf(page) });
   expect(res.status()).toBe(201);
   return `/admin/product/${encodeURIComponent(String((await res.json())._id))}`;
 }
@@ -477,7 +483,7 @@ test('an archived product is read-only except its status; the header shows its b
   await expect(page.getByLabel('Status')).toBeEnabled();
 
   const id = decodeURIComponent(new URL(page.url()).pathname.split('/').pop()!);
-  const res = await page.request.patch(`/admin/api/resources/product/${encodeURIComponent(id)}`, { data: { price: '1.00' } });
+  const res = await page.request.patch(`/admin/api/resources/product/${encodeURIComponent(id)}`, { data: { price: '1.00' }, headers: await csrf(page) });
   expect(res.status()).toBe(422);
   expect((await res.json()).fields).toEqual({ price: ['is read-only'] });
 });
@@ -602,6 +608,7 @@ test('command palette: go to, create and find records with the keyboard (M2-4 Re
   const palette = page.getByRole('dialog', { name: 'Search and go to' });
   const input = palette.getByRole('combobox');
 
+  await expect(trigger).toBeVisible(); // the shell is up (after the session check)
   await page.keyboard.press('Control+k');
   await expect(input).toBeFocused();
   await input.fill('catalog');
@@ -638,4 +645,70 @@ test('command palette: go to, create and find records with the keyboard (M2-4 Re
   await page.goto(`/admin/product?search=${encodeURIComponent('کوچک')}`);
   await expect(page.getByText('DEMO-5', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
+});
+
+test.describe('signing in', () => {
+  // A browser that has never signed in.
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('a wrong password shows the error; signing in continues to the page asked for; signing out closes the API (M3-1 Review Focus 1)', async ({ page }) => {
+    await page.goto('/admin/product?search=lamp');
+    await expect(page).toHaveURL(/\/admin\/login\?next=%2Fproduct%3Fsearch%3Dlamp$/);
+    await page.getByLabel('Username').fill('editor');
+    await page.getByLabel('Password').fill('not-the-password');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Wrong username or password');
+    await expect(page.getByLabel('Password')).toHaveValue('');
+
+    await page.getByLabel('Password').fill('editor-demo-pass');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/\/admin\/product\?search=lamp$/);
+    await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Account menu for Demo Editor' }).click();
+    await page.getByRole('button', { name: 'Sign out' }).click();
+    await expect(page).toHaveURL(/\/admin\/login$/);
+    expect((await page.request.get('/admin/api/meta')).status()).toBe(401);
+    await page.goto('/admin/product');
+    await expect(page).toHaveURL(/\/admin\/login\?next=%2Fproduct$/); // the page needs a session again
+  });
+
+  test('the account page changes the password and signs out another device (M3-1 Review Focus 3)', async ({ page, browser, baseURL }, testInfo) => {
+    const signIn = async (target: typeof page, password: string) => {
+      await target.goto('/admin/login');
+      await target.getByLabel('Username').fill('editor');
+      await target.getByLabel('Password').fill(password);
+      await target.getByRole('button', { name: 'Sign in' }).click();
+      await expect(target.getByRole('heading', { name: 'Catalog' })).toBeVisible();
+    };
+    const other = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+    const otherPage = await other.newPage();
+    try {
+      await signIn(page, 'editor-demo-pass');
+      await signIn(otherPage, 'editor-demo-pass');
+
+      await page.goto('/admin/account');
+      const devices = page.getByRole('list', { name: 'Signed-in devices' }).getByRole('listitem');
+      await expect(devices.filter({ hasText: 'This device' })).toHaveCount(1);
+      await devices.filter({ hasNotText: 'This device' }).first().getByRole('button', { name: /^Sign out/ }).click();
+      await otherPage.reload();
+      await expect(otherPage).toHaveURL(/\/admin\/login\?next=/);
+
+      // Change and change back, so the next project (and the next run) signs in with the usual password.
+      const newPassword = `editor-${testInfo.project.name}-pass`;
+      for (const [current, next] of [['editor-demo-pass', newPassword], [newPassword, 'editor-demo-pass']]) {
+        await page.getByLabel('Current password').fill(current!);
+        await page.getByLabel('New password', { exact: true }).fill('short');
+        await page.getByLabel('New password again').fill('short');
+        await page.getByRole('button', { name: 'Change password' }).click();
+        await expect(page.getByText('must be at least 10 characters')).toBeVisible();
+        await page.getByLabel('New password', { exact: true }).fill(next!);
+        await page.getByLabel('New password again').fill(next!);
+        await page.getByRole('button', { name: 'Change password' }).click();
+        await expect(page.getByRole('status')).toHaveText('Password changed. Your other sessions were signed out.');
+      }
+    } finally {
+      await other.close();
+    }
+  });
 });

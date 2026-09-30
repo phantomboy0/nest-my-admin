@@ -10,6 +10,7 @@
     "e2e:screens": "playwright test -c playwright.screens.config.ts"
   },
   "dependencies": {
+    "@nest-my-admin/auth": "workspace:*",
     "@nest-my-admin/core": "workspace:*",
     "@nestjs/common": "12.1.1",
     "@nestjs/core": "12.1.1",

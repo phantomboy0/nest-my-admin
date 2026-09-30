@@ -1,6 +1,7 @@
+import { NmaUser, createAdminUser } from '@nest-my-admin/auth';
 import type { INestApplication } from '@nestjs/common';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import type { Repository } from 'typeorm';
+import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
+import type { DataSource, Repository } from 'typeorm';
 import { Category } from './catalog/category.entity.js';
 import { Product } from './catalog/product.entity.js';
 import { StockMove } from './catalog/stock-move.entity.js';
@@ -27,4 +28,11 @@ export async function seedProducts(app: INestApplication): Promise<void> {
   await app.get<Repository<StockMove>>(getRepositoryToken(StockMove)).save(
     Array.from({ length: 25 }, (_, i) => ({ productId: i % 2 ? lamp!.id : notebook!.id, delta: i % 3 === 0 ? -1 : 5, reason: `Move ${i + 1}` })),
   );
+}
+
+/** A second, non-superuser account (editor / editor-demo-pass) next to the bootstrap superuser. */
+export async function seedUsers(app: INestApplication): Promise<void> {
+  const dataSource = app.get<DataSource>(getDataSourceToken());
+  if (await dataSource.getRepository(NmaUser).existsBy({ username: 'editor' })) return;
+  await createAdminUser(dataSource, { username: 'editor', password: 'editor-demo-pass', displayName: 'Demo Editor' });
 }

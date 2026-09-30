@@ -97,3 +97,11 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - Inputs keep Latin digits after typing; only displayed values use the Persian digit preference.
 - Screenshot baselines are made with Playwright's Chromium on Linux; another Chromium build or OS may need `-- --update-snapshots`.
 - Mobile infinite scroll keeps every loaded page in memory (no virtualization); the desktop table still pages.
+
+## M3-1 follow-ups
+- -> M3-3: TOTP 2FA and recovery codes; a Users page (create, deactivate, reset password); the configurable table prefix for `nma_*` tables.
+- -> M5: `nma createsuperuser`; until then `bootstrapSuperuser` or `createAdminUser()`.
+- The IP rate limit is in memory per process; behind several instances each counts on its own (lockout per account is in the database and shared).
+- `GET /api/session` answers a plain 401 when signed out; the login page always shows the username/password form (a custom adapter without `login` answers 404 there).
+- A resource named `login` or `account` is shadowed by those UI routes.
+- The screenshot threshold (1% of pixels) lets small header changes through; regenerate with `-- --update-snapshots=all` after any deliberate UI change.

@@ -9,8 +9,10 @@ import { ProductsService } from '../src/catalog/products.service.js';
 
 let app: INestApplication;
 let db: TestDatabase;
+/** Signed in as the bootstrap superuser; sends the session's CSRF token with every request. */
+let agent: ReturnType<typeof request.agent>;
 const base = '/admin/api/resources/product';
-const post = (body: object) => request(app.getHttpServer()).post(base).send(body);
+const post = (body: object) => agent.post(base).send(body);
 
 beforeAll(async () => {
   db = await testDatabase([]); // entities come from the demo's own databaseOptions()
@@ -19,6 +21,10 @@ beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.init();
+    agent = request.agent(app.getHttpServer());
+    const signedIn = await agent.post('/admin/api/session').send({ username: 'admin', password: 'admin-demo-pass' });
+    if (signedIn.status !== 200) throw new Error(`demo sign-in failed: ${signedIn.status} ${JSON.stringify(signedIn.body)}`);
+    agent.set('X-CSRF-Token', signedIn.body.csrfToken);
   } catch (error) {
     // a demo that fails to boot must not leave its database behind
     await app?.close().catch(() => undefined);
@@ -38,7 +44,7 @@ afterAll(async () => {
 
 describe('product admin (service-first)', () => {
   test('the form comes from the DTOs', async () => {
-    const res = await request(app.getHttpServer()).get('/admin/api/meta/resources/product');
+    const res = await agent.get('/admin/api/meta/resources/product');
     expect(res.body.form).toMatchObject({
       create: ['name', 'slug', 'sku', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
       update: ['name', 'slug', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
@@ -54,7 +60,7 @@ describe('product admin (service-first)', () => {
     const res = await post({ name: 'Lamp', sku: 'lamp-1', price: '19.9', stock: 4, status: 'active' });
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ name: 'Lamp', sku: 'LAMP-1', price: '19.90', stock: 4, status: 'active' });
-    const read = await request(app.getHttpServer()).get(`${base}/${res.body.id}`);
+    const read = await agent.get(`${base}/${res.body.id}`);
     expect(read.body.price).toBe('19.90');
   });
 
@@ -86,21 +92,21 @@ describe('product admin (service-first)', () => {
 
   test('update uses the update DTO and the service', async () => {
     const { body } = await post({ name: 'Mug', sku: 'mug-1', price: '8' });
-    const res = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ stock: 9 });
+    const res = await agent.patch(`${base}/${body.id}`).send({ stock: 9 });
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ stock: 9, sku: 'MUG-1' });
-    const sku = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ sku: 'NEW' });
+    const sku = await agent.patch(`${base}/${body.id}`).send({ sku: 'NEW' });
     expect(sku.status).toBe(422);
   });
 
   test('archived products are locked except their status (readonlyIf)', async () => {
     const { body } = await post({ name: 'Old', sku: 'old-1', price: '2' });
-    const archived = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ status: 'archived' });
+    const archived = await agent.patch(`${base}/${body.id}`).send({ status: 'archived' });
     expect(archived.body._readonly).toEqual(['name', 'slug', 'price', 'stock', 'releasedOn', 'categoryId', 'tags']);
-    const res = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ name: 'Renamed', price: '1' });
+    const res = await agent.patch(`${base}/${body.id}`).send({ name: 'Renamed', price: '1' });
     expect(res.status).toBe(422);
     expect(res.body).toMatchObject({ code: 'VALIDATION', fields: { name: ['is read-only'], price: ['is read-only'] } });
-    const back = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ status: 'draft' });
+    const back = await agent.patch(`${base}/${body.id}`).send({ status: 'draft' });
     expect(back.status).toBe(200);
     expect(back.body._readonly).toBeUndefined();
   });
@@ -115,27 +121,27 @@ describe('product admin (service-first)', () => {
   test('filters and search narrow the list', async () => {
     await post({ name: 'Filter lamp', sku: 'flt-1', price: '12', stock: 3, status: 'active' });
     await post({ name: 'Filter mug', sku: 'flt-2', price: '30', status: 'draft' });
-    const byStatus = await request(app.getHttpServer()).get(`${base}?filter[status][eq]=draft&search=filter`);
+    const byStatus = await agent.get(`${base}?filter[status][eq]=draft&search=filter`);
     expect(byStatus.body.items.map((p: { sku: string }) => p.sku)).toEqual(['FLT-2']);
-    const byPrice = await request(app.getHttpServer()).get(`${base}?filter[price][between]=10,20&search=flt`);
+    const byPrice = await agent.get(`${base}?filter[price][between]=10,20&search=flt`);
     expect(byPrice.body.items.map((p: { sku: string }) => p.sku)).toEqual(['FLT-1']);
-    const bad = await request(app.getHttpServer()).get(`${base}?filter[sku][eq]=x`);
+    const bad = await agent.get(`${base}?filter[sku][eq]=x`);
     expect(bad.status).toBe(422);
     expect(bad.body.fields).toEqual({ 'filter[sku][eq]': ['cannot filter by "sku"'] });
   });
 
   test('delete goes through the service, which refuses active products', async () => {
     const draft = (await post({ name: 'Doomed', sku: 'del-1', price: '1' })).body;
-    expect((await request(app.getHttpServer()).delete(`${base}/${draft.id}`)).status).toBe(204);
+    expect((await agent.delete(`${base}/${draft.id}`)).status).toBe(204);
     const active = (await post({ name: 'Keeper', sku: 'del-2', price: '1', stock: 1, status: 'active' })).body;
-    const refused = await request(app.getHttpServer()).delete(`${base}/${active.id}`);
+    const refused = await agent.delete(`${base}/${active.id}`);
     expect(refused.status).toBe(409);
     expect(refused.body).toMatchObject({ code: 'CONFLICT', message: 'Active products cannot be deleted; archive them first' });
   });
 });
 
 describe('categories and tags (relations)', () => {
-  const http = () => request(app.getHttpServer());
+  const http = () => agent;
   const create = async (resource: string, name: string) => (await http().post(`/admin/api/resources/${resource}`).send({ name })).body.id as number;
 
   test('products take a category and tags by id; the service saves them', async () => {
@@ -171,7 +177,7 @@ describe('categories and tags (relations)', () => {
 });
 
 describe('versions, trash and nested fields', () => {
-  const http = () => request(app.getHttpServer());
+  const http = () => agent;
 
   test('a stale save is a 409 carrying the product as it is now', async () => {
     const { body } = await post({ name: 'Shared', sku: 'ver-1', price: '5' });
@@ -200,7 +206,7 @@ describe('versions, trash and nested fields', () => {
 });
 
 describe('lists at scale', () => {
-  const http = () => request(app.getHttpServer());
+  const http = () => agent;
 
   test('the stock log pages with a cursor and does not count', async () => {
     for (let i = 0; i < 12; i++) {
@@ -223,5 +229,12 @@ describe('lists at scale', () => {
   test('a category lists its products as related', async () => {
     const schema = (await http().get('/admin/api/meta/resources/category')).body;
     expect(schema.related).toEqual([{ label: 'Product', resource: 'product', field: 'categoryId', operator: 'eq' }]);
+  });
+});
+
+describe('sign-in', () => {
+  test('the admin API is closed without a session', async () => {
+    expect((await request(app.getHttpServer()).get('/admin/api/meta')).status).toBe(401);
+    expect((await request(app.getHttpServer()).post('/admin/api/session').send({ username: 'admin', password: 'wrong-password' })).status).toBe(401);
   });
 });

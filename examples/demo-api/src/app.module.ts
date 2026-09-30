@@ -1,3 +1,4 @@
+import { builtinAuth } from '@nest-my-admin/auth';
 import { AdminModule } from '@nest-my-admin/core';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -14,6 +15,8 @@ import { databaseOptions } from './database.js';
       locale: 'en',
       locales: ['en', 'fa'],
       branding: { primaryColor: '#0f766e' },
+      // Sign in as admin / admin-demo-pass (or NMA_DEMO_PASSWORD) on a fresh database.
+      auth: builtinAuth({ bootstrapSuperuser: { username: 'admin', password: process.env.NMA_DEMO_PASSWORD ?? 'admin-demo-pass', displayName: 'Demo Admin' } }),
     }),
     CatalogModule,
   ],

@@ -22,7 +22,8 @@ export default defineConfig({
     timeout: 60_000,
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], ...browser } },
-    { name: 'mobile', use: { ...devices['Pixel 7'], ...browser } },
+    { name: 'setup', testMatch: /screens\.setup\.ts/, use: { ...devices['Desktop Chrome'], ...browser } },
+    { name: 'desktop', dependencies: ['setup'], use: { ...devices['Desktop Chrome'], ...browser, storageState: 'e2e/.auth/screens.json' } },
+    { name: 'mobile', dependencies: ['setup'], use: { ...devices['Pixel 7'], ...browser, storageState: 'e2e/.auth/screens.json' } },
   ],
 });
