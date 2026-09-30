@@ -41,6 +41,14 @@ describe('toErrorResponse', () => {
     expect(toErrorResponse(new InternalServerErrorException('secret detail'), 'c', logger()).body.message).toBe('Internal error');
   });
 
+  test('foreign-key violations become 409 CONFLICT', () => {
+    expect(toErrorResponse(dbError({ message: 'FOREIGN KEY constraint failed' }), 'c', logger())).toEqual({
+      status: 409,
+      body: { code: 'CONFLICT', message: 'The change conflicts with related records', correlationId: 'c' },
+    });
+    expect(toErrorResponse(dbError({ code: '23503', message: 'violates foreign key constraint' }), 'c', logger()).status).toBe(409);
+  });
+
   test('unique violations become 409 CONFLICT on the field (SQLite, Postgres)', () => {
     const sqlite = toErrorResponse(dbError({ message: 'UNIQUE constraint failed: product.sku' }), 'c', logger());
     expect(sqlite).toEqual({

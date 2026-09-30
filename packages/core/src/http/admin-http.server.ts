@@ -21,7 +21,8 @@ interface RequestState {
   ctx: AdminContext;
 }
 
-const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+// Methods that carry a JSON body. DELETE is never a CORS "simple" request, so a foreign page cannot send one without a preflight.
+const BODY_METHODS = new Set(['POST', 'PATCH', 'PUT']);
 
 function isJsonContentType(header: string | undefined): boolean {
   return header?.split(';')[0]?.trim().toLowerCase() === 'application/json';
@@ -69,7 +70,12 @@ export class AdminHttpServer implements OnModuleInit {
       )
       .add('PATCH', '/api/resources/:resource/:id', async ({ req, res, ctx }, p) =>
         sendJson(res, 200, await this.api.update(p.resource, p.id, await readJsonBody(req), ctx)),
-      );
+      )
+      .add('DELETE', '/api/resources/:resource/:id', async ({ res, ctx }, p) => {
+        await this.api.remove(p.resource, p.id, ctx);
+        res.statusCode = 204;
+        res.end();
+      });
   }
 
   onModuleInit(): void {
@@ -129,7 +135,7 @@ export class AdminHttpServer implements OnModuleInit {
         const match = this.router.match(req.method ?? 'GET', pathname);
         if (!match) throw new AdminNotFoundError(`No admin API route for ${req.method} ${pathname}`);
         // Only JSON can be sent by a script; forms and text/plain are CORS "simple" requests a foreign page could forge.
-        if (WRITE_METHODS.has(req.method ?? '') && !isJsonContentType(req.headers['content-type'])) {
+        if (BODY_METHODS.has(req.method ?? '') && !isJsonContentType(req.headers['content-type'])) {
           throw new AdminUnsupportedMediaTypeError('Content-Type must be application/json');
         }
         resourceName = match.params.resource;

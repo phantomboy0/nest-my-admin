@@ -3,6 +3,7 @@ import { applyListParams } from '../crud/list-query-builder.js';
 import type { FilterOperator, SortDirection } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
+import { getHooks, type HookKind } from '../decorators/hooks.js';
 import type { AdminContext } from './admin-context.js';
 
 export type RecordId = string | number;
@@ -90,14 +91,33 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return this.repository.findOne({ where: { [this.primaryKey]: id } as FindOptionsWhere<T> });
   }
 
-  async create(dto: object, _ctx: AdminContext): Promise<T> {
-    return this.repository.save(this.repository.create({ ...dto } as DeepPartial<T>));
+  async create(dto: object, ctx: AdminContext): Promise<T> {
+    await this.runHooks('beforeSave', dto, ctx, 'create');
+    const saved = await this.repository.save(this.repository.create({ ...dto } as DeepPartial<T>));
+    await this.runHooks('afterSave', saved, ctx, 'create');
+    return saved;
   }
 
   async update(id: RecordId, dto: object, ctx: AdminContext): Promise<T> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
+    await this.runHooks('beforeSave', dto, ctx, 'update');
     this.repository.merge(existing, { ...dto } as DeepPartial<T>);
-    return this.repository.save(existing);
+    const saved = await this.repository.save(existing);
+    await this.runHooks('afterSave', saved, ctx, 'update');
+    return saved;
+  }
+
+  async delete(id: RecordId, ctx: AdminContext): Promise<void> {
+    const existing = await this.findOne(id, ctx);
+    if (!existing) throw new AdminNotFoundError();
+    await this.runHooks('beforeDelete', existing, ctx);
+    await this.repository.remove(existing);
+  }
+
+  /** Runs @BeforeSave/@AfterSave/@BeforeDelete methods in declaration order (parent class first). */
+  protected async runHooks(kind: HookKind, ...args: unknown[]): Promise<void> {
+    const methods = this as unknown as Record<string | symbol, (...hookArgs: unknown[]) => unknown>;
+    for (const key of getHooks(this.constructor, kind)) await methods[key]!.apply(this, args);
   }
 }

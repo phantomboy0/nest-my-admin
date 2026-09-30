@@ -4,5 +4,8 @@ export const ADMIN_RESOURCE_METADATA = 'nest-my-admin:resource';
 /** Reflect-metadata key holding @AdminGroup options on a Nest module class. */
 export const ADMIN_GROUP_METADATA = 'nest-my-admin:group';
 
+/** Reflect-metadata key holding the lifecycle hook method names of a resource class. */
+export const ADMIN_HOOKS_METADATA = 'nest-my-admin:hooks';
+
 /** Injection token for the resolved AdminModule options. */
 export const ADMIN_OPTIONS = 'NEST_MY_ADMIN_OPTIONS';

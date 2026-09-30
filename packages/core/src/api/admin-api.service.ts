@@ -83,6 +83,13 @@ export class AdminApiService {
     return serializeRecord(await this.reloadIfEmpty(entry, updated, id, ctx), schema.fields);
   }
 
+  async remove(name: string, rawId: string, ctx: AdminContext): Promise<void> {
+    const { schema, resource } = this.registry.get(name);
+    const id = parseRecordId(rawId, schema);
+    if (!(await resource.findOne(id, ctx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+    await resource.delete(id, ctx);
+  }
+
   /** Host services often return nothing from update(); fall back to reading the record. */
   private async reloadIfEmpty(entry: RegisteredResource, result: unknown, id: string | number, ctx: AdminContext): Promise<object> {
     if (typeof result === 'object' && result !== null) return result;

@@ -66,6 +66,12 @@ function constraintError(
   const column = typeof driver.column === 'string' ? driver.column : columnFromMessage(text);
   const field = column ? (columnProperties?.get(column) ?? column) : undefined;
 
+  if (code === '23503' || code === 'ER_ROW_IS_REFERENCED_2' || code === 'ER_NO_REFERENCED_ROW_2' || /FOREIGN KEY constraint failed/i.test(text)) {
+    return {
+      status: 409,
+      body: { code: 'CONFLICT', message: 'The change conflicts with related records' },
+    };
+  }
   if (code === '23505' || code === 'ER_DUP_ENTRY' || /UNIQUE constraint failed/i.test(text)) {
     return {
       status: 409,
