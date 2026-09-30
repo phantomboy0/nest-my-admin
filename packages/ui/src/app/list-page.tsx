@@ -3,13 +3,16 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { AdminRecord, FieldSchema } from '@nest-my-admin/core/contract';
+import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
 import { FilterBar } from '@/app/filter-bar';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useT } from '@/i18n';
 import { api, describeError } from '@/lib/api';
+import { useColumnPrefs, visibleColumns } from '@/lib/column-prefs';
 import { formatCell } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { isRef } from '@/lib/form-values';
 import { encodeRecordId } from '@/lib/record-id';
 import { hasActiveFilters, listQueryFromUrl, paging, withChanges, type ParamChanges } from '@/lib/list-state';
@@ -30,6 +33,7 @@ export function ListPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['list', resource] }),
   });
   const trash = searchParams.get('trashed') === 'only';
+  const prefs = useColumnPrefs(resource);
   const [trail, setTrail] = useState<string[]>([]);
   const hasAfter = searchParams.has('after');
   useEffect(() => {
@@ -40,7 +44,7 @@ export function ListPage() {
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
 
   const s = schema.data;
-  const columns = s.list.columns
+  const columns = visibleColumns(s.list.columns, prefs)
     .map((name) => s.fields.find((field) => field.name === name))
     .filter((field): field is FieldSchema => field !== undefined);
   const detailColumns = columns.filter((column) => !s.primaryKeys.includes(column.name));
@@ -83,8 +87,10 @@ export function ListPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">{s.label}</h1>
+        <div className="ms-auto" />
+        <ColumnMenu schema={s} prefs={prefs} />
         {s.softDelete && (
-          <Button variant={trash ? 'secondary' : 'outline'} className="ms-auto" aria-pressed={trash} onClick={() => updateParams({ trashed: trash ? null : 'only' })}>
+          <Button variant={trash ? 'secondary' : 'outline'} aria-pressed={trash} onClick={() => updateParams({ trashed: trash ? null : 'only' })}>
             <Trash2 />
             {t('list.trash')}
           </Button>
@@ -101,16 +107,30 @@ export function ListPage() {
 
       <FilterBar schema={s} params={searchParams} onChange={updateParams} />
 
-      {list.isError && <PageMessage tone="error">{describeError(list.error)}</PageMessage>}
+      {list.isError && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>
+            {t('list.loadFailed')} {describeError(list.error)}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => void list.refetch()}>
+            {t('list.retry')}
+          </Button>
+        </div>
+      )}
       {restore.isError && <PageMessage tone="error">{describeError(restore.error)}</PageMessage>}
       {trash && <p className="text-sm text-muted-foreground">{t('list.trashNote')}</p>}
 
       <div className="hidden overflow-x-auto rounded-lg border md:block">
-        <Table>
+        <Table className={cn(prefs.density === 'compact' && '[&_td]:py-1 [&_th]:h-8')}>
           <TableHeader>
             <TableRow>
               {columns.map((column) => (
-                <TableHead key={column.name} aria-sort={sort.field === column.name ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}>
+                <TableHead
+                  key={column.name}
+                  className="relative"
+                  style={prefs.widths[column.name] ? { width: prefs.widths[column.name], minWidth: prefs.widths[column.name] } : undefined}
+                  aria-sort={sort.field === column.name ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
+                >
                   {s.list.sortable.includes(column.name) ? (
                     <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(column.name)}>
                       {column.label}
@@ -120,12 +140,23 @@ export function ListPage() {
                   ) : (
                     column.label
                   )}
+                  <ResizeHandle resource={s.name} column={column.name} label={column.label} width={prefs.widths[column.name]} />
                 </TableHead>
               ))}
               {trash && <TableHead className="w-0"><span className="sr-only">{t('list.actions')}</span></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
+            {list.isPending &&
+              Array.from({ length: 5 }, (_, row) => (
+                <TableRow key={`skeleton-${row}`} aria-hidden>
+                  {columns.map((column) => (
+                    <TableCell key={column.name}>
+                      <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
             {items.map((item) => (
               <TableRow key={String(item._id)} className={trash ? undefined : 'cursor-pointer'} onClick={trash ? undefined : () => navigate(recordPath(item))}>
                 {columns.map((column, index) => (
@@ -149,7 +180,17 @@ export function ListPage() {
             {list.isSuccess && items.length === 0 && (
               <TableRow>
                 <TableCell colSpan={columns.length + (trash ? 1 : 0)} className="text-center text-muted-foreground">
-                  {t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}
+                  <div className="flex flex-col items-center gap-2 py-6">
+                    {t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}
+                    {!hasActiveFilters(searchParams) && s.creatable && !trash && (
+                      <Button asChild size="sm" variant="outline">
+                        <Link to={`/${s.name}/new`}>
+                          <Plus />
+                          {t('list.new')}
+                        </Link>
+                      </Button>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             )}
