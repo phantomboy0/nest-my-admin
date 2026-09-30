@@ -36,6 +36,40 @@ export interface FieldSchema {
   fields?: FieldSchema[];
   /** An `object` field holding a list of groups (an array of nested DTOs). */
   many?: boolean;
+  /** A sentence under the input. */
+  help?: string;
+  placeholder?: string;
+  /** The widget chosen in the field config; the UI infers one from the type when absent. */
+  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url';
+  /** Display labels of enum values (values sent stay the raw ones). */
+  enumLabels?: Record<string, string>;
+  /** Badge colour per value. */
+  colors?: Record<string, 'gray' | 'red' | 'amber' | 'green' | 'blue' | 'purple' | 'pink'>;
+  /** Shown only while every named field has the value (or one of the values) given. */
+  showIf?: Record<string, string | number | boolean | null | Array<string | number | boolean | null>>;
+  /** The slug widget fills itself from this field until edited. */
+  slugFrom?: string;
+  /** Currency code for the money widget (display only). */
+  currency?: string;
+}
+
+export interface FormLayoutSection {
+  title?: string;
+  fields: string[];
+  columns: 1 | 2 | 3;
+}
+
+export interface FormLayoutTab {
+  tab: string;
+  sections: FormLayoutSection[];
+}
+
+export type FormLayoutNode = FormLayoutSection | FormLayoutTab;
+
+/** An external link of a record (`links()` on the resource), shown in the detail header. */
+export interface RecordLink {
+  label: string;
+  href: string;
 }
 
 /**
@@ -163,14 +197,19 @@ export interface ResourceSchema {
     create: string[];
     update: string[];
     requiredOnCreate: string[];
+    /** Shown on the update form but not writable (`readonly: true`); records add their own in `_readonly`. */
+    readonly: string[];
+    /** Sections and tabs (`form.layout`); absent = one section in form order. */
+    layout?: FormLayoutNode[];
     constraints: { create: Record<string, FieldConstraints>; update: Record<string, FieldConstraints> };
   };
 }
 
 /**
  * A record: field name → value, dotted list paths (`'customer.name'`) as flat keys, `_id` (the encoded record id used
- * in URLs: key values in primary-key order, `~` as `~0` and `,` as `~1`, joined by `,`; `new` is `~new`) and `_title`,
- * the record's display name (spec §5.2 `title`).
+ * in URLs: key values in primary-key order, `~` as `~0` and `,` as `~1`, joined by `,`; `new` is `~new`), `_title`,
+ * the record's display name (spec §5.2 `title`), and when configured `_readonly` (fields `readonlyIf` locks on this
+ * record) and `_links` (`RecordLink[]`).
  */
 export type AdminRecord = Record<string, unknown>;
 

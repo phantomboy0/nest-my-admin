@@ -6,6 +6,8 @@ import { toRelationReferences } from '../crud/relation-writes.js';
 import type { FilterOperator, SortDirection } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
+import type { LocalizedText } from '../i18n/localized-text.js';
+import type { FieldsConfig, LayoutConfig } from '../schema/field-config.js';
 import type { FieldPath } from '../schema/field-paths.js';
 import { getHooks, type HookKind } from '../decorators/hooks.js';
 import { AdminContext } from './admin-context.js';
@@ -87,6 +89,14 @@ export interface FormConfig {
   create?: DtoClass;
   /** Defaults to `create`. Update bodies are always validated as partial: only the fields sent are checked. */
   update?: DtoClass;
+  /** Sections (with 1–3 columns), optionally grouped into tabs. Fields left out go into a last section. */
+  layout?: LayoutConfig;
+}
+
+/** An external link shown in the record's header (Django's `view_on_site`): http(s) or a relative URL. */
+export interface RecordLinkConfig {
+  label: LocalizedText;
+  href: string;
 }
 
 /**
@@ -96,6 +106,13 @@ export interface FormConfig {
 export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral> {
   list?: ListConfig<T>;
   form?: FormConfig;
+  /** Per-field labels, help, widgets, enum labels, `showIf`, `readonly`, `readonlyIf` (spec §5.2 `fields`). */
+  fields?: FieldsConfig<T>;
+
+  /** External links of a record, shown in its header. */
+  links(_record: T): RecordLinkConfig[] {
+    return [];
+  }
 
   #repository?: Repository<T>;
 

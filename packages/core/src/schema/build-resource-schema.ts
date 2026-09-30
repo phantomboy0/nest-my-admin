@@ -2,6 +2,7 @@ import type { FieldConstraints, FieldSchema, FilterSchema, ResourceSchema, SortD
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
+import { applyFieldConfig, checkFieldConfig, checkLayout, localizeLayout, mergeFieldConfig, type FieldConfig } from './field-config.js';
 import { dtoObjectField, embeddedField, nestedTypeOf, topEmbedded, type EmbeddedLike } from './nested-fields.js';
 import { isToOne, pathField as toPathField, relationFields, resolvePath, type RelatedMetadataLike } from './relation-fields.js';
 import { dtoConstraints, hasDtoInitializer, isConditionalProperty } from './dto-constraints.js';
@@ -255,10 +256,20 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       if (child.type === 'object') addObjectConstraints(out, child, childPath, nestedDto ? nestedTypeOf(nestedDto, child.name)?.type : undefined, childrenRequired);
     }
   };
+  // Field config (spec §5.3 layers 3-4): checked against every field, applied as schema properties.
+  const fieldConfig = mergeFieldConfig([definition.entity, createDto, updateDto], resource.fields as Record<string, FieldConfig | undefined>);
+  const allFields = [...entityFields, ...dtoOnly, ...paths.values()];
+  checkFieldConfig(allFields, fieldConfig, fail);
+  const readonlyNames = [...fieldConfig].filter(([, options]) => options.readonly).map(([name]) => name);
+  const writableUpdate = update.filter((name) => !readonlyNames.includes(name));
+  const formReadonly = readonlyNames.filter((name) => update.includes(name) || byName.has(name));
+  const layout = resource.form?.layout;
+  if (layout) checkLayout(layout, [...new Set([...create, ...update, ...formReadonly])], fail);
+
   const dedicatedUpdateDto = resource.form?.update;
   const constraints = {
     create: compile(create, createDto, (name) => requiredOnCreate.includes(name), true),
-    update: compile(update, updateDto, (_name, fromDto) => dedicatedUpdateDto !== undefined && fromDto?.required === true, dedicatedUpdateDto !== undefined),
+    update: compile(writableUpdate, updateDto, (_name, fromDto) => dedicatedUpdateDto !== undefined && fromDto?.required === true, dedicatedUpdateDto !== undefined),
   };
 
   return {
@@ -272,7 +283,8 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     related: [], // filled in by the registry once every resource is known
     softDelete: metadata.columns.some((column) => column.isDeleteDate),
     ...(versionField ? { version: versionField } : {}),
-    fields: [...entityFields, ...dtoOnly, ...paths.values()],
+    // Texts in the first language given; AdminApiService localizes per request.
+    fields: allFields.map((field) => applyFieldConfig(field, fieldConfig.get(field.name), '', '')),
     list: {
       columns,
       sortable,
@@ -284,6 +296,13 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       search,
       editable,
     },
-    form: { create, update, requiredOnCreate, constraints },
+    form: {
+      create,
+      update: writableUpdate,
+      requiredOnCreate,
+      readonly: formReadonly,
+      constraints,
+      ...(layout ? { layout: localizeLayout(layout, '', '') } : {}),
+    },
   };
 }

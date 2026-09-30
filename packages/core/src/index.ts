@@ -15,7 +15,10 @@ export {
   type ListConfig,
   type ListParams,
   type RecordId,
+  type RecordLinkConfig,
 } from './resource/admin-resource-base.js';
+export { AdminField, BADGE_COLORS, WIDGETS, type AdminFieldOptions, type BadgeColor, type WidgetName } from './decorators/admin-field.js';
+export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutSectionConfig, LayoutTabConfig } from './schema/field-config.js';
 export { AdminContext } from './resource/admin-context.js';
 export type { FieldPath } from './schema/field-paths.js';
 export type { TitleDefinition } from './schema/titles.js';

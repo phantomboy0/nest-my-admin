@@ -10,6 +10,7 @@ import { getAdminResourceDefinition, type AdminResourceDefinition } from '../dec
 import { AdminNotFoundError } from '../errors.js';
 import { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { buildResourceSchema } from '../schema/build-resource-schema.js';
+import { mergeFieldConfig, type FieldConfig } from '../schema/field-config.js';
 import { operatorsFor } from '../schema/filter-operators.js';
 import { relationFields, type RelationLike } from '../schema/relation-fields.js';
 import { compileTitle, type TitleFn } from '../schema/titles.js';
@@ -37,6 +38,8 @@ export interface RegisteredResource {
   label: LocalizedText;
   /** For each `schema.related` entry: the field's label when it is shown as "Resource (Field)". */
   relatedFieldLabels: Array<string | undefined>;
+  /** Merged field options (`@AdminField` and `fields`), texts in every language given. */
+  fieldConfig: Map<string, FieldConfig>;
 }
 
 /** TypeORM's RelationMetadata as the admin reads it (TypeORM does not export the class from its root). */
@@ -196,6 +199,10 @@ export class ResourceRegistry implements OnModuleInit {
       sortPaths: new Map(),
       label: definition.label ?? schema.label,
       relatedFieldLabels: [],
+      fieldConfig: mergeFieldConfig(
+        [definition.entity, resource.form?.create, resource.form?.update ?? resource.form?.create],
+        resource.fields as Record<string, FieldConfig | undefined>,
+      ),
     });
   }
 

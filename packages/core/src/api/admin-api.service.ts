@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { AdminRecord, BulkResult, FieldSchema, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '../contract.js';
+import type { AdminRecord, BulkResult, FieldSchema, ListResponse, MetaResponse, OptionsResponse, RecordLink, ResourceSchema } from '../contract.js';
+import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { toErrorResponse } from '../http/error-response.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
@@ -16,7 +17,7 @@ import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
-import type { RecordId } from '../resource/admin-resource-base.js';
+import type { RecordId, RecordLinkConfig } from '../resource/admin-resource-base.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
 const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
@@ -72,7 +73,10 @@ export class AdminApiService {
       const fieldLabel = entry.relatedFieldLabels[index];
       return { ...item, label: fieldLabel ? `${base} (${fieldLabel})` : base };
     });
-    return { ...entry.schema, label: text(entry.label), related };
+    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale));
+    const layout = entry.resource.form?.layout;
+    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale) } : entry.schema.form;
+    return { ...entry.schema, label: text(entry.label), related, fields, form };
   }
 
   async list(name: string, query: URLSearchParams, ctx: AdminContext): Promise<ListResponse> {
@@ -111,11 +115,17 @@ export class AdminApiService {
     const discriminator = entry.metadata.discriminatorColumn?.propertyName;
     const kindOf = (entity: object) =>
       entry.metadata.childEntityMetadatas.find((child) => child.target === entity.constructor)?.discriminatorValue ?? entry.metadata.discriminatorValue;
+    const locale = ctx.locale ?? this.options.locale;
     return entities.map((entity) => {
       const id = recordIdOf(entity, schema.primaryKeys);
+      const locked = this.lockedFields(entry, entity);
+      const links = this.recordLinks(entry, entity, locale);
       // TypeORM does not load the discriminator into entities; each row's class says which kind it is.
       const values = discriminator && schema.fields.some((field) => field.name === discriminator) ? { ...loaded?.get(id), [discriminator]: kindOf(entity) } : loaded?.get(id);
-      return serializeRecord(entity, schema.fields, values, { id, title: entry.title(entity) });
+      const record = serializeRecord(entity, schema.fields, values, { id, title: entry.title(entity) });
+      if (locked.length > 0) record._readonly = locked;
+      if (links.length > 0) record._links = links;
+      return record;
     });
   }
 
@@ -188,6 +198,8 @@ export class AdminApiService {
       await this.checkVersion(entry, id, version, tx);
       const existing = await resource.findOne(id, tx);
       if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+      const locked = this.lockedFields(entry, existing).filter((name) => Object.hasOwn(dto, name));
+      if (locked.length > 0) throw new AdminValidationError(Object.fromEntries(locked.map((name) => [name, ['is read-only']])), 'Some fields are read-only');
       if ([...relationIds.values()].some((ids) => ids.length > 0)) {
         // relationOptions() sees the record as it will be: what is stored, with the request's changes on top.
         const values = { ...toValues(await this.record(entry, existing, tx)), ...(dto as Record<string, unknown>) };
@@ -357,6 +369,42 @@ export class AdminApiService {
       await this.checkVersion(entry, id, version, tx, true);
       await entry.resource.purge(id, tx);
     });
+  }
+
+  /** Fields `readonlyIf` locks on this record. A function that throws locks its field (and is logged once). */
+  private lockedFields(entry: RegisteredResource, entity: object): string[] {
+    const locked: string[] = [];
+    for (const [name, options] of entry.fieldConfig) {
+      if (!options.readonlyIf) continue;
+      try {
+        if (options.readonlyIf(entity)) locked.push(name);
+      } catch (error) {
+        locked.push(name);
+        this.warnOnce(`${entry.className}.fields.${name}.readonlyIf threw (${error instanceof Error ? error.message : String(error)}); the field stays read-only`);
+      }
+    }
+    return locked;
+  }
+
+  /** `links()` of the resource with labels in the locale; only http(s) and relative URLs get through. */
+  private recordLinks(entry: RegisteredResource, entity: object, locale: string): RecordLink[] {
+    let links: RecordLinkConfig[];
+    try {
+      links = entry.resource.links(entity);
+    } catch (error) {
+      this.warnOnce(`${entry.className}.links() threw: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+    return (Array.isArray(links) ? links : [])
+      .filter((link) => typeof link?.href === 'string' && (/^https?:\/\//i.test(link.href) || !/^[a-z][a-z0-9+.-]*:/i.test(link.href.trim())))
+      .map((link) => ({ label: resolveText(link.label, locale, this.options.locale), href: link.href }));
+  }
+
+  private readonly warned = new Set<string>();
+  private warnOnce(message: string): void {
+    if (this.warned.has(message)) return;
+    this.warned.add(message);
+    this.logger.warn(message);
   }
 
   /** Host services often return nothing from update(); fall back to reading the record. */
