@@ -84,7 +84,7 @@ export interface AdminErrorBody {
   correlationId: string;
 }
 
-/** Injected into index.html as `window.__NMA__`. */
+/** Injected into index.html as `<script type="application/json" id="nma-config">`. */
 export interface AdminRuntimeConfig {
   basePath: string;
   apiBase: string;

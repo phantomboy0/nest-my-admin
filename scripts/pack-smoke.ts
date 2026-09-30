@@ -84,7 +84,7 @@ for (const [runtime, port] of [['node', 4311], ['bun', 4312]] as const) {
     await waitFor(`${origin}/admin/api/meta`);
 
     const html = await (await fetch(`${origin}/admin/note/42`)).text();
-    assert(html.includes('<base href="/admin/">') && html.includes('window.__NMA__'), `${runtime}: index.html missing runtime injection`);
+    assert(html.includes('<base href="/admin/">') && html.includes('id="nma-config"'), `${runtime}: index.html missing runtime injection`);
     const asset = /src="\.\/(assets\/[^"]+\.js)"/.exec(html)?.[1];
     assert(asset, `${runtime}: index.html references no JS asset`);
     const js = await fetch(`${origin}/admin/${asset}`);

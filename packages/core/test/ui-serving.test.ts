@@ -15,8 +15,15 @@ describe('UI serving', () => {
       expect(res.headers['content-type']).toContain('text/html');
       expect(res.headers['cache-control']).toBe('no-cache');
       expect(res.text).toContain('<base href="/admin/">');
-      expect(res.text).toContain('window.__NMA__={"basePath":"/admin","apiBase":"/admin/api","title":"Shop"}');
+      expect(res.text).toContain('<script type="application/json" id="nma-config">{"basePath":"/admin","apiBase":"/admin/api","title":"Shop"}</script>');
     }
+  });
+
+  test('has no executable inline script, so a strict CSP (helmet default) still lets the UI boot', async () => {
+    const res = await request(app.getHttpServer()).get('/admin');
+    const inline = [...res.text.matchAll(/<script(?![^>]*\ssrc=)([^>]*)>/gi)];
+    expect(inline.length).toBeGreaterThan(0);
+    for (const [, attrs] of inline) expect(attrs).toContain('type="application/json"');
   });
 
   test('deep links get index.html so a refresh works', async () => {

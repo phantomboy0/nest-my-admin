@@ -44,7 +44,7 @@ export function resolveUiDist(): string {
 const escapeAttribute = (value: string) =>
   value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Inserts `<base href>` (so relative assets load from deep links) and the runtime config. */
+/** Inserts `<base href>` (so relative assets load from deep links) and the runtime config as an inert JSON block (an executable inline script would be blocked by helmet's default CSP). */
 export function injectRuntime(html: string, runtime: AdminRuntimeConfig): string {
   const headOpen = /<head(\s[^>]*)?>/i;
   if (!headOpen.test(html)) throw new Error('nest-my-admin: UI index.html has no <head> element');
@@ -53,7 +53,7 @@ export function injectRuntime(html: string, runtime: AdminRuntimeConfig): string
     .replace(/</g, '\\u003c')
     .replace(new RegExp(String.fromCharCode(0x2028), 'g'), '\\u2028')
     .replace(new RegExp(String.fromCharCode(0x2029), 'g'), '\\u2029');
-  const tags = `<base href="${escapeAttribute(baseHref)}"><script>window.__NMA__=${json}</script>`;
+  const tags = `<base href="${escapeAttribute(baseHref)}"><script type="application/json" id="nma-config">${json}</script>`;
   return html.replace(headOpen, (match) => match + tags);
 }
 

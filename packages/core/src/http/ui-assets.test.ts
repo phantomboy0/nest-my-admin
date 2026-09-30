@@ -10,10 +10,10 @@ const root = fileURLToPath(new URL('../../test/fixtures/ui-dist', import.meta.ur
 const runtime = { basePath: '/admin', apiBase: '/admin/api', title: 'Shop' };
 
 describe('injectRuntime', () => {
-  test('adds <base> and window.__NMA__ right after <head>', () => {
+  test('adds <base> and the JSON config right after <head>', () => {
     const html = injectRuntime('<html><head lang="x"><title>t</title></head></html>', runtime);
     expect(html).toBe(
-      '<html><head lang="x"><base href="/admin/"><script>window.__NMA__={"basePath":"/admin","apiBase":"/admin/api","title":"Shop"}</script><title>t</title></head></html>',
+      '<html><head lang="x"><base href="/admin/"><script type="application/json" id="nma-config">{"basePath":"/admin","apiBase":"/admin/api","title":"Shop"}</script><title>t</title></head></html>',
     );
   });
 
