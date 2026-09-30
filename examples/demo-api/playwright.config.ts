@@ -7,6 +7,7 @@ const browser = channel ? { channel } : {};
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.pw.ts',
+  testIgnore: '**/screens.pw.ts', // the screenshot matrix has its own config (playwright.screens.config.ts)
   workers: 1,
   use: { baseURL: 'http://localhost:3310', trace: 'retain-on-failure' },
   webServer: {

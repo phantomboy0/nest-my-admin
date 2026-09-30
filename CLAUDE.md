@@ -18,6 +18,7 @@ bun test -t "rejects unknown fields"            # tests matching a name
 bun run db:up                                   # Postgres + MySQL in Docker for the lines below
 bun run test:postgres                           # whole suite on Postgres (test:mysql for MySQL); or NMA_TEST_DB=postgres bun test <file>
 bun run compat                                  # core suite on NestJS 11.0 + TypeORM 0.3.20 (scripts/oldest-supported.ts), in a temp copy
+bun run e2e:screens                             # screenshot matrix (desktop/mobile × en/fa × light/dark) against committed baselines; add `-- --update-snapshots` after a deliberate UI change
 bun run e2e                                     # build + Playwright on examples/demo-api (desktop + mobile); needs `bunx playwright install chromium` once (or, if that download is blocked, `PW_CHANNEL=chrome bun run e2e` to use installed Chrome)
 bun run pack:smoke                              # pack core+ui, npm-install into a temp app, boot on node and bun
 cd examples/demo-api && bun src/main.ts         # demo at http://localhost:3000/admin
@@ -72,6 +73,15 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
     - `lib/show-if.ts` hides fields, which are then left out of the payload and the constraints;
     - `app/form-layout.tsx` renders sections and tabs.
   - `FieldSchema.unique` (single-column unique constraint or index) drives Duplicate.
+- Persian and mobile (M2-4):
+  - Server normalization: `i18n/persian.ts` `persianLike` wraps a column in `REPLACE`s only for the characters the normalized term contains. It is used by search, `contains`/`startsWith` and relation options; `parseScalar` accepts any digits.
+  - `AdminApiService.search` backs `/api/search`.
+  - `list.mobile` paths are loaded with the list.
+  - UI display preferences (`lib/display-prefs.ts`) live in `LocaleState` (`calendar`, `digits`, `setDisplay`) and in module state for formatters (`formatDate` formats `date` values in UTC). Intl calendar tags are `gregory`/`persian`.
+  - Jalali: `lib/jalali.ts` is the jalaali algorithm; a test checks it against `Intl` for 1900–2100. `app/date-input.tsx`: `live` for forms, commit on pick/Enter/blur for filters.
+  - Phones: `useIsMobile()` switches `ListPage` to `app/mobile-list.tsx` (`useInfiniteQuery` under `['list', resource, 'cards', query]`) and `FilterBar` to a bottom drawer with a sort select.
+  - `app/command-palette.tsx` uses `lib/palette.ts` for matching.
+  - Screenshot baselines live in `examples/demo-api/e2e/__screenshots__` (`playwright.screens.config.ts`, its own server on :3320).
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.
 - `packages/core/src/contract.ts` is the JSON contract with the UI. It is types only; the UI imports it from source through a tsconfig path.
 - `packages/ui` is a Vite + React + shadcn SPA published as static `dist/` only (all its deps are devDependencies). The shadcn primitives and theme tokens were copied from crm-next (`radix-nova`, neutral).

@@ -185,6 +185,28 @@ AdminModule.forRoot({
 - **Theme.** Light, dark or system, from the header. It is applied before the page renders, so nothing flashes.
 - **Icons** for groups and resources: bell, book, box, boxes, briefcase, building, calendar, cart, chart, clock, credit-card, database, dollar, file, file-text, folder, globe, heart, history, home, image, inbox, key, layers, link, list, lock, mail, map, map-pin, message, package, phone, printer, receipt, server, settings, shield, shopping-bag, shopping-cart, star, store, tag, tags, ticket, truck, user, users, video, wallet, wrench, zap.
 
+### Persian, dates and phones
+
+- **Search in Persian.**
+  - `search`, the `contains`/`startsWith` filters and relation pickers treat Arabic ي/ى and Persian ی as one letter, and likewise ك and ک.
+  - Persian, Arabic-Indic and Latin digits match each other, and a zero-width non-joiner matches a space. `کتاب ۱۲` finds `كتاب 12`.
+  - This works on sql.js, Postgres and MySQL, and Latin searches keep a plain `LIKE`.
+- **Digits.** Number, decimal, bigint, date and datetime inputs and filters accept every digit set. Values on the wire always use Latin digits.
+- **Calendar and digits** are per browser, from the header's Display settings:
+  - calendar: Gregorian, or Jalali (the default in Persian);
+  - digits: Latin, or Persian for display.
+  - `date` values are shown without time zone shifts; datetimes are shown in the browser's time zone.
+- **Jalali dates.**
+  - Date inputs take `1403/01/15` in any digits, next to a calendar with day, month and year views. The calendar supports the keyboard: arrows, PageUp/PageDown, and Shift for years.
+  - Date and datetime filter ranges use the same input. A Jalali datetime range covers whole local days, sent as UTC instants.
+- **Phones.**
+  - Lists become cards with infinite scroll. With `list.mobile: { title, subtitle, badge, meta: [...] }` (fields or paths, checked at boot) cards show those; without it they show the title and the columns.
+  - Filters and sort open in a bottom drawer, and **Select** turns on checkboxes for bulk delete.
+  - `?pageSize=` in the URL sets the page size.
+- **Command palette.**
+  - ⌘K / Ctrl+K (or the header's search button) goes to resources and groups, opens "New …" forms, and finds records.
+  - Records come from `GET /api/search?q=&limit=`: up to `limit` (default 5) per resource with `list.search`, through each resource's `findMany`, so `query()` restrictions apply. A resource whose search fails is left out and logged.
+
 ### Fields and forms
 
 ```ts

@@ -89,3 +89,11 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - `showIf` supports top-level fields only (not inside object groups) and equality only (no ranges or functions).
 - Duplicate copies what the create form holds; to-many relations are copied as ids, and the slug is copied unless the column is unique.
 - ⌘S on a create form saves and opens the new record; a save that the server refuses keeps the form dirty.
+
+## M2-4 follow-ups
+- -> M3: global search and the palette ignore permissions beyond each resource's `query()`; per-user saved calendar and digit preferences (localStorage per browser today).
+- -> M5: the full palette (actions, recents, saved views); palette record search runs one query per searchable resource.
+- Persian normalization covers ی/ي/ى, ک/ك, digits and ZWNJ; other Arabic forms (ة/ه, أ/ا, harakat) are not folded. On MySQL, an accent-insensitive collation may match more than this.
+- Inputs keep Latin digits after typing; only displayed values use the Persian digit preference.
+- Screenshot baselines are made with Playwright's Chromium on Linux; another Chromium build or OS may need `-- --update-snapshots`.
+- Mobile infinite scroll keeps every loaded page in memory (no virtualization); the desktop table still pages.

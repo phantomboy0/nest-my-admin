@@ -108,7 +108,7 @@ function JalaliInput({ id, value, onChange, label, live, className, ...rest }: D
         id={id}
         dir="ltr"
         inputMode="numeric"
-        placeholder={formatNumberText('1403/01/15')}
+        placeholder={t('date.placeholder')}
         value={text}
         {...rest}
         onChange={(event) => {

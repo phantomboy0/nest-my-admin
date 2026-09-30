@@ -101,6 +101,7 @@ export const fa: Messages = {
   'filters.emptyValues': '{field}: مقدارهای خالی',
   'filters.selected': '{count} مورد',
 
+  'date.placeholder': 'yyyy/mm/dd',
   'date.openCalendar': 'انتخاب {name} از تقویم',
   'date.calendar': 'تقویم {name}',
   'date.previous': 'قبلی',

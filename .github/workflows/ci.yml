@@ -25,6 +25,7 @@ jobs:
       - run: bunx playwright install --with-deps chromium
         working-directory: examples/demo-api
       - run: bun run e2e
+      - run: bun run --filter demo-api e2e:screens
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

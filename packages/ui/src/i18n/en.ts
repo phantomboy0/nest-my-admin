@@ -99,6 +99,7 @@ export const en = {
   'filters.emptyValues': '{field}: empty values',
   'filters.selected': '{count} selected',
 
+  'date.placeholder': 'yyyy/mm/dd',
   'date.openCalendar': 'Choose {name} from a calendar',
   'date.calendar': '{name} calendar',
   'date.previous': 'Previous',

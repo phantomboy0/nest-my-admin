@@ -8,6 +8,7 @@
     "typecheck": "bun run --filter @nest-my-admin/core build && bun run --filter '*' typecheck",
     "test": "bun run build && bun test packages examples",
     "e2e": "bun run build && bun run --filter demo-api e2e",
+    "e2e:screens": "bun run build && bun run --filter demo-api e2e:screens",
     "pack:smoke": "bun scripts/pack-smoke.ts",
     "db:up": "docker compose -f docker-compose.test.yml up -d --wait",
     "db:down": "docker compose -f docker-compose.test.yml down",
