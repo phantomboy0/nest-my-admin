@@ -62,8 +62,9 @@ create(dto: CreateProductDto, ctx: AdminContext) {
 ```
 
 Services that keep using their own injected repository still work, but on Postgres/MySQL they write outside the
-transaction, on a separate pooled connection, and can block on the admin transaction's locks (for example inserting a
-row with a foreign key to the just-created record hangs). Pass `ctx.manager`. `AdminContext.current()` returns the admin
+transaction, on a separate pooled connection, and can block on the admin transaction's locks (writing the same row or
+the same unique key blocks until the admin transaction ends on both drivers; inserting a row with a foreign key to the
+just-created record blocks on MySQL and fails at once with a foreign-key conflict, 409 `CONFLICT`, on Postgres). Pass `ctx.manager`. `AdminContext.current()` returns the admin
 request being handled (or `undefined` in your own controllers), so deep code can find it without a `ctx` parameter.
 Turn transactions off with `forRoot({ transactions: false })`.
 
@@ -72,12 +73,16 @@ connection can see an open write's uncommitted rows. On Postgres, serialization 
 (40001/40P01) surface as a 500 `INTERNAL` with no retry.
 
 Translate your own exceptions with `forRoot({ errorMapper: (e) => e instanceof OutOfStock ? new AdminFieldError({ stock: 'out of stock' }) : undefined })`.
-The mapper runs after the request's context has ended (`AdminContext.current()` is `undefined` inside it) and is not
-applied to body-parser errors.
+The mapper runs after the request's context has ended (`AdminContext.current()` is `undefined` inside it) and before the
+built-in database-error mapping, so never put raw error messages (they may contain SQL) into a mapped response. Errors
+from host middleware that carry a 4xx `status`, and body-parser errors, skip it. A mapped error with status 500 or more
+is logged with the original stack and the correlation id.
 
 Forms check your DTO rules (`@Length`, `@Min`/`@Max`, `@IsInt`, `@Matches`, `@IsEmail`, `@IsUrl`, `@IsUUID`, `@IsIn`) in the
 browser before saving; the server still validates everything. PATCH bodies are always validated as partial (only the
-sent fields), including dedicated update DTOs.
+sent fields), including dedicated update DTOs. A DTO property with a class initializer (`status = 'draft'`) is not
+required, and a `@ValidateIf` property gets no browser rules at all. Column length (`varchar(n)`) is checked in the
+browser even on SQLite, which does not enforce it.
 
 ## Security (pre-alpha)
 
