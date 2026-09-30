@@ -1,5 +1,5 @@
 /**
- * Runs the core and auth typechecks and test suites on the oldest supported NestJS/TypeORM (scripts/oldest-supported.ts).
+ * Runs the core, auth and testing typechecks and test suites on the oldest supported NestJS/TypeORM (scripts/oldest-supported.ts).
  * Works on a copy of the working tree (committed or not) in a temp directory; the repository is never modified.
  * Honours NMA_TEST_DB. KEEP_COMPAT_DIR=1 keeps the copy for debugging.
  */
@@ -22,7 +22,7 @@ try {
     copyFileSync(join(root, file), join(work, file));
   }
 
-  for (const pkg of ['core', 'auth']) {
+  for (const pkg of ['core', 'auth', 'testing']) {
     const manifestPath = join(work, `packages/${pkg}/package.json`);
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { devDependencies: Record<string, string> };
     for (const [name, version] of Object.entries(OLDEST_SUPPORTED)) {
@@ -38,11 +38,14 @@ try {
   if (typeorm !== OLDEST_SUPPORTED.typeorm) throw new Error(`compat: core resolved typeorm ${typeorm}, expected ${OLDEST_SUPPORTED.typeorm}`);
   await $`bun run typecheck`.cwd(core);
   await $`bun test`.cwd(core);
-  // The auth package runs against core's build.
+  // The auth and testing packages run against core's build.
   const auth = join(work, 'packages/auth');
   await $`bun run build`.cwd(core);
   await $`bun run typecheck`.cwd(auth);
   await $`bun test`.cwd(auth);
+  const testing = join(work, 'packages/testing');
+  await $`bun run typecheck`.cwd(testing);
+  await $`bun test`.cwd(testing);
   console.log('compat: all checks passed');
 } finally {
   if (process.env.KEEP_COMPAT_DIR) console.log(`compat: kept ${work}`);

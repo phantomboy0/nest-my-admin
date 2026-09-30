@@ -98,6 +98,32 @@
         "typeorm": "^0.3.20 || ^1.0.0",
       },
     },
+    "packages/testing": {
+      "name": "@nest-my-admin/testing",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@nest-my-admin/core": "workspace:*",
+        "@nestjs/common": "12.1.1",
+        "@nestjs/core": "12.1.1",
+        "@nestjs/platform-express": "12.1.1",
+        "@nestjs/testing": "12.1.1",
+        "@nestjs/typeorm": "12.0.2",
+        "class-transformer": "0.5.1",
+        "class-validator": "0.15.1",
+        "mysql2": "3.24.5",
+        "pg": "8.23.0",
+        "reflect-metadata": "0.2.2",
+        "rxjs": "7.8.2",
+        "sql.js": "1.14.2",
+        "typeorm": "1.1.1",
+      },
+      "peerDependencies": {
+        "@nest-my-admin/core": "workspace:*",
+        "@nestjs/common": "^11.0.0 || ^12.0.0",
+        "@nestjs/core": "^11.0.0 || ^12.0.0",
+        "@nestjs/testing": "^11.0.0 || ^12.0.0",
+      },
+    },
     "packages/ui": {
       "name": "@nest-my-admin/ui",
       "version": "0.0.0",
@@ -218,6 +244,8 @@
     "@nest-my-admin/auth": ["@nest-my-admin/auth@workspace:packages/auth"],
 
     "@nest-my-admin/core": ["@nest-my-admin/core@workspace:packages/core"],
+
+    "@nest-my-admin/testing": ["@nest-my-admin/testing@workspace:packages/testing"],
 
     "@nest-my-admin/ui": ["@nest-my-admin/ui@workspace:packages/ui"],
 

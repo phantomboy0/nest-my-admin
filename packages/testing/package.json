@@ -1,7 +1,7 @@
 {
-  "name": "@nest-my-admin/core",
+  "name": "@nest-my-admin/testing",
   "version": "0.0.0",
-  "description": "Django-admin-class admin panel for NestJS + TypeORM",
+  "description": "Test helpers for nest-my-admin: call the admin as any user, and crawl for permission leaks",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,11 +11,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./internal": {
-      "types": "./dist/internal.d.ts",
-      "import": "./dist/internal.js",
-      "default": "./dist/internal.js"
     },
     "./package.json": "./package.json"
   },
@@ -27,26 +22,19 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "@nest-my-admin/ui": "workspace:*"
-  },
   "peerDependencies": {
+    "@nest-my-admin/core": "workspace:*",
     "@nestjs/common": "^11.0.0 || ^12.0.0",
     "@nestjs/core": "^11.0.0 || ^12.0.0",
-    "@nestjs/typeorm": "^11.0.0 || ^12.0.0",
-    "class-transformer": ">=0.5.1",
-    "class-validator": ">=0.14.0",
-    "reflect-metadata": "^0.2.0",
-    "rxjs": "^7.8.0",
-    "typeorm": "^0.3.20 || ^1.0.0"
+    "@nestjs/testing": "^11.0.0 || ^12.0.0"
   },
   "devDependencies": {
+    "@nest-my-admin/core": "workspace:*",
     "@nestjs/common": "12.1.1",
     "@nestjs/core": "12.1.1",
     "@nestjs/platform-express": "12.1.1",
     "@nestjs/testing": "12.1.1",
     "@nestjs/typeorm": "12.0.2",
-    "@types/supertest": "7.2.1",
     "class-transformer": "0.5.1",
     "class-validator": "0.15.1",
     "mysql2": "3.24.5",
@@ -54,7 +42,6 @@
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "sql.js": "1.14.2",
-    "supertest": "7.3.0",
     "typeorm": "1.1.1"
   }
 }

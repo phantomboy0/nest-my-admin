@@ -39,6 +39,7 @@ await $`bun run build`.cwd(root);
 await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/ui'));
 await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/core'));
 await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/auth'));
+await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/testing'));
 const files = readdirSync(tarballs);
 function tarball(prefix: string): string {
   const file = files.find((name) => name.startsWith(prefix));
@@ -48,6 +49,7 @@ function tarball(prefix: string): string {
 const uiTgz = tarball('nest-my-admin-ui-');
 const coreTgz = tarball('nest-my-admin-core-');
 const authTgz = tarball('nest-my-admin-auth-');
+const testingTgz = tarball('nest-my-admin-testing-');
 
 // 1. The packed core depends on an exact ui version, never on a workspace: range.
 const corePackage = await $`tar -xzOf ${coreTgz} package/package.json`.text();
@@ -59,6 +61,8 @@ const authPackage = await $`tar -xzOf ${authTgz} package/package.json`.text();
 assert(!authPackage.includes('workspace:'), 'auth tarball still contains a workspace: range');
 const authEntries = (await $`tar -tzf ${authTgz}`.text()).trim().split('\n');
 assert(authEntries.includes('package/dist/index.js') && !authEntries.some((entry) => entry.includes('/test/') || entry.endsWith('.test.js')), 'auth tarball must ship dist/ without tests');
+const testingPackage = await $`tar -xzOf ${testingTgz} package/package.json`.text();
+assert(!testingPackage.includes('workspace:'), 'testing tarball still contains a workspace: range');
 
 // 2. The ui tarball ships only the build (no React, no sources).
 const uiEntries = (await $`tar -tzf ${uiTgz}`.text()).trim().split('\n');
@@ -80,7 +84,7 @@ const consumers: Array<{
   name: string;
   fixture?: string;
   tsconfig?: string;
-  /** Uses @nest-my-admin/auth: the checks sign in first. */
+  /** Uses @nest-my-admin/auth (the checks sign in first) and @nest-my-admin/testing (dist/leaks.js). */
   auth?: boolean;
   type: 'module' | undefined;
   dependencies: Record<string, string>;
@@ -130,7 +134,7 @@ for (const consumer of consumers) {
         dependencies: {
           '@nest-my-admin/ui': `file:${uiTgz}`,
           '@nest-my-admin/core': `file:${coreTgz}`,
-          ...(consumer.auth ? { '@nest-my-admin/auth': `file:${authTgz}` } : {}),
+          ...(consumer.auth ? { '@nest-my-admin/auth': `file:${authTgz}`, '@nest-my-admin/testing': `file:${testingTgz}`, '@nestjs/testing': coreDev['@nestjs/testing']! } : {}),
           ...consumer.dependencies,
         },
         devDependencies: consumer.devDependencies,
@@ -142,6 +146,12 @@ for (const consumer of consumers) {
   );
   await $`npm install --no-audit --no-fund`.cwd(app);
   await $`npx tsc -p ${consumer.tsconfig ?? 'tsconfig.json'}`.cwd(app);
+  if (consumer.auth) {
+    for (const runtime of ['node', 'bun'] as const) {
+      const out = await $`${runtime} dist/leaks.js`.cwd(app).text();
+      assert(out.includes('LEAKS OK'), `${consumer.name}/${runtime}: @nest-my-admin/testing check failed`);
+    }
+  }
 
   for (const runtime of ['node', 'bun'] as const) {
     const label = `${consumer.name}/${runtime}`;
