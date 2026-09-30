@@ -5,7 +5,7 @@ import { Dialog } from 'radix-ui';
 import type { AdminRecord, FieldSchema, ResourceSchema } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
-import { formatCell } from '@/lib/format';
+import { DisplayValue } from '@/app/widgets/badge';
 import { useRecord } from '@/lib/queries';
 
 interface QuickViewProps {
@@ -51,7 +51,9 @@ export function QuickView({ schema, item, onClose }: QuickViewProps) {
             {fields.map((field: FieldSchema) => (
               <div key={field.name} className="contents">
                 <dt className="text-muted-foreground">{field.label}</dt>
-                <dd className="break-words">{formatCell(record![field.name], field)}</dd>
+                <dd className="break-words">
+                  <DisplayValue value={record![field.name]} field={field} />
+                </dd>
               </div>
             ))}
           </dl>

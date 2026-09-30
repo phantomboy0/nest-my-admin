@@ -12,6 +12,7 @@ import { toDatetimeLocal } from '@/lib/form-values';
 import { useRelationRefs } from '@/lib/queries';
 import { clearFilters, filterKey, hasActiveFilters, type ParamChanges } from '@/lib/list-state';
 import { cn } from '@/lib/utils';
+import { enumLabel } from '@/lib/widgets';
 
 interface FilterBarProps {
   schema: ResourceSchema;
@@ -136,7 +137,7 @@ function MultiSelectFilter({ id, field, params, onChange }: { id: string } & Pic
       <Popover.Root>
         <Popover.Trigger asChild>
           <Button id={id} type="button" variant="outline" className="justify-between font-normal">
-            <span className="truncate">{selected.length === 0 ? t('common.all') : selected.length <= 2 ? selected.join(', ') : t('filters.selected', { count: selected.length })}</span>
+            <span className="truncate">{selected.length === 0 ? t('common.all') : selected.length <= 2 ? selected.map((value) => enumLabel(field, value)).join(', ') : t('filters.selected', { count: selected.length })}</span>
             <ChevronDown className="size-4 opacity-60" aria-hidden />
           </Button>
         </Popover.Trigger>
@@ -155,7 +156,7 @@ function MultiSelectFilter({ id, field, params, onChange }: { id: string } & Pic
                         <Check className="size-3" />
                       </Checkbox.Indicator>
                     </Checkbox.Root>
-                    {value}
+                    {enumLabel(field, value)}
                   </label>
                 </li>
               ))}
@@ -182,7 +183,7 @@ function MainFilterControl({ resource, field, operators, params, onChange }: Fil
   if ((field.type === 'enum' || field.type === 'boolean') && operators.includes('eq')) {
     const key = filterKey(field.name, 'eq');
     const options: Array<[string, string]> =
-      field.type === 'boolean' ? [['true', t('common.yes')], ['false', t('common.no')]] : (field.enumValues ?? []).map((value) => [value, value]);
+      field.type === 'boolean' ? [['true', t('common.yes')], ['false', t('common.no')]] : (field.enumValues ?? []).map((value) => [value, enumLabel(field, value)]);
     return (
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={id}>{field.label}</Label>

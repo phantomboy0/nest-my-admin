@@ -7,6 +7,7 @@ import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
 import { EditableCell } from '@/app/editable-cell';
 import { FilterBar } from '@/app/filter-bar';
 import { QuickView } from '@/app/quick-view';
+import { DisplayValue } from '@/app/widgets/badge';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -321,7 +322,7 @@ export function ListPage() {
 /** A cell; a related record links to its own page when its resource is registered. */
 function CellValue({ value, field }: { value: unknown; field: FieldSchema }) {
   const target = field.relation?.resource;
-  if (!target || value === null || value === undefined) return <>{formatCell(value, field)}</>;
+  if (!target || value === null || value === undefined) return <DisplayValue value={value} field={field} />;
   const refs = (Array.isArray(value) ? value : [value]).filter(isRef);
   if (refs.length === 0) return <>{formatCell(value, field)}</>;
   return (
@@ -349,7 +350,9 @@ function Card({ item, columns }: { item: AdminRecord; columns: FieldSchema[] }) 
           .map((column) => (
             <Fragment key={column.name}>
               <dt className="text-muted-foreground">{column.label}</dt>
-              <dd className="truncate">{formatCell(item[column.name], column)}</dd>
+              <dd className="truncate">
+                <DisplayValue value={item[column.name]} field={column} />
+              </dd>
             </Fragment>
           ))}
       </dl>

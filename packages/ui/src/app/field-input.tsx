@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react';
 import type { FieldConstraints, FieldSchema } from '@nest-my-admin/core/contract';
 import { RelationInput, type RelationValue } from '@/app/relation-input';
-import { Input } from '@/components/ui/input';
+import { ColorInput, JsonInput, MoneyInput, PlainTextarea, RadioInput, SwitchInput, TextInput } from '@/app/widgets/inputs';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import type { FormValue } from '@/lib/form-values';
-import { cn } from '@/lib/utils';
+import { enumLabel, widgetOf } from '@/lib/widgets';
 
 interface FieldInputProps {
   /** The resource being edited (relation pickers load their options through it). */
@@ -23,31 +22,58 @@ interface FieldInputProps {
 const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive';
 
+/** One field of a form: its label, the widget (`field.widget`, else inferred from the type), help and errors. */
 export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange }: FieldInputProps) {
   const id = `field-${field.name}`;
   const errorId = `${id}-error`;
+  const helpId = `${id}-help`;
   const invalid = (errors?.length ?? 0) > 0;
-  const aria = { 'aria-invalid': invalid || undefined, 'aria-describedby': invalid ? errorId : undefined };
+  const describedBy = [field.help ? helpId : undefined, invalid ? errorId : undefined].filter(Boolean).join(' ') || undefined;
+  const aria = { 'aria-invalid': invalid ? (true as const) : undefined, 'aria-describedby': describedBy };
   const text = typeof value === 'string' ? value : '';
+  const widget = field.type === 'relation' ? undefined : widgetOf(field, constraints);
 
-  const label = (
-    <Label htmlFor={id}>
+  const labelText = (
+    <>
       {field.label}
       {required && (
         <span aria-hidden className="text-destructive">
           *
         </span>
       )}
-    </Label>
+    </>
   );
+  const label = <Label htmlFor={id}>{labelText}</Label>;
+  const help = field.help ? (
+    <p id={helpId} className="text-sm text-muted-foreground">
+      {field.help}
+    </p>
+  ) : null;
+  const widgetProps = { id, field, value: text, onChange: (next: string) => onChange(next), aria };
 
   if (field.type === 'boolean') {
+    const checked = value === true;
     return (
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
-          <input id={id} type="checkbox" className="size-4 accent-primary" checked={value === true} onChange={(e) => onChange(e.target.checked)} {...aria} />
+          {widget === 'switch' ? (
+            <SwitchInput id={id} checked={checked} onChange={onChange} aria={aria} />
+          ) : (
+            <input id={id} type="checkbox" className="size-4 accent-primary" checked={checked} onChange={(e) => onChange(e.target.checked)} {...aria} />
+          )}
           {label}
         </div>
+        {help}
+        <FieldErrors id={errorId} errors={errors} />
+      </div>
+    );
+  }
+
+  if (field.type === 'enum' && widget === 'radio') {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <RadioInput {...widgetProps} label={labelText} required={required} />
+        {help}
         <FieldErrors id={errorId} errors={errors} />
       </div>
     );
@@ -65,46 +91,58 @@ export function FieldInput({ resource, field, value, required, errors, constrain
         clearable={field.nullable}
         values={formValues}
         invalid={invalid}
-        describedBy={invalid ? errorId : undefined}
+        describedBy={describedBy}
       />
     );
   } else if (field.type === 'enum') {
     control = (
       <select id={id} className={selectClass} value={text} onChange={(e) => onChange(e.target.value)} {...aria}>
-        <option value="">—</option>
+        <option value="">{field.placeholder ?? '—'}</option>
         {field.enumValues?.map((option) => (
           <option key={option} value={option}>
-            {option}
+            {enumLabel(field, option)}
           </option>
         ))}
       </select>
     );
-  } else if (field.type === 'text' || field.type === 'json') {
-    control = (
-      <Textarea
-        id={id}
-        value={text}
-        rows={field.type === 'json' ? 6 : 4}
-        className={cn(field.type === 'json' && 'font-mono')}
-        onChange={(e) => onChange(e.target.value)}
-        {...aria}
-      />
-    );
   } else {
-    control = <Input id={id} value={text} onChange={(e) => onChange(e.target.value)} {...inputProps(field, constraints)} {...aria} />;
+    switch (widget) {
+      case 'money':
+        control = <MoneyInput {...widgetProps} />;
+        break;
+      case 'json':
+        control = <JsonInput {...widgetProps} />;
+        break;
+      case 'textarea':
+        control = <PlainTextarea {...widgetProps} />;
+        break;
+      case 'color':
+        control = <ColorInput {...widgetProps} />;
+        break;
+      case 'password':
+        control = <TextInput {...widgetProps} type="password" autoComplete="new-password" />;
+        break;
+      case 'slug':
+        control = <TextInput {...widgetProps} dir="ltr" autoCapitalize="none" spellCheck={false} />;
+        break;
+      default:
+        control = <TextInput {...widgetProps} {...inputProps(field, widget)} />;
+    }
   }
 
   return (
     <div className="flex flex-col gap-1.5">
       {label}
       {control}
+      {help}
       <FieldErrors id={errorId} errors={errors} />
     </div>
   );
 }
 
 /** Numeric fields use text inputs with inputMode: a controlled type="number" can drop focus on mobile keyboards. */
-function inputProps(field: FieldSchema, constraints?: FieldConstraints): { type: string; inputMode?: 'decimal' | 'numeric' } {
+function inputProps(field: FieldSchema, widget: string | undefined): { type: string; inputMode?: 'decimal' | 'numeric' } {
+  if (widget === 'email' || widget === 'url') return { type: widget };
   switch (field.type) {
     case 'number':
     case 'decimal':
@@ -116,7 +154,7 @@ function inputProps(field: FieldSchema, constraints?: FieldConstraints): { type:
     case 'datetime':
       return { type: 'datetime-local' };
     default:
-      return { type: constraints?.format === 'email' ? 'email' : constraints?.format === 'url' ? 'url' : 'text' };
+      return { type: 'text' };
   }
 }
 

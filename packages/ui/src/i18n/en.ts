@@ -105,6 +105,8 @@ export const en = {
   'form.conflictNone': 'None of the fields on this form changed.',
   'form.keepMine': 'Keep my changes',
   'form.loadTheirs': 'Load theirs',
+  'form.formatJson': 'Format',
+  'form.colorCode': '{name} colour code',
 
   'picker.typeToSearch': 'Type to search…',
   'picker.typeToAdd': 'Type to add…',

@@ -1,5 +1,6 @@
 import type { AdminRecord, FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
 import { translate as tr } from '@/i18n';
+import { groupMoney } from '@/lib/money';
 
 /**
  * What an input edits: text, a checkbox, a picked record (to-one relation), picked records (to-many), or the values
@@ -53,6 +54,7 @@ export function toFormValues(fields: FieldSchema[], record?: AdminRecord): FormV
     else if (value === null || value === undefined) values[field.name] = '';
     else if (field.type === 'json') values[field.name] = JSON.stringify(value, null, 2);
     else if (field.type === 'datetime') values[field.name] = toDatetimeLocal(String(value));
+    else if (field.widget === 'money') values[field.name] = groupMoney(String(value), field.scale);
     else values[field.name] = String(value);
   }
   return values;

@@ -1,4 +1,4 @@
-import { Fragment, useState, type FormEvent } from 'react';
+import { Fragment, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, ResourceSchema } from '@nest-my-admin/core/contract';
@@ -9,8 +9,9 @@ import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
 import { useT } from '@/i18n';
 import { formatCell } from '@/lib/format';
-import { dependencyValues, toFormValues, toPayload, type FormValues } from '@/lib/form-values';
+import { dependencyValues, toFormValues, toPayload, type FormValue, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema } from '@/lib/queries';
+import { slugify } from '@/lib/slug';
 import { validatePayload } from '@/lib/validate';
 
 type Mode = 'create' | 'edit';
@@ -57,6 +58,21 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
   const dependencies = dependencyValues(fields, values);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  // Slug fields fill themselves from `slugFrom` until someone types in them (or they already hold a value).
+  const typedSlugs = useRef(new Set(fields.filter((field) => field.widget === 'slug' && initial[field.name] !== '').map((field) => field.name)));
+
+  function change(name: string, value: FormValue) {
+    setValues((previous) => {
+      const next = { ...previous, [name]: value };
+      if (typeof value === 'string') {
+        for (const field of fields) {
+          if (field.slugFrom === name && !typedSlugs.current.has(field.name)) next[field.name] = slugify(value);
+        }
+      }
+      return next;
+    });
+    if (fields.some((field) => field.name === name && field.widget === 'slug')) typedSlugs.current.add(name);
+  }
 
   const save = useMutation({
     mutationFn: ({ payload, version: expected }: { payload: Record<string, unknown>; version?: unknown }) =>
@@ -159,7 +175,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
             constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update']}
             markRequired={mode === 'create'}
             errors={fieldErrors}
-            onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
+            onChange={(value) => change(field.name, value)}
           />
         ) : (
           <FieldInput
@@ -171,7 +187,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
             errors={fieldErrors[field.name]}
             formValues={field.type === 'relation' ? dependencies : undefined}
             constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update'][field.name]}
-            onChange={(value) => setValues((previous) => ({ ...previous, [field.name]: value }))}
+            onChange={(value) => change(field.name, value)}
           />
         ),
       )}

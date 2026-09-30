@@ -107,6 +107,8 @@ export const fa: Messages = {
   'form.conflictNone': 'هیچ‌یک از فیلدهای این فرم تغییر نکرده است.',
   'form.keepMine': 'تغییرات من بماند',
   'form.loadTheirs': 'نسخه‌ی آن‌ها را بارگذاری کن',
+  'form.formatJson': 'مرتب‌سازی',
+  'form.colorCode': 'کد رنگ {name}',
 
   'picker.typeToSearch': 'برای جست‌وجو تایپ کنید…',
   'picker.typeToAdd': 'برای افزودن تایپ کنید…',

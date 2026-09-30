@@ -7,6 +7,7 @@ import { formatCell } from '@/lib/format';
 import { toFormValues, toPayload } from '@/lib/form-values';
 import { validatePayload } from '@/lib/validate';
 import { cn } from '@/lib/utils';
+import { enumLabel } from '@/lib/widgets';
 
 interface EditableCellProps {
   schema: ResourceSchema;
@@ -104,7 +105,7 @@ export function EditableCell({ schema, item, field }: EditableCellProps) {
     );
   } else if (field.type === 'enum' || field.type === 'boolean') {
     const options: Array<[string, string]> =
-      field.type === 'boolean' ? [['true', t('common.yes')], ['false', t('common.no')]] : (field.enumValues ?? []).map((value) => [value, value]);
+      field.type === 'boolean' ? [['true', t('common.yes')], ['false', t('common.no')]] : (field.enumValues ?? []).map((value) => [value, enumLabel(field, value)]);
     control = (
       <select
         {...common}

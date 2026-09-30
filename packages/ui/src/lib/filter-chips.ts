@@ -17,6 +17,7 @@ const FILTER_KEY = /^filter\[([^\][]+)\]\[([^\][]+)\]$/;
 
 function display(field: FieldSchema, raw: string): string {
   if (field.type === 'boolean') return tr(raw === 'true' ? 'common.yes' : 'common.no');
+  if (field.type === 'enum') return field.enumLabels?.[raw] ?? raw;
   if (field.type === 'datetime') {
     const date = new Date(raw);
     return Number.isNaN(date.getTime()) ? raw : formatDateTime(date);
