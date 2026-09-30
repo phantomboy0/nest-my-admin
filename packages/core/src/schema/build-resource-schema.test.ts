@@ -91,6 +91,7 @@ describe('buildResourceSchema', () => {
       sortable: ['id', 'name', 'price', 'condition', 'createdAt'],
       defaultSort: { field: 'id', direction: 'desc' },
       pageSize: 25,
+      count: 'exact',
       filters: [{ field: 'condition', operators: ['eq', 'ne', 'in', 'nin'] }],
       search: ['name'],
     });

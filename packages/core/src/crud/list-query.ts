@@ -77,7 +77,7 @@ export function parseListQuery(query: URLSearchParams, schema: ResourceSchema): 
   }
 
   if (Object.keys(errors).length > 0) throw new AdminValidationError(errors, 'Invalid list query');
-  return { page, pageSize, sort, filters, ...(search ? { search } : {}), ...(trashed ? { trashed } : {}) };
+  return { page, pageSize, sort, filters, count: schema.list.count, ...(search ? { search } : {}), ...(trashed ? { trashed } : {}) };
 }
 
 function parseFilterValue(field: FieldSchema, operator: FilterOperator, raw: string): Parsed<FilterValue> {

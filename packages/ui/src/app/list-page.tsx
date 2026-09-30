@@ -11,7 +11,7 @@ import { api, describeError } from '@/lib/api';
 import { formatCell } from '@/lib/format';
 import { isRef } from '@/lib/form-values';
 import { encodeRecordId } from '@/lib/record-id';
-import { hasActiveFilters, listQueryFromUrl, withChanges, type ParamChanges } from '@/lib/list-state';
+import { hasActiveFilters, listQueryFromUrl, paging, withChanges, type ParamChanges } from '@/lib/list-state';
 import { useList, useSchema } from '@/lib/queries';
 
 export function ListPage() {
@@ -41,7 +41,7 @@ export function ListPage() {
     ? { field: sortParam.replace(/^-/, ''), direction: sortParam.startsWith('-') ? 'desc' : 'asc' }
     : s.list.defaultSort;
   const items = list.data?.items ?? [];
-  const totalPages = list.data ? Math.max(1, Math.ceil(list.data.total / list.data.pageSize)) : 1;
+  const pager = paging(list.data, page);
   const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item._id))}`;
 
   function updateParams(changes: ParamChanges) {
@@ -150,15 +150,15 @@ export function ListPage() {
       </ul>
 
       <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-        <span>{list.data ? `${list.data.total} total` : ''}</span>
+        <span>{pager.summary}</span>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon-sm" aria-label="Previous page" disabled={page <= 1} onClick={() => updateParams({ page: String(page - 1) })}>
             <ChevronLeft className="rtl:rotate-180" />
           </Button>
           <span>
-            Page {page} of {totalPages}
+            {pager.label}
           </span>
-          <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={page >= totalPages} onClick={() => updateParams({ page: String(page + 1) })}>
+          <Button variant="outline" size="icon-sm" aria-label="Next page" disabled={!pager.hasNext} onClick={() => updateParams({ page: String(page + 1) })}>
             <ChevronRight className="rtl:rotate-180" />
           </Button>
         </div>

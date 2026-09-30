@@ -30,6 +30,7 @@ const schema: ResourceSchema = {
   list: {
     columns: ['id', 'name'],
     sortable: ['id', 'name'],
+    count: 'exact',
     defaultSort: { field: 'id', direction: 'desc' },
     pageSize: 25,
     filters: [
@@ -63,7 +64,7 @@ function errorsOf(fn: () => unknown): Record<string, string[]> {
 
 describe('parseListQuery: paging and sorting', () => {
   test('uses the resource defaults', () => {
-    expect(parse('')).toEqual({ page: 1, pageSize: 25, sort: { field: 'id', direction: 'desc' }, filters: [] });
+    expect(parse('')).toEqual({ page: 1, pageSize: 25, sort: { field: 'id', direction: 'desc' }, filters: [], count: 'exact' });
   });
 
   test('reads page, pageSize and sort', () => {

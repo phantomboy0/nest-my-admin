@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { clearFilters, filterKey, hasActiveFilters, listQueryFromUrl, withChanges } from './list-state';
+import { clearFilters, filterKey, hasActiveFilters, listQueryFromUrl, paging, withChanges } from './list-state';
 
 describe('list state', () => {
   test('listQueryFromUrl keeps list params only, drops empties, defaults page and sorts keys', () => {
@@ -23,5 +23,15 @@ describe('list state', () => {
     expect(hasActiveFilters(params)).toBe(true);
     expect(hasActiveFilters(new URLSearchParams('sort=name&page=2'))).toBe(false);
     expect(clearFilters(params)).toEqual({ search: null, 'filter[status][eq]': null });
+  });
+});
+
+describe('paging', () => {
+  test('exact, estimated and uncounted totals', () => {
+    expect(paging({ total: 1234, pageSize: 25 }, 2)).toEqual({ summary: '1,234 total', label: 'Page 2 of 50', hasNext: true });
+    expect(paging({ total: 50, pageSize: 25 }, 2)).toMatchObject({ hasNext: false });
+    expect(paging({ total: 12000, estimated: true, pageSize: 25 }, 1)).toEqual({ summary: 'about 12,000', label: 'Page 1', hasNext: true });
+    expect(paging({ total: null, hasMore: true, pageSize: 25 }, 3)).toEqual({ summary: '', label: 'Page 3', hasNext: true });
+    expect(paging({ total: null, hasMore: false, pageSize: 25 }, 3).hasNext).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 import type { DeepPartial, FindOptionsWhere, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
+import { countRows } from '../crud/count.js';
 import { applyListParams } from '../crud/list-query-builder.js';
 import { toRelationReferences } from '../crud/relation-writes.js';
 import type { FilterOperator, SortDirection } from '../contract.js';
@@ -25,13 +26,20 @@ export interface ListParams {
   sort: { field: string; direction: SortDirection };
   filters: FilterCondition[];
   search?: { term: string; fields: string[] };
+  /** How the list is counted (`list.count`). */
+  count?: CountMode;
   /** Soft-deletable resources: `only` lists the trash, `with` lists everything. */
   trashed?: 'only' | 'with';
 }
 
 export interface FindManyResult<T> {
   items: T[];
-  total: number;
+  /** `null` when the list is not counted (`count: 'none'`). */
+  total: number | null;
+  /** `total` is the query planner's estimate. */
+  estimated?: boolean;
+  /** Without a total: whether a next page exists. */
+  hasMore?: boolean;
 }
 
 /**
@@ -39,7 +47,14 @@ export interface FindManyResult<T> {
  * automatically). A relation field is named like the property that holds its id (`customer`, or `customerId`
  * when the entity declares that column), a path by the relation property (`customer.name`).
  */
+export type CountMode = 'exact' | 'estimate' | 'none';
+
 export interface ListConfig<T> {
+  /**
+   * `exact` (default) counts matches; `estimate` uses the query planner's row estimate on Postgres and MySQL (exact
+   * below 1000 rows and on other drivers); `none` does not count and only says whether there is a next page.
+   */
+  count?: CountMode;
   /** Default: every column except json and text, and every to-one relation. */
   columns?: FieldPath<T>[];
   /** `'name'` for ascending, `'-createdAt'` for descending. Defaults to `-<primary key>`. */
@@ -115,7 +130,17 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * otherwise the UI shows filters and search that do nothing.
    */
   async findMany(params: ListParams, ctx: AdminContext): Promise<FindManyResult<T>> {
-    const [items, total] = await this.buildListQuery(params, ctx).getManyAndCount();
+    const qb = this.buildListQuery(params, ctx);
+    if (params.count === 'none') {
+      // One row more than a page says whether there is a next page, without counting.
+      const rows = await qb.take(params.pageSize + 1).getMany();
+      return { items: rows.slice(0, params.pageSize), total: null, hasMore: rows.length > params.pageSize };
+    }
+    if (params.count === 'estimate') {
+      const [items, { total, estimated }] = await Promise.all([qb.getMany(), countRows(qb)]);
+      return { items, total, ...(estimated ? { estimated } : {}) };
+    }
+    const [items, total] = await qb.getManyAndCount();
     return { items, total };
   }
 

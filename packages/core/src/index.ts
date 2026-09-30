@@ -8,6 +8,7 @@ export {
   type FilterCondition,
   type FilterValue,
   type FindManyResult,
+  type CountMode,
   type FormConfig,
   type ListConfig,
   type ListParams,

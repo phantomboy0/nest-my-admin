@@ -62,9 +62,16 @@ export class AdminApiService {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
     const params = parseListQuery(query, schema);
-    const { items, total } = await resource.findMany(params, ctx);
+    const { items, total, estimated, hasMore } = await resource.findMany(params, ctx);
     const loaded = schema.fields.filter((field) => isLoadedField(field) && schema.list.columns.includes(field.name));
-    return { items: await this.records(entry, items, loaded, ctx), total, page: params.page, pageSize: params.pageSize };
+    return {
+      items: await this.records(entry, items, loaded, ctx),
+      total: total ?? null,
+      ...(estimated ? { estimated: true } : {}),
+      ...(hasMore !== undefined ? { hasMore } : {}),
+      page: params.page,
+      pageSize: params.pageSize,
+    };
   }
 
   async get(name: string, rawId: string, ctx: AdminContext): Promise<AdminRecord> {

@@ -247,7 +247,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     softDelete: metadata.columns.some((column) => column.isDeleteDate),
     ...(versionField ? { version: versionField } : {}),
     fields: [...entityFields, ...dtoOnly, ...paths.values()],
-    list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, filters, search },
+    list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, count: resource.list?.count ?? 'exact', filters, search },
     form: { create, update, requiredOnCreate, constraints },
   };
 }

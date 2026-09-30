@@ -122,6 +122,7 @@ export interface ResourceSchema {
     sortable: string[];
     defaultSort: { field: string; direction: SortDirection };
     pageSize: number;
+    count: 'exact' | 'estimate' | 'none';
     filters: FilterSchema[];
     /** Fields matched case-insensitively by `?search=`. Empty = not searchable. */
     search: string[];
@@ -155,7 +156,12 @@ export type AdminRecord = Record<string, unknown>;
 
 export interface ListResponse {
   items: AdminRecord[];
-  total: number;
+  /** `null` when the resource does not count (`list.count: 'none'`). */
+  total: number | null;
+  /** `total` is an estimate (`list.count: 'estimate'` on a large result). */
+  estimated?: boolean;
+  /** Set when `total` is null: whether there is a next page. */
+  hasMore?: boolean;
   page: number;
   pageSize: number;
 }
