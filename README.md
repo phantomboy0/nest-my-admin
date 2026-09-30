@@ -5,6 +5,9 @@ admin writes that go through your own services, and a prebuilt shadcn UI served 
 
 > Status: pre-alpha (milestone M0 — walking skeleton). APIs will change.
 
+Requires NestJS 11 or 12, TypeORM 0.3.20+ or 1.x, Node 20.19+ (or Bun), and Postgres, MySQL 8 or SQLite.
+The package is ESM; CommonJS apps load it through Node's `require(esm)`.
+
 ```ts
 @AdminResource(Product, { icon: 'package' })
 export class ProductAdmin extends AdminResourceBase<Product> {
@@ -101,9 +104,12 @@ Do not enable wildcard CORS for it. Catch-all routes the host registered earlier
 ```bash
 bun install
 bun run build        # UI then core
-bun run test         # unit + integration
+bun run test         # unit + integration on in-memory sql.js
+bun run db:up        # Postgres 17 + MySQL 8.4 in Docker (ports 55432, 53306)
+bun run test:postgres  # the same suite on Postgres (test:mysql for MySQL); each test app gets its own database
+bun run compat       # core suite on the oldest supported stack (NestJS 11.0, TypeORM 0.3.20)
 bun run e2e                          # Playwright (run `bunx playwright install chromium` in examples/demo-api once; if that download is blocked, use an installed Chrome with `PW_CHANNEL=chrome bun run e2e`)
-cd examples/demo-api && bun src/main.ts
+cd examples/demo-api && bun src/main.ts   # DATABASE_URL=postgres://… or mysql://… to use a real database
 ```
 
 Design: `docs/superpowers/specs/2026-09-29-nest-my-admin-design.md`.

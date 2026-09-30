@@ -15,6 +15,9 @@ bun run typecheck                               # every workspace package
 bun run test                                    # all bun tests (unit next to src, integration in packages/core/test, examples/demo-api/test)
 bun test packages/core/test/crud.test.ts        # one file
 bun test -t "rejects unknown fields"            # tests matching a name
+bun run db:up                                   # Postgres + MySQL in Docker for the lines below
+bun run test:postgres                           # whole suite on Postgres (test:mysql for MySQL); or NMA_TEST_DB=postgres bun test <file>
+bun run compat                                  # core suite on NestJS 11.0 + TypeORM 0.3.20 (scripts/oldest-supported.ts), in a temp copy
 bun run e2e                                     # build + Playwright on examples/demo-api (desktop + mobile); needs `bunx playwright install chromium` once (or, if that download is blocked, `PW_CHANNEL=chrome bun run e2e` to use installed Chrome)
 bun run pack:smoke                              # pack core+ui, npm-install into a temp app, boot on node and bun
 cd examples/demo-api && bun src/main.ts         # demo at http://localhost:3000/admin
@@ -40,4 +43,6 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
 - `decimal` and `bigint` values are always strings in API responses (`serializeValue`); drivers disagree, so never rely on the driver.
 - Playwright files end in `.pw.ts`; Bun's test runner would otherwise pick up `*.spec.ts`.
 - New UI inputs for numbers use `type="text"` with `inputMode`, not `type="number"`.
+- Integration tests get their database from `createTestApp` (core) or `testDatabase()` (`packages/core/test/helpers/test-db.ts`): one fresh database per app on the server `NMA_TEST_DB` selects. Never hardcode `type: 'sqljs'` in a test. Assertions that differ by driver branch on `TEST_DB` and say why.
+- Database errors are mapped in `http/error-response.ts` using the resource's `dbNames` (column, unique constraint/index and FK names → properties). MySQL reports unique constraints as index names; SQLite's FK error names no column and no side (the request method decides).
 - In Bun 1.4.2, `expect(obj).toMatchObject({ x: expect.any(...) })` overwrites `obj.x` with the matcher — read values you need before such assertions.

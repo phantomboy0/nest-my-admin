@@ -20,6 +20,7 @@ jobs:
       - run: bun run typecheck
       - run: bun run build
       - run: bun test packages examples
+      - run: bun run compat
       - run: bun run pack:smoke
       - run: bunx playwright install --with-deps chromium
         working-directory: examples/demo-api
@@ -29,3 +30,38 @@ jobs:
         with:
           name: playwright-report
           path: examples/demo-api/playwright-report
+
+  databases:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - db: postgres
+            image: postgres:17-alpine
+            ports: '55432:5432'
+            health: pg_isready -U postgres
+          - db: mysql
+            image: mysql:8.4
+            ports: '53306:3306'
+            health: mysqladmin ping -h 127.0.0.1 -pnma
+    services:
+      db:
+        image: ${{ matrix.image }}
+        env:
+          POSTGRES_PASSWORD: nma
+          MYSQL_ROOT_PASSWORD: nma
+        ports: ['${{ matrix.ports }}']
+        options: >-
+          --health-cmd "${{ matrix.health }}" --health-interval 2s --health-timeout 3s --health-retries 60
+    env:
+      NMA_TEST_DB: ${{ matrix.db }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun test packages examples
+      - run: bun run compat
