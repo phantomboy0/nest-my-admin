@@ -1,5 +1,6 @@
 import type { DeepPartial, FindOptionsWhere, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { applyListParams } from '../crud/list-query-builder.js';
+import { toRelationReferences } from '../crud/relation-writes.js';
 import type { FilterOperator, SortDirection } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
@@ -118,11 +119,15 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return qb;
   }
 
-  /** Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them. */
+  /**
+   * Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them.
+   * Relation fields arrive as ids (`customer: 3`, `tags: ['a', 'b']`), already checked to exist; the default
+   * turns them into references for TypeORM.
+   */
   async create(dto: object, ctx: AdminContext): Promise<T> {
     const repo = this.repositoryFor(ctx);
     await this.runHooks('beforeSave', dto, ctx, 'create');
-    const saved = await repo.save(repo.create({ ...dto } as DeepPartial<T>));
+    const saved = await repo.save(repo.create(toRelationReferences(dto, repo.metadata) as DeepPartial<T>));
     await this.runHooks('afterSave', saved, ctx, 'create');
     return saved;
   }
@@ -133,7 +138,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeSave', dto, ctx, 'update');
     const repo = this.repositoryFor(ctx);
-    repo.merge(existing, { ...dto } as DeepPartial<T>);
+    repo.merge(existing, toRelationReferences(dto, repo.metadata) as DeepPartial<T>);
     const saved = await repo.save(existing);
     await this.runHooks('afterSave', saved, ctx, 'update');
     return saved;

@@ -104,7 +104,8 @@ function constraintError(error: QueryFailedError, context: ErrorContext): { stat
     if (missingParent) {
       return { status: 422, body: { code: 'VALIDATION', message: 'A related record does not exist', ...onFields('does not exist') } };
     }
-    return { status: 409, body: { code: 'CONFLICT', message: 'The change conflicts with related records' } };
+    const message = context.deleting ? 'Other records still refer to this record' : 'The change conflicts with related records';
+    return { status: 409, body: { code: 'CONFLICT', message } };
   }
   if (code === '23505' || code === 'ER_DUP_ENTRY' || /UNIQUE constraint failed/i.test(text)) {
     return { status: 409, body: { code: 'CONFLICT', message: 'A record with this value already exists', ...onFields('already exists') } };

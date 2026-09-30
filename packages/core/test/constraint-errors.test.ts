@@ -27,8 +27,9 @@ describe(`database constraint errors (${TEST_DB})`, () => {
     expect(res.status).toBe(422);
     expect(res.body.code).toBe('VALIDATION');
     expect(res.body.message).toBe('A related record does not exist');
-    // SQLite does not name the column; Postgres and MySQL do, and it must be the property, not widget_id
-    if (TEST_DB !== 'sqljs') expect(res.body.fields).toEqual({ widgetId: ['does not exist'] });
+    // widgetId is a relation field (M1c-2), so the admin finds the missing record before the database does and names
+    // the property on every driver; the driver-error mapping for this case is covered in error-response.test.ts
+    expect(res.body.fields).toEqual({ widgetId: ['does not exist'] });
   });
 
   test('updating to a missing record is 422 too', async () => {
@@ -41,7 +42,7 @@ describe(`database constraint errors (${TEST_DB})`, () => {
   test('deleting a record that others reference is 409 and keeps it', async () => {
     const res = await http().delete(`${widgets}/${widgetId}`);
     expect(res.status).toBe(409);
-    expect(res.body).toMatchObject({ code: 'CONFLICT', message: 'The change conflicts with related records' });
+    expect(res.body).toMatchObject({ code: 'CONFLICT', message: 'Other records still refer to this record' });
     expect((await http().get(`${widgets}/${widgetId}`)).status).toBe(200);
   });
 

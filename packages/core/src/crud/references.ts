@@ -36,11 +36,8 @@ export async function loadReferences(
   const out = new Map(ids.map((id) => [recordKey(id), {} as Record<string, unknown>]));
   if (ids.length === 0) return out;
 
-  const toRef = (field: FieldSchema, relation: RelationLike, target: object): RelationRef => {
-    const targetMetadata = (relation as RelationMetadataLike).inverseEntityMetadata;
-    const id = read(target, targetMetadata.primaryColumns[0]!.propertyName);
-    return { id: idValue(id, field), title: registry.titleFor(targetMetadata, entry.dataSource)(target) };
-  };
+  const toRef = (field: FieldSchema, relation: RelationLike, target: object): RelationRef =>
+    relationRef(field, relation, target, registry.titleFor((relation as RelationMetadataLike).inverseEntityMetadata, entry.dataSource));
   const query = (): SelectQueryBuilder<any> => manager.getRepository(metadata.target).createQueryBuilder('ref').whereInIds(ids);
 
   const toOne: Array<{ field: FieldSchema; relation: RelationLike }> = [];
@@ -99,6 +96,12 @@ function joinAndSelect(qb: SelectQueryBuilder<any>, relations: RelationLike[]): 
     if (!qb.expressionMap.aliases.some((existing) => existing.name === next)) qb.leftJoinAndSelect(`${alias}.${relation.propertyName}`, next);
     alias = next;
   }
+}
+
+/** A related record as `{ id, title }`. */
+export function relationRef(field: FieldSchema, relation: RelationLike, target: object, title: (entity: object) => string): RelationRef {
+  const id = read(target, relation.inverseEntityMetadata.primaryColumns[0]!.propertyName);
+  return { id: idValue(id, field), title: title(target) };
 }
 
 /** Ids keep the target key's type; bigints are strings whatever the driver returned (like `serializeValue`). */

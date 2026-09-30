@@ -51,7 +51,7 @@ function applyManyToMany(qb: SelectQueryBuilder<any>, relation: ManyToMany, filt
 const COMPARISONS = { eq: '=', ne: '<>', lt: '<', lte: '<=', gt: '>', gte: '>=' } as const;
 
 /** LIKE pattern with `!`, `%` and `_` escaped by `!` (valid unquoted on SQLite, Postgres and MySQL). Case is folded by the database (LOWER on both sides), so non-ASCII text matches too. */
-function likePattern(text: string, position: 'anywhere' | 'start'): string {
+export function likePattern(text: string, position: 'anywhere' | 'start'): string {
   const escaped = text.replace(/[!%_]/g, (char) => `!${char}`);
   return position === 'start' ? `${escaped}%` : `%${escaped}%`;
 }

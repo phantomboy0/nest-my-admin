@@ -62,6 +62,9 @@ export class AdminHttpServer implements OnModuleInit {
       .add('GET', '/api/resources/:resource', async ({ res, url, ctx }, p) =>
         sendJson(res, 200, await this.api.list(p.resource, url.searchParams, ctx)),
       )
+      .add('GET', '/api/resources/:resource/fields/:field/options', async ({ res, url, ctx }, p) =>
+        sendJson(res, 200, await this.api.fieldOptions(p.resource, p.field, url.searchParams, ctx)),
+      )
       .add('GET', '/api/resources/:resource/:id', async ({ res, ctx }, p) =>
         sendJson(res, 200, await this.api.get(p.resource, p.id, ctx)),
       )

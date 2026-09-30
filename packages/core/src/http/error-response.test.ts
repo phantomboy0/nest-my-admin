@@ -46,7 +46,7 @@ describe('toErrorResponse', () => {
   });
 
   test('deleting a record other records still reference is 409 CONFLICT', () => {
-    const conflict: ErrorResponse = { status: 409, body: { code: 'CONFLICT', message: 'The change conflicts with related records', correlationId: 'c' } };
+    const conflict: ErrorResponse = { status: 409, body: { code: 'CONFLICT', message: 'Other records still refer to this record', correlationId: 'c' } };
     expect(toErrorResponse(dbError({ message: 'FOREIGN KEY constraint failed' }), 'c', logger(), { deleting: true })).toEqual(conflict);
     expect(
       toErrorResponse(
