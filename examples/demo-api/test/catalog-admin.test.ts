@@ -28,8 +28,8 @@ describe('product admin (service-first)', () => {
   test('the form comes from the DTOs', async () => {
     const res = await request(app.getHttpServer()).get('/admin/api/meta/resources/product');
     expect(res.body.form).toMatchObject({
-      create: ['name', 'sku', 'price', 'stock', 'status', 'releasedOn'],
-      update: ['name', 'price', 'stock', 'status', 'releasedOn'],
+      create: ['name', 'sku', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
+      update: ['name', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
       requiredOnCreate: ['name', 'sku', 'price'],
     });
     expect(res.body.form.constraints.create.name).toEqual({ required: true, minLength: 1, maxLength: 120 });
@@ -108,5 +108,41 @@ describe('product admin (service-first)', () => {
     const refused = await request(app.getHttpServer()).delete(`${base}/${active.id}`);
     expect(refused.status).toBe(409);
     expect(refused.body).toMatchObject({ code: 'CONFLICT', message: 'Active products cannot be deleted; archive them first' });
+  });
+});
+
+describe('categories and tags (relations)', () => {
+  const http = () => request(app.getHttpServer());
+  const create = async (resource: string, name: string) => (await http().post(`/admin/api/resources/${resource}`).send({ name })).body.id as number;
+
+  test('products take a category and tags by id; the service saves them', async () => {
+    const office = await create('category', 'Office');
+    const [sale, gift] = [await create('tag', 'Sale'), await create('tag', 'Gift')];
+    const res = await post({ name: 'Stapler', sku: 'rel-1', price: '4', categoryId: office, tags: [sale, gift] });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ categoryId: { id: office, title: 'Office' }, _title: 'Stapler' });
+    expect(res.body.tags.map((tag: { title: string }) => tag.title)).toEqual(['Sale', 'Gift']);
+
+    const listed = await http().get(`${base}?filter[categoryId][eq]=${office}&filter[tags][in]=${gift}`);
+    expect(listed.body.items.map((p: { sku: string }) => p.sku)).toEqual(['REL-1']);
+    const searched = await http().get(`${base}?search=offi`);
+    expect(searched.body.items.map((p: { sku: string }) => p.sku)).toEqual(['REL-1']);
+
+    const cleared = await http().patch(`${base}/${res.body.id}`).send({ categoryId: null, tags: [] });
+    expect(cleared.body).toMatchObject({ categoryId: null, tags: [] });
+  });
+
+  test('a missing category is a 422 on categoryId', async () => {
+    const res = await post({ name: 'Ghost', sku: 'rel-2', price: '1', categoryId: 999999 });
+    expect(res.status).toBe(422);
+    expect(res.body.fields).toEqual({ categoryId: ['does not exist'] });
+  });
+
+  test('a category that products use cannot be deleted', async () => {
+    const used = await create('category', 'Used');
+    await post({ name: 'User', sku: 'rel-3', price: '1', categoryId: used });
+    const res = await http().delete(`/admin/api/resources/category/${used}`);
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({ code: 'CONFLICT', message: 'Other records still refer to this record' });
   });
 });

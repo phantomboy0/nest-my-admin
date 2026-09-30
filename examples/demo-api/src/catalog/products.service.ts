@@ -4,6 +4,12 @@ import type { EntityManager, Repository } from 'typeorm';
 import type { CreateProductDto, UpdateProductDto } from './product.dto.js';
 import { Product } from './product.entity.js';
 
+/** The admin sends tag ids; TypeORM saves references. Without `tags` the product's tags are left alone. */
+function withTags<T extends { tags?: number[] }>(dto: T): Omit<T, 'tags'> & { tags?: Array<{ id: number }> } {
+  const { tags, ...rest } = dto;
+  return tags === undefined ? rest : { ...rest, tags: tags.map((id) => ({ id })) };
+}
+
 /** The app's own business logic. The admin calls it instead of writing to the table directly. */
 @Injectable()
 export class ProductsService {
@@ -16,7 +22,7 @@ export class ProductsService {
 
   async create(dto: CreateProductDto, manager?: EntityManager): Promise<Product> {
     const products = this.repo(manager);
-    const product = products.create({ ...dto, sku: dto.sku.toUpperCase() });
+    const product = products.create({ ...withTags(dto), sku: dto.sku.toUpperCase() });
     this.assertSellable(product);
     return products.save(product);
   }
@@ -25,7 +31,7 @@ export class ProductsService {
     const products = this.repo(manager);
     const product = await products.findOneByOrFail({ id });
     if (product.status === 'archived') throw new ConflictException('Archived products are read-only');
-    products.merge(product, dto);
+    products.merge(product, withTags(dto));
     this.assertSellable(product);
     return products.save(product);
   }

@@ -53,14 +53,11 @@ export function RelationInput({ id, resource, field, value, onChange, clearable,
     setActive(0);
   }, [search, options.data]);
 
+  /** Picking closes the list (typing opens it again), so it never hides the controls below it. */
   function choose(item: RelationRef) {
     setText('');
-    if (multiple) {
-      onChange([...selected, item]);
-    } else {
-      onChange(item);
-      setOpen(false);
-    }
+    setOpen(false);
+    onChange(multiple ? [...selected, item] : item);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {

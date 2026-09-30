@@ -1,4 +1,4 @@
-import { IsDateString, IsDecimal, IsIn, IsInt, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsDateString, IsDecimal, IsIn, IsInt, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
 import { PRODUCT_STATUSES, type ProductStatus } from './product.entity.js';
 
 export class CreateProductDto {
@@ -8,6 +8,8 @@ export class CreateProductDto {
   @IsOptional() @IsInt() @Min(0) stock?: number;
   @IsOptional() @IsIn(PRODUCT_STATUSES) status?: ProductStatus;
   @IsOptional() @IsDateString({ strict: true }) releasedOn?: string | null;
+  @IsOptional() @IsInt() categoryId?: number | null;
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsInt({ each: true }) tags?: number[];
 }
 
 /** SKU is fixed after creation, so it is not part of the update DTO. */
@@ -17,4 +19,6 @@ export class UpdateProductDto {
   @IsOptional() @IsInt() @Min(0) stock?: number;
   @IsOptional() @IsIn(PRODUCT_STATUSES) status?: ProductStatus;
   @IsOptional() @IsDateString({ strict: true }) releasedOn?: string | null;
+  @IsOptional() @IsInt() categoryId?: number | null;
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsInt({ each: true }) tags?: number[];
 }

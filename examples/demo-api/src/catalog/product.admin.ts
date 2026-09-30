@@ -10,11 +10,11 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   }
 
   list: ListConfig<Product> = {
-    columns: ['id', 'name', 'sku', 'price', 'stock', 'status'],
+    columns: ['id', 'name', 'sku', 'categoryId', 'price', 'stock', 'status', 'tags'],
     sort: '-id',
     pageSize: 20,
-    filters: ['status', 'price', 'stock', 'releasedOn'],
-    search: ['name', 'sku'],
+    filters: ['status', 'categoryId', 'tags', 'price', 'stock', 'releasedOn'],
+    search: ['name', 'sku', 'category.name'],
   };
   form: FormConfig = { create: CreateProductDto, update: UpdateProductDto };
 

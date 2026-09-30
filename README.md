@@ -54,6 +54,36 @@ async findMany(params: ListParams) {
 findOne(id: RecordId) { return this.repository.findOne({ where: { id, archived: false } }); }
 ```
 
+### Relations and record titles
+
+Many-to-one, owning one-to-one and owning many-to-many relations are fields:
+
+- **Field names.** A to-one relation's field is named like the property that holds the id: `customer`, or
+  `customerId` when the entity declares `@Column() customerId` next to `@JoinColumn({ name: 'customerId' }) customer`.
+  A many-to-many field is named like the relation (`tags`). Name DTO properties the same way.
+- **Values.** Reads return `{ id, title }` (or `null`) for to-one relations and `[{ id, title }]` for many-to-many.
+  Writes send the id (or `null`) and an array of ids. Every id is checked before your `create`/`update` runs: a
+  missing record is a 422 on that field. The default `create`/`update` save the ids as references; your own
+  overrides receive the ids as sent.
+- **Paths.** `list.columns`, `filters`, `search` and `sort` accept paths through to-one relations, such as
+  `'customer.name'` or `'customer.company.name'` (up to 3 segments, checked at boot). The relations are joined
+  automatically as `entity_customer`, `entity_customer_company`, … (you can use these aliases in `buildListQuery`
+  extensions). Relation values are loaded after `findMany`/`findOne` with a fixed number of queries, so your finder
+  overrides do not need to join them.
+- **Filters.** `filter[customer][eq]=3` (also `ne`, `in`, `nin`, and `isNull` when nullable), and
+  `filter[tags][in]=1,2`, which matches records that have any of those ids.
+- **Titles.** `@AdminResource(Customer, { title: 'name' })` or `title: (c) => \`${c.first} ${c.last}\``. Titles show
+  in pickers, relation cells and headers, and as `_title` on every record. Without one, the first string column
+  named `name`, `title`, `label`, `displayName`, `fullName`, `username`, `email`, `code` or `sku` is used; else `#<id>`.
+- **Picker options.** `relationOptions(field, qb, ctx)` restricts what a relation field may point to, both in the
+  picker (`GET …/fields/:field/options`) and on writes. `qb` selects the target as `option`:
+
+```ts
+relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext) {
+  return field === 'customer' ? qb.andWhere('option.active = true') : qb;
+}
+```
+
 ## Transactions, context and errors
 
 Every create, update and delete runs in one database transaction. Pass `ctx.manager` to your services so their writes

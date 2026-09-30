@@ -1,4 +1,6 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, JoinColumn, JoinTable, ManyToMany, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Category } from './category.entity.js';
+import { Tag } from './tag.entity.js';
 
 export const PRODUCT_STATUSES = ['draft', 'active', 'archived'] as const;
 export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
@@ -12,6 +14,10 @@ export class Product {
   @Column({ type: 'int', default: 0 }) stock: number;
   @Column({ type: 'simple-enum', enum: [...PRODUCT_STATUSES], default: 'draft' }) status: ProductStatus;
   @Column({ type: 'date', nullable: true }) releasedOn: string | null;
+  /** The admin field is `categoryId` (the id column), labelled "Category"; paths use `category.name`. */
+  @Column({ type: 'int', nullable: true }) categoryId: number | null;
+  @ManyToOne(() => Category, { nullable: true, onDelete: 'RESTRICT' }) @JoinColumn({ name: 'categoryId' }) category: Category | null;
+  @ManyToMany(() => Tag) @JoinTable() tags: Tag[];
   @CreateDateColumn() createdAt: Date;
   @UpdateDateColumn() updatedAt: Date;
 }

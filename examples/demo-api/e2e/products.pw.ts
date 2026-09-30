@@ -2,13 +2,14 @@ import { expect, test } from '@playwright/test';
 
 test('opens the first resource and navigates with the sidebar', async ({ page, isMobile }) => {
   await page.goto('/admin');
-  await expect(page).toHaveURL(/\/admin\/product$/);
-  await expect(page.getByRole('heading', { name: 'Product' })).toBeVisible();
-  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/category$/); // resources are sorted by label
+  await expect(page.getByRole('heading', { name: 'Category' })).toBeVisible();
 
   if (isMobile) await page.getByRole('button', { name: 'Menu' }).click();
   await page.getByRole('link', { name: 'Product' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
+  await expect(page.getByRole('heading', { name: 'Product' })).toBeVisible();
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
 });
 
 test('creates a product through the service and edits it', async ({ page }, testInfo) => {
@@ -114,4 +115,45 @@ test('client-side validation stops a bad form before it reaches the server', asy
   await expect(page.locator('#field-name-error')).toContainText('is required');
   await expect(page.locator('#field-sku-error')).toContainText('sku must be 2-40 letters, digits or dashes');
   expect(posts).toHaveLength(0);
+});
+
+test('picks a category and tags, filters by category, and refuses to delete a category in use', async ({ page, isMobile }, testInfo) => {
+  const sku = `REL-${testInfo.project.name.toUpperCase()}`;
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Name').fill('Reading lamp');
+  await page.getByLabel('Sku').fill(sku);
+  await page.getByLabel('Price').fill('30');
+  await page.getByRole('combobox', { name: 'Category' }).fill('ligh');
+  await page.getByRole('option', { name: 'Lighting' }).click();
+  await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue('Lighting');
+  const tags = page.getByRole('combobox', { name: 'Tags' });
+  await tags.fill('eco');
+  await page.getByRole('option', { name: 'Eco' }).click();
+  await tags.fill('best');
+  await expect(page.getByRole('option', { name: 'Bestseller' })).toBeVisible();
+  await tags.press('Enter'); // keyboard works too: the first option is active
+  await expect(page.getByRole('button', { name: 'Remove Bestseller' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+
+  const row = isMobile ? page.getByRole('listitem').filter({ hasText: sku }) : page.getByRole('row').filter({ hasText: sku });
+  await expect(row).toContainText('Lighting');
+  await expect(row).toContainText('Bestseller, Eco');
+
+  if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Category' }).fill('furn');
+  await page.getByRole('option', { name: 'Furniture' }).click();
+  await expect(page).toHaveURL(/filter%5BcategoryId%5D%5Beq%5D=\d+/);
+  await expect(page.getByText('DEMO-3', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
+
+  await page.reload(); // the filter's title is looked up from the id in the URL
+  if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue('Furniture');
+
+  await page.goto('/admin/category');
+  await page.getByText('Lighting', { exact: true }).filter({ visible: true }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm delete' }).click();
+  await expect(page.getByRole('alert')).toContainText('Other records still refer to this record');
 });

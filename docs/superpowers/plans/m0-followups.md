@@ -37,9 +37,17 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - (from M1b) Client constraints do not cover `@IsDecimal` digit limits or `@IsPositive`; the server still enforces them.
 
 ## M1c-1 follow-ups
-- -> M1c-2: a column declared with both `@Column()` and `@JoinColumn` carries `relationMetadata` and is hidden by `isSupportedColumn`; relations must show it (as the relation field).
-- -> M1c-2: FK-on-delete E2E once the demo has related entities.
+- (done in M1c-2) a column declared with both `@Column()` and `@JoinColumn` is now the relation field.
+- (done in M1c-2) FK-on-delete E2E: deleting a category that products use.
 - Postgres `22001` (value too long) names no column, so that 422 has no field; the client's `maxLength` usually catches it first.
 - `bun run compat` tests the oldest supported stack; the newest is what the workspace pins. Versions in between (and Nest 12.0 / TypeORM 1.0 exactly) are assumed.
 - Final review minors (deferred): stale-database sweep keys on pid only, so two hosts sharing one DB server could drop each other's databases (add a host hash to `nma_t_*` names); MySQL message regexes take the first `for key '…'` / `for column '…'`, so a crafted value can strip or mislabel the field (anchor to the last match); `DbNames` is not exported although `RegisteredResource.dbNames` is public (and `columnProperties` was removed — note in a changelog); demo test leaks its database if boot fails (`app?.close()` + try/finally); SQLite/Postgres FK direction comes from the HTTP method, so a PATCH that changes a referenced primary key reports 422 instead of 409; no committed test for the schema-sync-failure path of fast boot failure.
 - CHECK constraint violations (SQLite, Postgres 23514, MySQL ER_CHECK_CONSTRAINT_VIOLATED) still return 500: map them to 422 VALIDATION.
+
+## M1c-2 follow-ups
+- -> M1c-4: inverse relations (one-to-many, inverse many-to-many) as read-only "Related" data; lazy relations; sorting a relation field by its target's title column; `relationOptions()` receiving the form's current values (dependent options, spec §5.2 `values`).
+- -> M3: the options endpoint and relation titles read targets that may have no resource (with `autoRegister: false`); permissions must cover them (anti-oracle: missing and not-allowed ids already share one message).
+- NULL placement when sorting by a path differs by driver (Postgres: last ascending; MySQL/SQLite: first). Normalise it if it matters to users.
+- Relation ids are checked before the write and the check is not locked, so a target deleted concurrently still reaches the database FK (mapped to 422 as before). The SQLite/Postgres insert-side FK mapping is now covered only by unit tests.
+- Title functions see only what was loaded (columns; relations only when a finder joined them); spec §5.2's `o.customer.name` example needs `?.` or a column title.
+- Multi-select pickers close after each pick (so the list never covers the form); the keyboard flow still works by typing again.
