@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { totpCode } from '@nest-my-admin/auth';
 
 /**
  * Opens a record's edit page from the list: on desktop a row click opens the quick view first (its Edit link goes on),
@@ -847,5 +848,125 @@ test.describe('administration: users, groups and roles', () => {
     });
     await expect(page.getByRole('status')).toHaveText('1 roles imported.');
     await expect(page.getByRole('list', { name: 'Roles' })).toContainText('tag-viewer');
+  });
+});
+
+test.describe('permission debugger and view-as (M3-4)', () => {
+  test('the debugger explains why the editor cannot change the price (Review Focus 1)', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'one run is enough');
+    await page.goto('/admin/-/debugger');
+    await page.getByLabel('User', { exact: true }).fill('editor');
+    await page.getByRole('button', { name: /Demo Editor/ }).click();
+    await page.getByLabel('Resource', { exact: true }).selectOption('product');
+    await page.getByRole('button', { name: 'Explain' }).click();
+    const explanation = page.getByTestId('explanation');
+    await expect(explanation.getByRole('heading', { name: 'Roles · Demo Editor' })).toBeVisible();
+    await expect(explanation).toContainText('Catalog editor (from resolveRoles)');
+    const change = explanation.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'Change', exact: true }) });
+    await expect(change).toContainText('Allowed');
+    await expect(change).toContainText('product.update in catalog-editor');
+    await expect(explanation.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'Delete', exact: true }) })).toContainText('No role grants it');
+    await expect(explanation.locator('[data-field="price"]')).toContainText('Read-only');
+    await expect(explanation.locator('[data-field="price"]')).toContainText('catalog-editor: Read-only (readonly)');
+    await expect(explanation.locator('[data-field="cost"]')).toContainText('Hidden');
+    await expect(explanation).toContainText('Change: Rows of drafts');
+  });
+
+  test('a superuser views the admin as the editor, read-only, then stops (Review Focus 2)', async ({ page, isMobile }) => {
+    await page.goto('/admin/-/users?search=editor');
+    await page.getByRole('link', { name: /Demo Editor/ }).click();
+    await page.getByRole('button', { name: 'View as this user' }).click();
+    const banner = page.getByRole('status').filter({ hasText: 'Viewing as Demo Editor. Read-only.' });
+    await expect(banner).toBeVisible();
+
+    if (isMobile) await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    const sidebar = page.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Catalog' });
+    await expect(sidebar.getByRole('link', { name: 'Product' })).toBeVisible();
+    await expect(sidebar.getByRole('link', { name: 'Supplier' })).toHaveCount(0);
+    if (isMobile) await page.keyboard.press('Escape');
+
+    // A draft the editor could change: read-only here, and the server refuses writes anyway.
+    await page.goto('/admin/product?search=DEMO-');
+    await openRecord(page, 'DEMO-3');
+    await expect(page.getByLabel('Cost')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+    const id = decodeURIComponent(new URL(page.url()).pathname.split('/').pop()!);
+    const refused = await page.request.patch(`/admin/api/resources/product/${encodeURIComponent(id)}`, { data: { name: 'x' }, headers: { ...(await csrf(page)), 'X-View-As': '2' } });
+    expect(refused.status()).toBe(403);
+
+    await banner.getByRole('button', { name: 'Stop viewing' }).click();
+    await expect(page.getByRole('heading', { name: 'Demo Editor' })).toBeVisible();
+    await expect(page.getByText('Viewing as Demo Editor. Read-only.')).toHaveCount(0);
+    await page.goto('/admin/supplier');
+    await expect(page.getByRole('heading', { name: /Supplier/ }).first()).toBeVisible();
+  });
+});
+
+test.describe('two-factor sign-in (M3-4 Review Focus 3)', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('set up with the key, sign in with a recovery code and with the app, turn off', async ({ page, browser, baseURL, isMobile }, testInfo) => {
+    test.skip(isMobile, 'one run is enough');
+    const username = `tess-${testInfo.project.name}-${Date.now() % 100000}`;
+    // The admin creates the user.
+    const admin = await browser.newContext({ baseURL, storageState: 'e2e/.auth/admin.json' });
+    try {
+      const adminPage = await admin.newPage();
+      const created = await adminPage.request.post('/admin/api/rbac/users', { data: { username, displayName: 'Tess Two', password: 'tess-password-1' }, headers: await csrf(adminPage) });
+      expect(created.status()).toBe(201);
+    } finally {
+      await admin.close();
+    }
+    const signIn = async () => {
+      await page.goto('/admin/login');
+      await page.getByLabel('Username').fill(username);
+      await page.getByLabel('Password').fill('tess-password-1');
+      await page.getByRole('button', { name: 'Sign in' }).click();
+    };
+    const signOut = async () => {
+      await page.getByRole('button', { name: 'Account menu for Tess Two' }).click();
+      await page.getByRole('button', { name: 'Sign out' }).click();
+      await expect(page).toHaveURL(/\/admin\/login$/);
+    };
+
+    await signIn();
+    await expect(page.getByRole('button', { name: 'Account menu for Tess Two' })).toBeVisible();
+    await page.goto('/admin/account');
+    const section = page.getByRole('region', { name: 'Two-factor sign-in' });
+    await expect(section).toContainText('Off');
+    await section.getByRole('button', { name: 'Set up' }).click();
+    await expect(section.getByRole('img', { name: 'QR code for your authenticator app' })).toBeVisible();
+    const secret = (await section.getByTestId('two-factor-key').textContent())!.replace(/\s/g, '');
+    await section.getByLabel('Code from the app').fill(totpCode(secret, new Date()));
+    await section.getByRole('button', { name: 'Turn on' }).click();
+    const codes = await section.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem').allTextContents();
+    expect(codes).toHaveLength(10);
+    await section.getByRole('button', { name: 'I saved them' }).click();
+    await expect(section).toContainText('10 unused recovery codes.');
+    await signOut();
+
+    // The password alone is not enough; a wrong code says so; a recovery code works.
+    await signIn();
+    await expect(page.getByRole('heading', { name: 'Two-step verification' })).toBeVisible();
+    await page.getByLabel('Code').fill('000000');
+    await page.getByRole('button', { name: 'Verify' }).click();
+    await expect(page.getByRole('alert')).toHaveText('The code is wrong or was already used');
+    await page.getByLabel('Code').fill(codes[0]!);
+    await page.getByRole('button', { name: 'Verify' }).click();
+    await expect(page.getByRole('button', { name: 'Account menu for Tess Two' })).toBeVisible();
+    await signOut();
+
+    // The app's code (the next step's: the setup used this one).
+    await signIn();
+    await page.getByLabel('Code').fill(totpCode(secret, new Date(Date.now() + 30_000)));
+    await page.getByRole('button', { name: 'Verify' }).click();
+    await expect(page.getByRole('button', { name: 'Account menu for Tess Two' })).toBeVisible();
+
+    await page.goto('/admin/account');
+    await expect(section).toContainText('9 unused recovery codes.');
+    await section.getByLabel('Your password').fill('tess-password-1');
+    await section.getByRole('button', { name: 'Turn off' }).click();
+    await expect(section.getByRole('status')).toHaveText('Two-factor sign-in is off.');
+    await expect(section).toContainText('Off');
   });
 });

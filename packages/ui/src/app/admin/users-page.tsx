@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Eye, Plus } from 'lucide-react';
 import type { RbacGroup, RbacRole, RbacUser } from '@nest-my-admin/core/contract';
 import { Alert, PageTitle, textIn } from '@/app/admin/shared';
 import { PageMessage } from '@/components/page-message';
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { useLocale } from '@/i18n';
 import { ApiError, api, describeError } from '@/lib/api';
 import { useSession } from '@/lib/queries';
+import { setViewingAs } from '@/lib/session';
 
 export function UsersPage() {
   const { t } = useLocale();
@@ -65,6 +66,7 @@ export function UsersPage() {
               <span className="flex flex-wrap items-center gap-1.5 text-xs">
                 {user.isSuperuser && <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-purple-800 dark:text-purple-300">{t('rbac.superuser')}</span>}
                 {user.isActive === false && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{t('rbac.inactive')}</span>}
+                {user.twoFactor && <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-green-800 dark:text-green-300">{t('rbac.twoFactor')}</span>}
                 {user.roles.map((role) => (
                   <span key={role} className="rounded-full border px-2 py-0.5">
                     {role}
@@ -105,7 +107,7 @@ export function UserEditorPage() {
   return <UserEditor key={id ?? 'new'} user={isNew ? undefined : user.data} roles={roles.data!.items} groups={groups.data!.items} capabilities={listing.data!.capabilities} />;
 }
 
-function UserEditor({ user, roles, groups, capabilities }: { user?: RbacUser; roles: RbacRole[]; groups: RbacGroup[]; capabilities: { create: boolean; update: boolean; password: boolean } }) {
+function UserEditor({ user, roles, groups, capabilities }: { user?: RbacUser; roles: RbacRole[]; groups: RbacGroup[]; capabilities: { create: boolean; update: boolean; password: boolean; resetTwoFactor: boolean } }) {
   const { t, locale } = useLocale();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -150,6 +152,17 @@ function UserEditor({ user, roles, groups, capabilities }: { user?: RbacUser; ro
     },
     onError: fail,
   });
+  const resetTwoFactor = useMutation({
+    mutationFn: () => api.rbac.resetTwoFactor(user!.id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['rbac'] });
+      setError(null);
+      setNotice(t('rbac.twoFactorReset'));
+    },
+    onError: fail,
+  });
+  // Superusers can look at the admin as this user sees it (read-only), never as themselves.
+  const canViewAs = Boolean(user) && isSuperuser && !session.data?.viewAs && user!.id !== session.data?.user.id && user!.isActive !== false;
   const setNewPassword = useMutation({
     mutationFn: () => api.rbac.setPassword(user!.id, password),
     onSuccess: () => {
@@ -177,7 +190,26 @@ function UserEditor({ user, roles, groups, capabilities }: { user?: RbacUser; ro
 
   return (
     <form onSubmit={submit} className="flex max-w-3xl flex-col gap-5" aria-label={t('rbac.user')}>
-      <PageTitle>{user ? user.displayName : t('rbac.newUser')}</PageTitle>
+      <PageTitle
+        actions={
+          canViewAs && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setViewingAs(user!.id);
+                queryClient.clear();
+                navigate('/');
+              }}
+            >
+              <Eye />
+              {t('viewAs.start')}
+            </Button>
+          )
+        }
+      >
+        {user ? user.displayName : t('rbac.newUser')}
+      </PageTitle>
       {error && <Alert>{error}</Alert>}
       {notice && <Alert tone="success">{notice}</Alert>}
       {user?.isSuperuser && !isSuperuser && <Alert tone="success">{t('rbac.superuserNote')}</Alert>}
@@ -257,6 +289,19 @@ function UserEditor({ user, roles, groups, capabilities }: { user?: RbacUser; ro
           </div>
           {errors.password && user && <p className="text-sm text-destructive">{errors.password.join(' ')}</p>}
           <p className="text-xs text-muted-foreground">{t('rbac.setPasswordNote')}</p>
+        </section>
+      )}
+      {user?.twoFactor && editable && capabilities.resetTwoFactor && (
+        <section aria-labelledby="reset-two-factor" className="flex flex-col gap-2 rounded-lg border p-4">
+          <h2 id="reset-two-factor" className="font-medium">
+            {t('rbac.resetTwoFactor')}
+          </h2>
+          <p className="text-xs text-muted-foreground">{t('rbac.resetTwoFactorNote')}</p>
+          <div>
+            <Button type="button" variant="outline" disabled={resetTwoFactor.isPending} onClick={() => resetTwoFactor.mutate()}>
+              {t('rbac.resetTwoFactor')}
+            </Button>
+          </div>
         </section>
       )}
     </form>

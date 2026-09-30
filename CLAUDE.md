@@ -58,6 +58,12 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - `app/quick-view.tsx` is a Radix Dialog sheet; a row's Enter handler must `preventDefault()`, or the same key closes the sheet.
   - `app/editable-cell.tsx` saves `list.editable` fields with PATCH and patches the cached list pages.
   - `AdminApiService.bulkDelete` loops `remove()` per id.
+- Auth, permissions and RBAC (M3):
+  - `@nest-my-admin/auth` (packages/auth) is the built-in adapter: `nma_user`/`nma_session`, scrypt, lockout, TOTP 2FA (`totp.ts`, `secret-box.ts`: AES-256-GCM with `secretKey`; recovery codes stored as SHA-256).
+  - `AdminPolicy` (policy/admin-policy.service.ts) decides everything per request from `EffectivePermissions`; `AdminRbac` stores roles/groups (`rbac: {}` + `ADMIN_RBAC_ENTITIES`).
+  - The debugger (`policy/explain.ts`, `/api/rbac/explain`) reuses those code paths, one role at a time for the breakdowns; `test/debugger.test.ts` checks it against the API for random role sets.
+  - View-as: `X-View-As` on a superuser's request swaps `ctx.user`/`ctx.permissions` in `AdminHttpServer.handle` (`ctx.viewAs`), refuses non-GET routes except sign-out, and closes `/api/account/*`. The UI keeps the id in sessionStorage (`lib/session.ts`) and makes schemas read-only (`lib/view-as.ts`).
+  - `@nest-my-admin/testing` (packages/testing) calls `AdminApiService` in-process through `@nest-my-admin/core/internal` (not a stable API, never on HTTP); `expectNoLeaks` is its crawler.
 - Hooks (`@BeforeSave/@AfterSave/@BeforeDelete`) run only in `AdminResourceBase`'s default create/update/delete; resources that override those methods call their own services instead.
 - Writes run inside `AdminApiService.write()`: one `dataSource.transaction()`, `ctx.manager` set, and `AdminContext.run()` re-entered so `AdminContext.current()` sees the transactional context. `AdminResourceBase` defaults use `repositoryFor(ctx)`. Reads get no manager. On Postgres/MySQL a service that ignores `ctx.manager` writes on another pooled connection (outside the transaction, can block on its locks); SQLite-family writes are serialized per DataSource.
 - Field config (M2-3):

@@ -10,7 +10,7 @@
 
 **Architecture:**
 - **Debugger.**
-  - `GET /api/rbac/explain?user=&resource=&operation=&field=&record=` (needs `rbac.view`) answers with:
+  - `GET /api/rbac/explain?user=&resource=&record=` (needs `rbac.view`) answers, for every operation and field at once, with:
     - the user's roles and where each comes from (direct, a group, `resolveRoles`);
     - for the operation, which role grants it through which pattern;
     - per field, each role's level and the result (with `restricted`);
@@ -25,7 +25,7 @@
   - The UI has "View as" on the user page, a banner ("Viewing as Ada — read-only · Stop") that is kept per tab (sessionStorage), and all write controls hidden.
 - **2FA** (built-in adapter):
   - TOTP per RFC 6238: SHA-1, 30 s, 6 digits, ±1 step. A code is never accepted twice (last used step stored).
-  - The secret is stored encrypted with AES-256-GCM when `builtinAuth({ secretKey })` is given (32+ bytes, base64); otherwise it is stored plain and a boot warning says so.
+  - The secret is stored encrypted with AES-256-GCM when `builtinAuth({ secretKey })` is given (32+ bytes, base64); otherwise it is stored plain and a warning is logged when someone sets 2FA up.
   - 10 recovery codes, stored as SHA-256 hashes, each usable once.
   - Sign-in with 2FA on: the password step answers 401 `TWO_FACTOR_REQUIRED` (no session) until the same request carries `otp` (a code or a recovery code). A wrong code counts toward the lockout.
   - Account page: setup (a QR code of the `otpauth://` URL through the `qrcode-generator` dev dependency bundled in the UI, plus the secret for manual entry), then confirm with a code (recovery codes shown once), then disable with the password.
@@ -85,40 +85,40 @@ README.md · CLAUDE.md · m0-followups.md · versions 0.1.0
 
 ### Task 1: Debugger and view-as (core)
 
-- [ ] **Tests first:**
+- [x] **Tests first:**
   - `explain.test.ts` (Review Focus 1: random roles vs `EffectivePermissions`, and against the API on the policy fixture);
   - `view-as.test.ts`: superuser only, reads as the target, 403 on writes, the logout exception.
-- [ ] **Implement.**
-- [ ] **Verify**, then commit `feat: permission debugger and read-only view-as`.
+- [x] **Implement.**
+- [x] **Verify**, then commit `feat: permission debugger and read-only view-as`.
 
 ### Task 2: TOTP 2FA in `@nest-my-admin/auth`
 
-- [ ] **Tests first:**
+- [x] **Tests first:**
   - `totp.test.ts`: RFC 6238 vectors, window, base32;
   - `secret-box.test.ts`;
   - `builtin-auth.test.ts` 2FA flow (Review Focus 3), on every database.
-- [ ] **Implement:** adapter methods and the core routes `/api/account/2fa/*`.
-- [ ] **Verify**, then commit `feat(auth): TOTP two-factor sign-in with recovery codes`.
+- [x] **Implement:** adapter methods and the core routes `/api/account/2fa/*`.
+- [x] **Verify**, then commit `feat(auth): TOTP two-factor sign-in with recovery codes`.
 
 ### Task 3: `@nest-my-admin/testing`
 
-- [ ] **Tests first:** `as()` round trips; `expectNoLeaks` passes on a clean fixture and fails (with a readable report) on a leaky one.
-- [ ] **Implement:** the package (build, typecheck, test in root scripts; packed in pack:smoke).
-- [ ] **Verify**, then commit `feat(testing): admin testing module with a leak crawler`.
+- [x] **Tests first:** `as()` round trips; `expectNoLeaks` passes on a clean fixture and fails (with a readable report) on a leaky one.
+- [x] **Implement:** the package (build, typecheck, test in root scripts; packed in pack:smoke).
+- [x] **Verify**, then commit `feat(testing): admin testing module with a leak crawler`.
 
 ### Task 4: UI, demo, E2E, docs, v0.1
 
-- [ ] **UI:**
+- [x] **UI:**
   - the debugger page;
   - "View as" on user pages, the banner, and write controls hidden;
   - the login OTP step;
   - the account 2FA section (QR, confirm, recovery codes, disable).
-- [ ] **E2E:**
+- [x] **E2E:**
   - the debugger explains the editor's price;
   - view-as the editor, then stop;
   - enable 2FA for a user, sign in with a code, sign in with a recovery code, disable.
-- [ ] **Docs:** README (debugger, view-as, 2FA, testing), CLAUDE.md, m0-followups. Package versions 0.1.0.
-- [ ] **Verify everything**, then commit `feat: v0.1 — debugger, view-as and 2FA in the UI; E2E; docs`.
+- [x] **Docs:** README (debugger, view-as, 2FA, testing), CLAUDE.md, m0-followups. Package versions 0.1.0.
+- [x] **Verify everything**, then commit `feat: v0.1 — debugger, view-as and 2FA in the UI; E2E; docs`.
 
 ## After this plan
 

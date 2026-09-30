@@ -27,3 +27,23 @@ export function safeNext(next: string | null | undefined): string {
   if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\') || next.startsWith('/login')) return '/';
   return next;
 }
+
+const VIEW_AS_KEY = 'nma-view-as';
+
+/** The user a superuser is viewing the admin as (this tab only), sent as `X-View-As`. */
+export function viewingAs(): string | undefined {
+  try {
+    return sessionStorage.getItem(VIEW_AS_KEY) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function setViewingAs(id: string | undefined): void {
+  try {
+    if (id === undefined) sessionStorage.removeItem(VIEW_AS_KEY);
+    else sessionStorage.setItem(VIEW_AS_KEY, id);
+  } catch {
+    // storage blocked: view-as cannot start
+  }
+}

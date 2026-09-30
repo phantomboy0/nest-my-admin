@@ -1,6 +1,6 @@
 {
   "name": "@nest-my-admin/auth",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Built-in sign-in for nest-my-admin: admin users, hashed passwords, revocable sessions",
   "license": "MIT",
   "type": "module",

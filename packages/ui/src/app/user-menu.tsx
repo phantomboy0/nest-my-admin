@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/queries';
-import { setCsrfToken } from '@/lib/session';
+import { setCsrfToken, setViewingAs } from '@/lib/session';
 
 /** The signed-in user: name, the account page and sign-out. Hidden for an admin without sign-in. */
 export function UserMenu() {
@@ -29,6 +29,7 @@ export function UserMenu() {
       await api.logout();
     } finally {
       setCsrfToken(undefined);
+      setViewingAs(undefined);
       queryClient.clear();
       navigate('/login', { replace: true });
     }
@@ -47,7 +48,7 @@ export function UserMenu() {
             <div className="truncate text-sm font-medium">{user.displayName}</div>
             {(user.username || user.email) && <div className="truncate text-xs text-muted-foreground">{user.email ?? user.username}</div>}
           </div>
-          {(auth.password || auth.sessions) && (
+          {(auth.password || auth.sessions || auth.twoFactor) && !data.viewAs && (
             <Popover.Close asChild>
               <Link to="/account" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
                 <UserRound className="size-4" />

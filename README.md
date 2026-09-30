@@ -321,11 +321,12 @@ AdminModule.forRoot({
   - Five wrong passwords lock an account for 15 minutes. Sign-in attempts are limited to 20 per minute per IP, with 429 and `Retry-After`.
   - Unknown users, wrong passwords and locked accounts get the same answer.
   - The account page changes the password (which signs out every other session), lists signed-in devices, and signs out one or all others.
+  - **Two-factor sign-in** (TOTP, any authenticator app). A user turns it on from the account page by scanning a QR code and confirming a code, and gets 10 one-time recovery codes. After the password, sign-in answers 401 `TWO_FACTOR_REQUIRED` until the request also carries `otp` (a code or a recovery code). Each code works once, wrong codes count toward the lockout, and turning it on signs out every other session. Turning it off or issuing new recovery codes needs the password; an admin can reset a lost second factor from the Users page. Set `secretKey` (32 bytes, base64: `openssl rand -base64 32`) to encrypt the keys at rest with AES-256-GCM. `issuer` names the app in authenticators. Upgrading from 0.0.x adds four nullable columns to `nma_user` (`totpSecret`, `totpPending`, `totpLastStep`, `recoveryCodes`).
   - `bootstrapSuperuser` creates the first user when `nma_user` is empty (it runs in module init, so call `app.init()` before seeding other users). `createAdminUser(dataSource, { … })` adds more.
 - **CSRF.** Every POST, PATCH and DELETE of a cookie session must send the session's token as `X-CSRF-Token` (the UI does). The API also accepts only `application/json` bodies.
 - **Your own users:**
   - `auth: AdminAuth.custom(MyAdapter)` takes a provider of your app implementing `AdminAuthAdapter`.
-  - `authenticate(req)` is required; `login`, `logout`, `listSessions`, `revokeSession`, `revokeOtherSessions` and `changePassword` are optional, and the UI shows only what exists.
+  - `authenticate(req)` is required; `login`, `logout`, `listSessions`, `revokeSession`, `revokeOtherSessions`, `changePassword` and the two-factor methods (`twoFactorStatus`, `beginTwoFactor`, `confirmTwoFactor`, `disableTwoFactor`, optionally `newRecoveryCodes` and `resetTwoFactor`) are optional, and the UI shows only what exists.
   - Return a `csrfToken` from `authenticate` when you use cookies.
   - `ctx.user` and `AdminContext.current().user` carry the result into resource methods and your services.
 - **No sign-in.** `AdminAuth.none()` makes everyone a superuser, for local tools. Without `auth` the admin behaves the same with a warning at boot, and **refuses to boot under `NODE_ENV=production`**.
@@ -393,6 +394,41 @@ AdminModule.forRoot({ rbac: {}, roles: [/* system roles */], auth: builtinAuth({
 - **The Roles page** is a matrix of resources × view/create/update/delete/purge. Each row expands to per-field access and to row scopes per operation, plus custom and global codes. Roles export and import as JSON; an import is all or nothing and validated like the editor.
 - **Anti-escalation.** A manager who is not a superuser may only create, change, assign or remove roles within their own permissions (codes, field levels, scopes). They cannot change superusers, make anyone a superuser, or give themselves roles or groups.
 - **Users** come from the auth adapter. `@nest-my-admin/auth` lists, creates and edits users and sets passwords; deactivating a user or setting their password signs them out everywhere. Other adapters may implement `listUsers`, `getUser`, `createUser`, `updateUser` and `setPassword`. Without them, the page shows the users that have roles or groups.
+
+### Debugging permissions and viewing as a user
+
+- **Permission debugger** (Administration → Permission debugger, for `rbac.view`; `GET /api/rbac/explain?user=&resource=[&record=]`). For one user and resource it shows:
+  - each role and where it comes from (directly, a group, `resolveRoles`, the adapter), and names that are not roles;
+  - each operation, allowed or not, and the patterns that grant it;
+  - each field's level, with every role's level and the rule or code behind it;
+  - the row scopes per operation, per role, and the global scopes;
+  - for a record id: whether the user may view, change and delete it, and why not (no permission, outside their rows, an `@AdminCan` rule, no such record).
+
+  The answers come from the code the API enforces with, and a test checks them against the API for random role combinations.
+- **View as.** A superuser opens a user and chooses *View as this user*. The admin then shows exactly what that user sees (the UI sends `X-View-As: <id>`), under a banner with *Stop viewing*. It is read-only: the server refuses every write, and the account pages are closed. The server logs each start with both ids; the audit log arrives with M4.
+
+### Testing permissions
+
+```ts
+import { createAdminTestingModule } from '@nest-my-admin/testing';
+
+const admin = await createAdminTestingModule({ imports: [AppModule] });
+const operator = admin.as({ id: 'u7', roles: ['operator'] });      // or no roles: resolveRoles decides
+await operator.list('order', { filter: { status: { eq: 'open' } } });
+await expect(operator.update('order', 1, { total: '0' })).rejects.toMatchObject({ code: 'FORBIDDEN_FIELDS' });
+await admin.expectNoLeaks('employee', { as: { id: 'u7', roles: ['operator'] } });
+```
+
+- **`as(user)`** calls the API in-process as that user (meta, schema, list, get, create, update, delete, restore, purge, search, options), through the same checks as HTTP requests but without signing in.
+- **`expectNoLeaks(resource, { as })`** reads everything as a superuser, then crawls everything the user can reach:
+  - meta and the schema;
+  - every list page and each visible record;
+  - each out-of-scope record, which must be 404;
+  - global search for each hidden value;
+  - the other resources' titles, relation columns and relation pickers.
+
+  It fails with `AdminLeakError` and a report of each hidden value or out-of-scope record it found (a title built from a hidden field, a `findMany` override that ignores scopes and the search term, …).
+- **`adminTesting(app)`** gives the same helpers for an app you already created.
 
 Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers); middleware registered in `main.ts` before `listen` still runs. Do not enable wildcard CORS for it. Catch-all routes the host registered earlier take precedence over the admin.
 

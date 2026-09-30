@@ -167,8 +167,7 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
     if (user.totpSecret) {
       if (input.otp === undefined) throw new AdminTwoFactorRequiredError();
       const step = verifyTotp(this.secretOf(user.totpSecret), input.otp, now.getTime(), { after: user.totpLastStep });
-      if (step !== null) second.totpLastStep = step;
-      else {
+      if (step === null || !(await this.claimStep(user, step))) {
         const remaining = this.useRecoveryCode(user, input.otp);
         if (!remaining) {
           await this.failed(user, now);
@@ -205,6 +204,22 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
       user.lockedUntil = new Date(now.getTime() + this.options.lockoutMs);
     }
     await this.users.update({ id: user.id }, { failedLogins: user.failedLogins, lockedUntil: user.lockedUntil });
+  }
+
+  /**
+   * Records `step` as used, only if no sign-in used it (or a later one) meanwhile: the same code sent twice at once
+   * signs in once. Drivers that do not report affected rows fall back to the check before.
+   */
+  private async claimStep(user: NmaUser, step: number): Promise<boolean> {
+    const column = this.dataSource.driver.escape('totpLastStep');
+    const result = await this.users
+      .createQueryBuilder()
+      .update()
+      .set({ totpLastStep: step })
+      .where('id = :id', { id: user.id })
+      .andWhere(`(${column} IS NULL OR ${column} < :step)`, { step })
+      .execute();
+    return result.affected === undefined || result.affected > 0;
   }
 
   private secretOf(stored: string): Buffer {

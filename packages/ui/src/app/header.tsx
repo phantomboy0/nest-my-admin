@@ -26,8 +26,8 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
   const record = useRecord(first ?? '', recordId);
   const crumbs: Crumb[] = [{ label: t('shell.home'), to: '/' }];
   if (first === 'account' && !second) return [...crumbs, { label: t('auth.account') }];
-  if (first === '-' && (second === 'users' || second === 'groups' || second === 'roles')) {
-    const section = { users: t('rbac.users'), groups: t('rbac.groups'), roles: t('rbac.roles') }[second];
+  if (first === '-' && (second === 'users' || second === 'groups' || second === 'roles' || second === 'debugger')) {
+    const section = { users: t('rbac.users'), groups: t('rbac.groups'), roles: t('rbac.roles'), debugger: t('debugger.title') }[second];
     crumbs.push({ label: t('rbac.administration') }, { label: section, to: `/-/${second}` });
     if (third) crumbs.push({ label: third === 'new' ? t('list.new') : third });
     return crumbs;

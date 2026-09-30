@@ -309,6 +309,11 @@ describe(`built-in auth: two-factor sign-in (${TEST_DB}, Review Focus 3)`, () =>
     const replay = await signIn({ otp: code });
     expect(replay.res.status).toBe(401);
     expect(replay.res.body).toMatchObject({ code: 'TWO_FACTOR_REQUIRED', message: 'The code is wrong or was already used' });
+    // The same code sent twice at once signs in once.
+    tick(30);
+    const twice = totpCode(secret, clock);
+    const both = await Promise.all([signIn({ otp: twice }), signIn({ otp: twice })]);
+    expect(both.map((attempt) => attempt.res.status).sort()).toEqual([200, 401]);
     // The password still has to be right: a code does not replace it.
     tick(30);
     expect((await signIn({ password: 'wrong-password', otp: totpCode(secret, clock) })).res.body.code).toBe('UNAUTHENTICATED');

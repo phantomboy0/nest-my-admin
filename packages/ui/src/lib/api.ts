@@ -6,6 +6,7 @@ import type {
   ListResponse,
   MetaResponse,
   OptionsResponse,
+  PermissionExplanation,
   ResourceSchema,
   RbacCatalog,
   RbacGroup,
@@ -14,11 +15,14 @@ import type {
   RbacUsersResponse,
   SearchResponse,
   SessionResponse,
+  TwoFactorSetupResponse,
+  TwoFactorStatusResponse,
 } from '@nest-my-admin/core/contract';
 import { activeLocale, translate as tr } from '@/i18n';
 import { runtimeConfig } from './config';
 import { ApiError } from './api-error';
-import { currentCsrfToken, signedOut } from './session';
+import { currentCsrfToken, signedOut, viewingAs } from './session';
+import { readOnlySchema, readOnlySession } from './view-as';
 
 export { ApiError, describeError } from './api-error';
 
@@ -29,6 +33,8 @@ function isErrorBody(value: unknown): value is AdminErrorBody {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = init.method ?? 'GET';
   const csrf = currentCsrfToken();
+  // Signing in is never done as someone else.
+  const viewAs = path === '/session' && method === 'POST' ? undefined : viewingAs();
   const res = await fetch(`${runtimeConfig.apiBase}${path}`, {
     ...init,
     credentials: 'same-origin',
@@ -38,6 +44,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
       // Every write carries the session's CSRF token (spec §7).
       ...(method !== 'GET' && csrf ? { 'X-CSRF-Token': csrf } : {}),
+      ...(viewAs ? { 'X-View-As': viewAs } : {}),
       ...init.headers,
     },
   });
@@ -66,13 +73,20 @@ const ifMatch = (version: unknown): Record<string, string> =>
   typeof version === 'number' || typeof version === 'string' ? { 'If-Match': `"${version}"` } : {};
 
 export const api = {
-  session: () => request<SessionResponse>('/session'),
-  login: (username: string, password: string) => request<SessionResponse>('/session', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  session: async () => readOnlySession(await request<SessionResponse>('/session')),
+  login: (username: string, password: string, otp?: string) => request<SessionResponse>('/session', { method: 'POST', body: JSON.stringify({ username, password, ...(otp ? { otp } : {}) }) }),
   logout: () => request<void>('/session', { method: 'DELETE' }),
   sessions: () => request<{ items: AccountSession[] }>('/account/sessions'),
   revokeSession: (id: string) => request<void>(`/account/sessions/${enc(id)}`, { method: 'DELETE' }),
   revokeOtherSessions: () => request<void>('/account/sessions', { method: 'DELETE' }),
   changePassword: (current: string, next: string) => request<void>('/account/password', { method: 'POST', body: JSON.stringify({ current, next }) }),
+  twoFactor: {
+    status: () => request<TwoFactorStatusResponse>('/account/2fa'),
+    setup: () => request<TwoFactorSetupResponse>('/account/2fa/setup', { method: 'POST', body: '{}' }),
+    confirm: (code: string) => request<{ recoveryCodes: string[] }>('/account/2fa/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
+    disable: (password: string) => request<void>('/account/2fa/disable', { method: 'POST', body: JSON.stringify({ password }) }),
+    recoveryCodes: (password: string) => request<{ recoveryCodes: string[] }>('/account/2fa/recovery-codes', { method: 'POST', body: JSON.stringify({ password }) }),
+  },
   meta: () => request<MetaResponse>('/meta'),
   rbac: {
     catalog: () => request<RbacCatalog>('/rbac/catalog'),
@@ -94,9 +108,15 @@ export const api = {
     createUser: (user: Record<string, unknown>) => request<RbacUser>('/rbac/users', { method: 'POST', body: JSON.stringify(user) }),
     updateUser: (id: string, changes: Record<string, unknown>) => request<RbacUser>(`/rbac/users/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(changes) }),
     setPassword: (id: string, password: string) => request<void>(`/rbac/users/${enc(id)}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
+    resetTwoFactor: (id: string) => request<void>(`/rbac/users/${enc(id)}/2fa/reset`, { method: 'POST', body: '{}' }),
+    explain: (query: { user: string; resource: string; record?: string }) =>
+      request<PermissionExplanation>(`/rbac/explain?${new URLSearchParams(Object.entries(query).filter(([, value]) => value !== undefined && value !== '') as Array<[string, string]>)}`),
   },
   search: (q: string) => request<SearchResponse>(`/search?${new URLSearchParams({ q })}`),
-  schema: (resource: string) => request<ResourceSchema>(`/meta/resources/${enc(resource)}`),
+  schema: async (resource: string) => {
+    const schema = await request<ResourceSchema>(`/meta/resources/${enc(resource)}`);
+    return viewingAs() ? readOnlySchema(schema) : schema;
+  },
   list: (resource: string, query: URLSearchParams) => request<ListResponse>(`/resources/${enc(resource)}?${query}`),
   /** `version` (the record's @VersionColumn value) makes the server refuse with 409 if the record changed since. */
   remove: (resource: string, id: string, version?: unknown) =>

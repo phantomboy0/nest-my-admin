@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Navigate, Outlet, useLocation } from 'react-router';
-import { X } from 'lucide-react';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { Eye, X } from 'lucide-react';
 import { Header } from '@/app/header';
 import { Sidebar } from '@/app/sidebar';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { navStore, useNavState } from '@/lib/nav-state';
 import { PageMessage } from '@/components/page-message';
 import { ApiError, describeError } from '@/lib/api';
 import { useMeta, useSession } from '@/lib/queries';
+import { setViewingAs, viewingAs } from '@/lib/session';
 import { cn } from '@/lib/utils';
 
 function labelIn(label: string | Record<string, string> | undefined, locale: string): string | undefined {
@@ -22,7 +24,15 @@ export function AdminLayout() {
   const { t } = useLocale();
   const session = useSession();
   const location = useLocation();
-  if (session.isPending) return <PageMessage>{t('common.loading')}</PageMessage>;
+  const queryClient = useQueryClient();
+  // Viewing as someone who is gone (or after signing in as a non-superuser): stop, and read the real session again.
+  const staleViewAs = session.isError && viewingAs() !== undefined && session.error instanceof ApiError && (session.error.status === 403 || session.error.status === 404);
+  useEffect(() => {
+    if (!staleViewAs) return;
+    setViewingAs(undefined);
+    queryClient.clear();
+  }, [staleViewAs, queryClient]);
+  if (session.isPending || staleViewAs) return <PageMessage>{t('common.loading')}</PageMessage>;
   if (session.isError) {
     if (session.error instanceof ApiError && session.error.status === 401) {
       return <Navigate to={`/login?${new URLSearchParams({ next: location.pathname + location.search })}`} replace />;
@@ -37,6 +47,35 @@ export function AdminLayout() {
     );
   }
   return <Shell />;
+}
+
+/** A superuser looking through another user's eyes: who, read-only, and the way back. */
+function ViewAsBanner() {
+  const { t } = useLocale();
+  const session = useSession();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const data = session.data;
+  if (!data?.viewAs) return null;
+  return (
+    <div role="status" className="flex flex-wrap items-center justify-center gap-3 bg-amber-400 px-4 py-2 text-sm font-medium text-amber-950">
+      <Eye className="size-4" aria-hidden />
+      <span>{t('viewAs.banner', { name: data.user.displayName })}</span>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 border-amber-950/30 bg-amber-50 text-amber-950 hover:bg-amber-100"
+        onClick={() => {
+          const target = data.user.id;
+          setViewingAs(undefined);
+          queryClient.clear();
+          navigate(`/-/users/${encodeURIComponent(target)}`);
+        }}
+      >
+        {t('viewAs.stop')}
+      </Button>
+    </div>
+  );
 }
 
 function Shell() {
@@ -96,6 +135,7 @@ function Shell() {
 
       {/* inert while the drawer is open: focus and screen readers stay in the menu */}
       <div className="flex min-w-0 flex-1 flex-col" inert={menuOpen || undefined}>
+        <ViewAsBanner />
         <Header meta={meta.data} onOpenMenu={() => setMenuOpen(true)} />
         <main className="flex-1 p-4 md:p-6">
           <Outlet />

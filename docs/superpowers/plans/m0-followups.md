@@ -120,3 +120,13 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - Group members show display names from the first page of users (and users picked in the session); others show their id.
 - A group's members are replaced as a whole on save; two managers editing one group at once: the last save wins.
 - Anti-escalation compares scope names; two differently named scopes that select the same rows are treated as different.
+
+## M3-4 follow-ups
+- -> M4: view-as starts and permission changes go to the audit log (today view-as is only logged by the server).
+- Deferred: a configurable table prefix for `nma_*` tables. Entity table names are fixed when the decorators run; a prefix needs entity classes generated at runtime.
+- A role name in the debugger's `sources` from `resolveRoles` or the adapter shows how the name was resolved, not why (their code decides).
+- `expectNoLeaks` crawls up to 20 pages of 100 records per list and searches for up to 20 hidden values; values shorter than 4 characters are not tracked (too many false matches). An out-of-scope record is found by its `_id`, relation references, and its texts appearing elsewhere; a value that is legitimately visible in a record in scope is not counted.
+- The two-factor lockout shares the password's counter; a stolen password plus guessed codes locks the account like guessed passwords do.
+- Recovery codes are shown once; there is no "download as file" yet.
+- The replay guard claims the code's 30-second step with a conditional update; recovery codes are removed with a plain read-then-write, so the same recovery code sent twice at the same moment can sign in twice.
+

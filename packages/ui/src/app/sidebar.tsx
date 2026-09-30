@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router';
-import { ChevronDown, KeyRound, Pin, PinOff, UserRound, UsersRound } from 'lucide-react';
+import { ChevronDown, KeyRound, Pin, PinOff, SearchCheck, UserRound, UsersRound } from 'lucide-react';
 import type { MetaGroup, MetaResourceSummary } from '@nest-my-admin/core/contract';
 import { Input } from '@/components/ui/input';
 import { useLocale } from '@/i18n';
@@ -147,6 +147,7 @@ function AdministrationLinks({ rail }: { rail: boolean }) {
     ['/-/users', t('rbac.users'), UserRound],
     ['/-/groups', t('rbac.groups'), UsersRound],
     ['/-/roles', t('rbac.roles'), KeyRound],
+    ['/-/debugger', t('debugger.title'), SearchCheck],
   ];
   return (
     <div className="mt-auto border-t pt-3">

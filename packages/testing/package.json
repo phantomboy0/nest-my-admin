@@ -1,6 +1,6 @@
 {
   "name": "@nest-my-admin/testing",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Test helpers for nest-my-admin: call the admin as any user, and crawl for permission leaks",
   "license": "MIT",
   "type": "module",
