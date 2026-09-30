@@ -44,7 +44,7 @@ const schema: ResourceSchema = {
     ],
     search: ['name', 'notes'],
   },
-  form: { create: [], update: [], requiredOnCreate: [] },
+  form: { create: [], update: [], requiredOnCreate: [], constraints: { create: {}, update: {} } },
 };
 
 const parse = (query: string, s: ResourceSchema = schema) => parseListQuery(new URLSearchParams(query), s);

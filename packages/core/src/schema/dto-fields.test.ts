@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, test } from 'bun:test';
-import { IsBoolean, IsEmail, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsString } from 'class-validator';
 import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional } from './dto-fields.js';
 
 class SignupDto {
@@ -31,9 +31,18 @@ describe('dto fields', () => {
 
   test('builds a field for DTO-only properties from design:type', () => {
     expect(dtoOnlyField(SignupDto, 'age')).toEqual({
-      name: 'age', label: 'Age', type: 'number', nullable: false, primary: false, readonly: false, persisted: false,
+      name: 'age', label: 'Age', type: 'number', integer: true, nullable: false, primary: false, readonly: false, persisted: false,
     });
     expect(dtoOnlyField(SignupDto, 'newsletter')).toMatchObject({ type: 'boolean', nullable: true });
     expect(dtoOnlyField(SignupDto, 'password')).toMatchObject({ type: 'string', nullable: false });
+  });
+
+  test('DTO-only fields pick up enum values and integers', () => {
+    class ChoiceDto {
+      @IsIn(['a', 'b']) choice: string;
+      @IsInt() count: number;
+    }
+    expect(dtoOnlyField(ChoiceDto, 'choice')).toMatchObject({ type: 'enum', enumValues: ['a', 'b'] });
+    expect(dtoOnlyField(ChoiceDto, 'count')).toMatchObject({ type: 'number', integer: true });
   });
 });

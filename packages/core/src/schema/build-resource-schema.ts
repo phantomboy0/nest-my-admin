@@ -1,8 +1,9 @@
-import type { FieldSchema, FilterSchema, ResourceSchema, SortDirection } from '../contract.js';
+import type { FieldConstraints, FieldSchema, FilterSchema, ResourceSchema, SortDirection } from '../contract.js';
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
-import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional } from './dto-fields.js';
+import { dtoConstraints } from './dto-constraints.js';
+import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional, type DtoClass } from './dto-fields.js';
 import { humanize, kebabCase } from './humanize.js';
 import { didYouMean } from './suggest.js';
 import { SEARCHABLE_TYPES, operatorsFor } from './filter-operators.js';
@@ -101,6 +102,35 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     if (!SEARCHABLE_TYPES.includes(field.type)) return fail(`list.search: column "${name}" (${field.type}) is not a text column`);
   }
 
+  const columnByName = new Map(supportedColumns.map((column) => [column.propertyName, column]));
+  const entityConstraints = (name: string): FieldConstraints => {
+    const field = byName.get(name);
+    if (!field) return {};
+    const constraints: FieldConstraints = {};
+    const length = Number(columnByName.get(name)?.length);
+    if ((field.type === 'string' || field.type === 'text') && Number.isInteger(length) && length > 0) constraints.maxLength = length;
+    if (field.enumValues) constraints.oneOf = field.enumValues;
+    if (field.integer) constraints.integer = true;
+    if (field.type === 'uuid') constraints.format = 'uuid';
+    return constraints;
+  };
+  const compile = (names: string[], dto: DtoClass | undefined, isRequired: (name: string, fromDto?: FieldConstraints) => boolean) => {
+    const fromDto = dto ? dtoConstraints(dto) : {};
+    const out: Record<string, FieldConstraints> = {};
+    for (const name of names) {
+      const merged: FieldConstraints = { ...entityConstraints(name), ...fromDto[name] };
+      delete merged.required;
+      if (isRequired(name, fromDto[name])) merged.required = true;
+      out[name] = merged;
+    }
+    return out;
+  };
+  const dedicatedUpdateDto = resource.form?.update;
+  const constraints = {
+    create: compile(create, createDto, (name) => requiredOnCreate.includes(name)),
+    update: compile(update, updateDto, (_name, fromDto) => dedicatedUpdateDto !== undefined && fromDto?.required === true),
+  };
+
   return {
     name: definition.name ?? kebabCase(entityName),
     label: definition.label ?? humanize(entityName),
@@ -109,6 +139,6 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     primaryKey,
     fields: [...entityFields, ...dtoOnly],
     list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, filters, search },
-    form: { create, update, requiredOnCreate },
+    form: { create, update, requiredOnCreate, constraints },
   };
 }

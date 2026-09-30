@@ -16,6 +16,7 @@ export interface ColumnLike {
   isArray?: boolean;
   enum?: (string | number)[];
   scale?: number;
+  length?: string | number;
   default?: unknown;
   relationMetadata?: unknown;
   embeddedMetadata?: unknown;

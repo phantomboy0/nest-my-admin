@@ -21,11 +21,15 @@ afterAll(async () => {
 describe('product admin (service-first)', () => {
   test('the form comes from the DTOs', async () => {
     const res = await request(app.getHttpServer()).get('/admin/api/meta/resources/product');
-    expect(res.body.form).toEqual({
+    expect(res.body.form).toMatchObject({
       create: ['name', 'sku', 'price', 'stock', 'status', 'releasedOn'],
       update: ['name', 'price', 'stock', 'status', 'releasedOn'],
       requiredOnCreate: ['name', 'sku', 'price'],
     });
+    expect(res.body.form.constraints.create.name).toEqual({ required: true, minLength: 1, maxLength: 120 });
+    expect(res.body.form.constraints.create.sku).toMatchObject({ required: true, pattern: { source: '^[A-Za-z0-9-]{2,40}$', flags: '', message: 'sku must be 2-40 letters, digits or dashes' } });
+    expect(res.body.form.constraints.create.stock).toEqual({ integer: true, min: 0 });
+    expect(res.body.form.constraints.create.status).toEqual({ oneOf: ['draft', 'active', 'archived'] });
   });
 
   test('create runs ProductsService and decimals stay strings even on SQLite', async () => {

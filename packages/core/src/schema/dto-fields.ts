@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { ValidationTypes, getMetadataStorage } from 'class-validator';
 import type { FieldSchema, FieldType } from '../contract.js';
+import { dtoConstraints } from './dto-constraints.js';
 import { humanize } from './humanize.js';
 
 export type DtoClass = new (...args: any[]) => object;
@@ -31,13 +32,17 @@ const DESIGN_TYPES = new Map<unknown, FieldType>([
 /** Schema for a DTO property that has no entity column (e.g. `password`, hashed by the host service). */
 export function dtoOnlyField(dto: DtoClass, property: string): FieldSchema {
   const designType: unknown = Reflect.getMetadata('design:type', dto.prototype, property);
-  return {
+  const constraints = dtoConstraints(dto)[property] ?? {};
+  const field: FieldSchema = {
     name: property,
     label: humanize(property),
-    type: DESIGN_TYPES.get(designType) ?? 'string',
+    type: constraints.oneOf ? 'enum' : (DESIGN_TYPES.get(designType) ?? 'string'),
     nullable: isDtoPropertyOptional(dto, property),
     primary: false,
     readonly: false,
     persisted: false,
   };
+  if (constraints.oneOf) field.enumValues = constraints.oneOf;
+  if (constraints.integer) field.integer = true;
+  return field;
 }

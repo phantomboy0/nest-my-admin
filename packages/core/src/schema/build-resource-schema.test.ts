@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { IsDateString, IsOptional, IsString, Length } from 'class-validator';
+import { IsDateString, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import { Column, CreateDateColumn, DataSource, Entity, PrimaryColumn, PrimaryGeneratedColumn } from 'typeorm';
 import { AdminResource, getAdminResourceDefinition } from '../decorators/admin-resource.js';
 import { AdminResourceBase, type ListConfig } from '../resource/admin-resource-base.js';
@@ -93,11 +93,18 @@ describe('buildResourceSchema', () => {
       filters: [{ field: 'condition', operators: ['eq', 'ne', 'in', 'nin'] }],
       search: ['name'],
     });
-    expect(schema.form).toEqual({
+    expect(schema.form).toMatchObject({
       create: ['name', 'price', 'condition', 'specs'],
       update: ['name', 'price', 'condition', 'specs'],
       requiredOnCreate: ['name', 'price'],
     });
+    expect(schema.form.constraints.create).toEqual({
+      name: { required: true, maxLength: 60 },
+      price: { required: true },
+      condition: { oneOf: ['new', 'used'] },
+      specs: {},
+    });
+    expect(schema.form.constraints.update.name).toEqual({ maxLength: 60 });
   });
 
   test('uses DTO properties for the form, including DTO-only fields', () => {
@@ -106,12 +113,29 @@ describe('buildResourceSchema', () => {
       form = { create: CreateGadgetDto };
     }
     const schema = schemaFor(new GadgetAdmin());
-    expect(schema.form).toEqual({
+    expect(schema.form).toMatchObject({
       create: ['name', 'price', 'secret'],
       update: ['name', 'price', 'secret'],
       requiredOnCreate: ['name', 'price'],
     });
+    expect(schema.form.constraints.create).toEqual({
+      name: { required: true, minLength: 1, maxLength: 60 },
+      price: { required: true },
+      secret: {},
+    });
+    expect(schema.form.constraints.update.name).toEqual({ minLength: 1, maxLength: 60 }); // create DTO reused as a partial update
     expect(schema.fields.find((f) => f.name === 'secret')).toMatchObject({ type: 'string', persisted: false, nullable: true });
+  });
+
+  test('a dedicated update DTO decides what is required on update', () => {
+    class RenameGadgetDto {
+      @IsString() @MaxLength(10) name: string;
+    }
+    @AdminResource(Gadget)
+    class RenameAdmin extends AdminResourceBase<Gadget> {
+      form = { create: CreateGadgetDto, update: RenameGadgetDto };
+    }
+    expect(schemaFor(new RenameAdmin()).form.constraints.update).toEqual({ name: { required: true, maxLength: 10 } });
   });
 
   test('honours resource options and list config', () => {

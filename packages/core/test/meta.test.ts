@@ -28,7 +28,7 @@ describe('meta API', () => {
     expect(res.status).toBe(200);
     expect(res.body.primaryKey).toBe('id');
     expect(res.body.list.columns).toEqual(['id', 'name', 'price', 'status', 'visible']);
-    expect(res.body.form).toEqual({
+    expect(res.body.form).toMatchObject({
       create: ['name', 'price', 'status', 'visible', 'notes'],
       update: ['name', 'price', 'status', 'visible', 'notes'],
       requiredOnCreate: ['name'],

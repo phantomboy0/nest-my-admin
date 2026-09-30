@@ -10,7 +10,7 @@ const schemaWithKey = (type: FieldType): ResourceSchema => ({
   primaryKey: 'id',
   fields: [{ name: 'id', label: 'Id', type, nullable: false, primary: true, readonly: true, persisted: true }],
   list: { columns: ['id'], sortable: ['id'], defaultSort: { field: 'id', direction: 'desc' }, pageSize: 25, filters: [], search: [] },
-  form: { create: [], update: [], requiredOnCreate: [] },
+  form: { create: [], update: [], requiredOnCreate: [], constraints: { create: {}, update: {} } },
 });
 
 describe('parseRecordId', () => {

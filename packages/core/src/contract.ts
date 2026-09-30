@@ -28,6 +28,20 @@ export interface FieldSchema {
   integer?: boolean;
 }
 
+/** Rules the browser checks before submitting (spec §9.4). The server re-validates; these only save a round trip. */
+export interface FieldConstraints {
+  required?: boolean;
+  minLength?: number;
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  integer?: boolean;
+  /** From @Matches: rebuild with `new RegExp(source, flags)`. */
+  pattern?: { source: string; flags: string; message?: string };
+  format?: 'email' | 'url' | 'uuid';
+  oneOf?: string[];
+}
+
 export interface MetaResourceSummary {
   name: string;
   label: string;
@@ -78,6 +92,7 @@ export interface ResourceSchema {
     create: string[];
     update: string[];
     requiredOnCreate: string[];
+    constraints: { create: Record<string, FieldConstraints>; update: Record<string, FieldConstraints> };
   };
 }
 
