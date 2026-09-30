@@ -5,10 +5,27 @@ import type { DtoClass } from './dto-fields.js';
 const num = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
 
 /** A custom message is usable only when its placeholders can be resolved without a value. */
-function patternMessage(message: unknown, property: string): { message?: string } {
+function patternMessage(message: unknown, property: string, dtoName: string): { message?: string } {
   if (typeof message !== 'string') return {};
-  const filled = message.replaceAll('$property', property);
+  const filled = message.replaceAll('$property', property).replaceAll('$target', dtoName);
   return /\$(value|constraint)/.test(filled) ? {} : { message: filled };
+}
+
+/** True when the DTO marks the property with @ValidateIf: the server may skip every rule on it. */
+export function isConditionalProperty(dto: DtoClass, property: string): boolean {
+  return getMetadataStorage()
+    .getTargetValidationMetadatas(dto, '', true, false)
+    .some((meta) => meta.propertyName === property && meta.type === ValidationTypes.CONDITIONAL_VALIDATION && meta.name !== 'isOptional');
+}
+
+/** True when a `new dto()` carries a value for the property (a class initializer): plainToInstance fills it, so the client need not send it. */
+export function hasDtoInitializer(dto: DtoClass, property: string): boolean {
+  try {
+    const instance = new dto() as Record<string, unknown>;
+    return Object.hasOwn(instance, property) && instance[property] !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 /** Browser-checkable constraints per DTO property, compiled from class-validator metadata (spec §5.3, §9.4). */
@@ -64,7 +81,7 @@ export function dtoConstraints(dto: DtoClass): Record<string, FieldConstraints> 
         constraints.pattern = {
           source: regex.source,
           flags: regex.flags.replace(/[gy]/g, ''), // stateful flags make class-validator's RegExp.test() unreliable
-          ...patternMessage(meta.message, meta.propertyName),
+          ...patternMessage(meta.message, meta.propertyName, dto.name),
         };
         break;
       }
@@ -72,7 +89,7 @@ export function dtoConstraints(dto: DtoClass): Record<string, FieldConstraints> 
   }
   for (const [name, constraints] of Object.entries(result)) {
     if (conditional.has(name)) result[name] = { required: false };
-    else constraints.required = !optional.has(name);
+    else constraints.required = !optional.has(name) && !hasDtoInitializer(dto, name);
   }
   return result;
 }

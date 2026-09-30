@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, test } from 'bun:test';
 import { ValidateIf, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUrl, IsUUID, Length, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
-import { dtoConstraints } from './dto-constraints.js';
+import { dtoConstraints, isConditionalProperty } from './dto-constraints.js';
 
 class SampleDto {
   @IsString() @Length(2, 40) name: string;
@@ -61,5 +61,32 @@ describe('dtoConstraints', () => {
     expect(c.one.pattern?.message).toBe('one must be a');
     expect(c.two.pattern?.message).toBeUndefined();
     expect(c.three.pattern?.message).toBeUndefined();
+  });
+
+  test('a property with a class initializer is not required (plainToInstance fills it)', () => {
+    class DefaultedDto {
+      @IsIn(['draft', 'live']) status = 'draft';
+      @IsString() name: string;
+    }
+    expect(dtoConstraints(DefaultedDto).status.required).toBe(false);
+    expect(dtoConstraints(DefaultedDto).name.required).toBe(true);
+  });
+
+  test('isConditionalProperty flags @ValidateIf but not @IsOptional', () => {
+    class MixedDto {
+      @ValidateIf(() => true) @MinLength(5) a: string;
+      @IsOptional() @MinLength(5) b: string;
+      @MinLength(5) c: string;
+    }
+    expect(isConditionalProperty(MixedDto, 'a')).toBe(true);
+    expect(isConditionalProperty(MixedDto, 'b')).toBe(false);
+    expect(isConditionalProperty(MixedDto, 'c')).toBe(false);
+  });
+
+  test('$target in a pattern message becomes the DTO class name', () => {
+    class TargetDto {
+      @Matches(/^a$/, { message: '$target.$property must be a' }) one: string;
+    }
+    expect(dtoConstraints(TargetDto).one.pattern?.message).toBe('TargetDto.one must be a');
   });
 });

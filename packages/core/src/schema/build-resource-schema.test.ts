@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { IsDateString, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, Length, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { Column, CreateDateColumn, DataSource, Entity, PrimaryColumn, PrimaryGeneratedColumn } from 'typeorm';
 import { AdminResource, getAdminResourceDefinition } from '../decorators/admin-resource.js';
 import { AdminResourceBase, type ListConfig } from '../resource/admin-resource-base.js';
@@ -246,5 +246,33 @@ describe('buildResourceSchema', () => {
       list: ListConfig<Tool> = { filters: ['wieght' as 'weight'] };
     }
     expect(() => schemaFor(new TypoFilterAdmin(), Tool)).toThrow('list.filters: unknown column "wieght" on Tool (did you mean "weight"?)');
+  });
+
+  test('a DTO property with a class initializer is not required on create', () => {
+    class DefaultedGadgetDto {
+      @IsString() name: string;
+      @IsIn(['new', 'used']) condition = 'new';
+    }
+    @AdminResource(Gadget)
+    class GadgetAdmin extends AdminResourceBase<Gadget> {
+      form = { create: DefaultedGadgetDto };
+    }
+    const schema = schemaFor(new GadgetAdmin());
+    expect(schema.form.requiredOnCreate).toEqual(['name']);
+    expect(schema.form.constraints.create.condition.required).toBeUndefined();
+  });
+
+  test('a @ValidateIf property gets no client rules, not even entity-derived ones', () => {
+    class ConditionalGadgetDto {
+      @IsString() @Length(1, 60) price: string;
+      @ValidateIf((o: { price?: string }) => o.price === 'x') @MinLength(5) name: string;
+    }
+    @AdminResource(Gadget)
+    class GadgetAdmin extends AdminResourceBase<Gadget> {
+      form = { create: ConditionalGadgetDto };
+    }
+    const schema = schemaFor(new GadgetAdmin());
+    expect(schema.form.constraints.create.name).toEqual({});
+    expect(schema.form.requiredOnCreate).not.toContain('name');
   });
 });

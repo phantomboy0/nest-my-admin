@@ -2,7 +2,7 @@ import type { FieldConstraints, FieldSchema, FilterSchema, ResourceSchema, SortD
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
-import { dtoConstraints } from './dto-constraints.js';
+import { dtoConstraints, hasDtoInitializer, isConditionalProperty } from './dto-constraints.js';
 import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional, type DtoClass } from './dto-fields.js';
 import { humanize, kebabCase } from './humanize.js';
 import { didYouMean } from './suggest.js';
@@ -59,7 +59,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   }
 
   const requiredOnCreate = createDto
-    ? create.filter((name) => !isDtoPropertyOptional(createDto, name))
+    ? create.filter((name) => !isDtoPropertyOptional(createDto, name) && !hasDtoInitializer(createDto, name))
     : supportedColumns
         .filter((c) => writable.includes(c.propertyName) && !c.isNullable && c.default === undefined)
         .map((c) => c.propertyName);
@@ -118,7 +118,8 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     const fromDto = dto ? dtoConstraints(dto) : {};
     const out: Record<string, FieldConstraints> = {};
     for (const name of names) {
-      const merged: FieldConstraints = { ...entityConstraints(name), ...fromDto[name] };
+      // @ValidateIf: the server may skip every rule, so the browser checks none (entity-derived ones included)
+      const merged: FieldConstraints = dto && isConditionalProperty(dto, name) ? {} : { ...entityConstraints(name), ...fromDto[name] };
       delete merged.required;
       if (isRequired(name, fromDto[name])) merged.required = true;
       out[name] = merged;
