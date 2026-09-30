@@ -27,6 +27,8 @@ import { databaseOptions } from './database.js';
         },
       ],
       resolveRoles: (user) => (user.username === 'editor' ? ['catalog-editor'] : []),
+      // Roles, groups and users are also managed in the admin (Administration section; the seed adds a Support role).
+      rbac: {},
       auth: builtinAuth({ bootstrapSuperuser: { username: 'admin', password: process.env.NMA_DEMO_PASSWORD ?? 'admin-demo-pass', displayName: 'Demo Admin' } }),
     }),
     CatalogModule,

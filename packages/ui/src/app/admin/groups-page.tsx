@@ -74,6 +74,10 @@ function GroupEditor({ roles, group }: { roles: RbacRole[]; group?: RbacGroup })
   const [members, setMembers] = useState<string[]>(group?.members ?? []);
   const [search, setSearch] = useState('');
   const found = useQuery({ queryKey: ['rbac', 'users', search], queryFn: () => api.rbac.users({ search }), enabled: search.trim().length > 0 });
+  // Names of members, from the first page of users and from users picked in this session.
+  const everyone = useQuery({ queryKey: ['rbac', 'users', '', 1], queryFn: () => api.rbac.users({}) });
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const nameOf = (id: string) => picked[id] ?? everyone.data?.items.find((user) => user.id === id)?.displayName ?? id;
   const [error, setError] = useState<string | null>(null);
 
   const save = useMutation({
@@ -138,9 +142,9 @@ function GroupEditor({ roles, group }: { roles: RbacRole[]; group?: RbacGroup })
         <ul aria-label={t('rbac.members')} className="flex flex-wrap gap-2">
           {members.map((member) => (
             <li key={member} className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-sm">
-              {member}
+              {nameOf(member)}
               {!readOnly && (
-                <button type="button" aria-label={t('picker.remove', { name: member })} onClick={() => setMembers(members.filter((item) => item !== member))}>
+                <button type="button" aria-label={t('picker.remove', { name: nameOf(member) })} onClick={() => setMembers(members.filter((item) => item !== member))}>
                   <X className="size-3.5" />
                 </button>
               )}
@@ -157,7 +161,15 @@ function GroupEditor({ roles, group }: { roles: RbacRole[]; group?: RbacGroup })
                 .filter((user) => !members.includes(user.id))
                 .map((user) => (
                   <li key={user.id}>
-                    <Button type="button" variant="outline" size="sm" onClick={() => setMembers([...members, user.id])}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setPicked({ ...picked, [user.id]: user.displayName });
+                        setMembers([...members, user.id]);
+                      }}
+                    >
                       <Plus />
                       {user.displayName}
                       {user.username ? ` (${user.username})` : ''}

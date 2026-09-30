@@ -1,4 +1,5 @@
 import { NmaUser, createAdminUser } from '@nest-my-admin/auth';
+import { NmaGroup, NmaGroupRole, NmaRole } from '@nest-my-admin/core';
 import type { INestApplication } from '@nestjs/common';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import type { DataSource, Repository } from 'typeorm';
@@ -35,4 +36,19 @@ export async function seedUsers(app: INestApplication): Promise<void> {
   const dataSource = app.get<DataSource>(getDataSourceToken());
   if (await dataSource.getRepository(NmaUser).existsBy({ username: 'editor' })) return;
   await createAdminUser(dataSource, { username: 'editor', password: 'editor-demo-pass', displayName: 'Demo Editor' });
+}
+
+/** A role and a group stored in the database (the Roles and Groups pages), next to the code role catalog-editor. */
+export async function seedRbac(app: INestApplication): Promise<void> {
+  const dataSource = app.get<DataSource>(getDataSourceToken());
+  if (await dataSource.getRepository(NmaRole).existsBy({ name: 'support' })) return;
+  await dataSource.getRepository(NmaRole).save({
+    name: 'support',
+    label: { en: 'Support', fa: 'پشتیبانی' },
+    description: null,
+    system: false,
+    definition: { permissions: ['product.view', 'stock-move.view'] },
+  });
+  const group = await dataSource.getRepository(NmaGroup).save({ name: 'support-team', label: { en: 'Support team', fa: 'تیم پشتیبانی' } });
+  await dataSource.getRepository(NmaGroupRole).save({ groupId: group.id, roleName: 'support' });
 }

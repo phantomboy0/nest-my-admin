@@ -99,6 +99,14 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
     - `maskOutOfScope` masks related rows outside the target's scopes.
   - `AdminApiService` calls the policy at every endpoint: `require` (404 without reach, 403 without the operation), then `checkWriteFields`, then the scope checks.
   - Tests: `test/policy.test.ts`, ending with a leak crawl.
+- RBAC in the database (M3-3):
+  - `rbac/entities.ts` holds the tables. `AdminRbac` (rbac/rbac.service.ts) handles:
+    - the system-role sync at `onApplicationBootstrap`;
+    - `roles()` (code roles plus stored roles that validate) and `assignedRoleNames()`, both cached by `permissionsVersion` and cleared by `invalidate()` on every write;
+    - every write, each passing validation and `escalations()` (rbac/escalation.ts).
+  - `AdminPolicy.forUser` unions `resolveRoles`, adapter roles and stored assignments.
+  - `rbac/rbac-routes.ts` holds `/api/rbac/*`; users go through the adapter's optional methods.
+  - UI: `app/admin/*` pages under `/-/users|groups|roles`; `lib/role-draft.ts` expands wildcards when a matrix box is unticked.
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.
 - `packages/core/src/contract.ts` is the JSON contract with the UI. It is types only; the UI imports it from source through a tsconfig path.
 - `packages/ui` is a Vite + React + shadcn SPA published as static `dist/` only (all its deps are devDependencies). The shadcn primitives and theme tokens were copied from crm-next (`radix-nova`, neutral).

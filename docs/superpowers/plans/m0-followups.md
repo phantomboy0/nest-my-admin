@@ -113,3 +113,10 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - A `findMany` override that ignores scopes still reports its own `total`; rows are filtered, the count is not.
 - Paths deeper than one hop check each hop's resource permission, and the rows of the first hop's scope only.
 - Meta lists resources the user may view; a create-only role reaches `/r/new` by URL, not from the sidebar.
+
+## M3-3 follow-ups
+- -> M3-4: permission debugger; view-as; TOTP 2FA; configurable `nma_` table prefix; `@nest-my-admin/testing`.
+- The permissions cache and `permissionsVersion` live in memory per process; with several instances, a role change reaches the others only when their cache is cleared (restart) — a shared cache adapter (Redis) comes with M5's infrastructure work.
+- Group members show display names from the first page of users (and users picked in the session); others show their id.
+- A group's members are replaced as a whole on save; two managers editing one group at once: the last save wins.
+- Anti-escalation compares scope names; two differently named scopes that select the same rows are treated as different.

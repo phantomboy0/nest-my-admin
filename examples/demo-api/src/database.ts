@@ -1,4 +1,5 @@
 import { ADMIN_AUTH_ENTITIES } from '@nest-my-admin/auth';
+import { ADMIN_RBAC_ENTITIES } from '@nest-my-admin/core';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { Category } from './catalog/category.entity.js';
 import { Product } from './catalog/product.entity.js';
@@ -8,7 +9,7 @@ import { Tag } from './catalog/tag.entity.js';
 
 /** DATABASE_URL=postgres://… or mysql://… runs the demo on that database; without it, on in-memory sql.js. */
 export function databaseOptions(url = process.env.DATABASE_URL): TypeOrmModuleOptions {
-  const entities = [Product, Category, Tag, Supplier, StockMove, ...ADMIN_AUTH_ENTITIES];
+  const entities = [Product, Category, Tag, Supplier, StockMove, ...ADMIN_AUTH_ENTITIES, ...ADMIN_RBAC_ENTITIES];
   if (!url) return { type: 'sqljs', entities, synchronize: true };
   const scheme = new URL(url).protocol.slice(0, -1);
   if (scheme === 'postgres' || scheme === 'postgresql') return { type: 'postgres', url, entities, synchronize: true };

@@ -769,3 +769,83 @@ test.describe('as the catalog editor', () => {
     await expect(page.getByRole('columnheader', { name: /^Cost/ })).toHaveCount(1);
   });
 });
+
+test.describe('administration: users, groups and roles', () => {
+  test('a role made in the matrix, given through a group, applies to a new user (M3-3)', async ({ page, browser, baseURL, isMobile }) => {
+    test.skip(isMobile, 'the matrix editor is a desktop table');
+    // A user.
+    await page.goto('/admin/-/users');
+    await page.getByRole('link', { name: 'New user' }).click();
+    await page.getByLabel('Username').fill('ivy');
+    await page.getByLabel('Display name').fill('Ivy Reviewer');
+    await page.getByLabel('Password').fill('ivy-password-1');
+    await page.getByRole('button', { name: 'Create user' }).click();
+    await expect(page.getByRole('heading', { name: 'Ivy Reviewer' })).toBeVisible();
+
+    // A role: products view and change, price read-only, changes to drafts only.
+    await page.goto('/admin/-/roles/new');
+    await page.getByLabel('Name', { exact: true }).fill('reviewer');
+    await page.getByLabel('Label (en)').fill('Reviewer');
+    await page.getByRole('checkbox', { name: 'View Product' }).check();
+    await page.getByRole('checkbox', { name: 'Change Product' }).check();
+    await page.getByRole('button', { name: 'Fields and scopes of Product' }).click();
+    await page.getByLabel('Access to Price').selectOption('readonly');
+    await page.getByRole('group', { name: 'Change:' }).getByRole('checkbox', { name: 'drafts' }).check();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page).toHaveURL(/\/admin\/-\/roles\/reviewer$/);
+
+    // A group with that role and the user.
+    await page.goto('/admin/-/groups/new');
+    await page.getByLabel('Name', { exact: true }).fill('reviewers');
+    await page.getByRole('checkbox', { name: 'Reviewer' }).check();
+    await page.getByLabel('Add a member').fill('ivy');
+    await page.getByRole('button', { name: /Ivy Reviewer/ }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page).toHaveURL(/\/admin\/-\/groups\/\d+$/);
+    await expect(page.getByRole('list', { name: 'Members' })).toContainText('Ivy Reviewer');
+
+    // Ivy signs in: products only; active products read-only; drafts editable except the price.
+    const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+    const ivy = await context.newPage();
+    try {
+      await ivy.goto('/admin/login');
+      await ivy.getByLabel('Username').fill('ivy');
+      await ivy.getByLabel('Password').fill('ivy-password-1');
+      await ivy.getByRole('button', { name: 'Sign in' }).click();
+      await expect(ivy.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Catalog' }).getByRole('link')).toHaveText(['Product']);
+      await ivy.goto('/admin/product?search=DEMO-');
+      await openRecord(ivy, 'DEMO-1');
+      await expect(ivy.getByText('You can view this record but not change it.')).toBeVisible();
+      await ivy.goto('/admin/product?search=DEMO-');
+      await openRecord(ivy, 'DEMO-3');
+      await expect(ivy.locator('[data-readonly="price"]')).toBeVisible();
+      await expect(ivy.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('system roles are read-only; roles export and import', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'one run is enough');
+    await page.goto('/admin/-/roles');
+    await expect(page.getByRole('list', { name: 'Roles' })).toContainText('Catalog editor');
+    await page.getByRole('link', { name: /Catalog editor/ }).click();
+    await expect(page.getByText('This role is defined in code: change it there.')).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'View Product' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
+
+    await page.goto('/admin/-/roles');
+    const download = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export' }).click();
+    const exported = JSON.parse(await (await (await download).createReadStream())!.toArray().then((chunks) => Buffer.concat(chunks).toString('utf8')));
+    expect(exported.roles.map((role: { name: string }) => role.name)).toContain('support');
+
+    await page.getByLabel('Roles file to import').setInputFiles({
+      name: 'roles.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify({ version: 1, roles: [{ name: 'tag-viewer', permissions: ['tag.view'] }] })),
+    });
+    await expect(page.getByRole('status')).toHaveText('1 roles imported.');
+    await expect(page.getByRole('list', { name: 'Roles' })).toContainText('tag-viewer');
+  });
+});

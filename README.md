@@ -379,6 +379,21 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   - A resource that overrides `findMany`/`findOne` still cannot leak rows: the API re-checks with its own scoped query.
 - **In your code:** `ctx.can('order.view_all')` and `ctx.permissions`.
 
+### Roles, groups and users in the admin
+
+```ts
+import { ADMIN_RBAC_ENTITIES } from '@nest-my-admin/core';
+
+TypeOrmModule.forRoot({ /* … */ entities: [/* yours */, ...ADMIN_AUTH_ENTITIES, ...ADMIN_RBAC_ENTITIES] }),
+AdminModule.forRoot({ rbac: {}, roles: [/* system roles */], auth: builtinAuth({ /* … */ }) }),
+```
+
+- **Tables.** Roles, groups and memberships live in `nma_role`, `nma_group`, `nma_group_role`, `nma_group_member` and `nma_user_role`. The Administration section shows Users, Groups and Roles to `rbac.view`, and `rbac.manage` may change them.
+- **Roles from code** are stored as system roles at every boot: read-only in the admin, and code always wins. A user's roles are the union of their direct roles, their groups' roles and `resolveRoles`, and changes apply on the next request.
+- **The Roles page** is a matrix of resources × view/create/update/delete/purge. Each row expands to per-field access and to row scopes per operation, plus custom and global codes. Roles export and import as JSON; an import is all or nothing and validated like the editor.
+- **Anti-escalation.** A manager who is not a superuser may only create, change, assign or remove roles within their own permissions (codes, field levels, scopes). They cannot change superusers, make anyone a superuser, or give themselves roles or groups.
+- **Users** come from the auth adapter. `@nest-my-admin/auth` lists, creates and edits users and sets passwords; deactivating a user or setting their password signs them out everywhere. Other adapters may implement `listUsers`, `getUser`, `createUser`, `updateUser` and `setPassword`. Without them, the page shows the users that have roles or groups.
+
 Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers); middleware registered in `main.ts` before `listen` still runs. Do not enable wildcard CORS for it. Catch-all routes the host registered earlier take precedence over the admin.
 
 ## Develop
