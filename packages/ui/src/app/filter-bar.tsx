@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RelationInput } from '@/app/relation-input';
-import { useT } from '@/i18n';
+import { useLocale, useT } from '@/i18n';
 import { filterChips, type FilterChip } from '@/lib/filter-chips';
+import { DateInput } from '@/app/date-input';
 import { toLatinNumber } from '@/lib/digits';
 import { toDatetimeLocal } from '@/lib/form-values';
 import { useRelationRefs } from '@/lib/queries';
@@ -170,7 +171,7 @@ function MultiSelectFilter({ id, field, params, onChange }: { id: string } & Pic
 }
 
 function MainFilterControl({ resource, field, operators, params, onChange }: FilterControlProps) {
-  const t = useT();
+  const { t, calendar } = useLocale();
   const id = `filter-${field.name}`;
 
   if (field.type === 'enum' && operators.includes('in')) return <MultiSelectFilter id={id} field={field} params={params} onChange={onChange} />;
@@ -197,6 +198,33 @@ function MainFilterControl({ resource, field, operators, params, onChange }: Fil
           ))}
         </select>
       </div>
+    );
+  }
+
+  if ((field.type === 'date' || (field.type === 'datetime' && calendar === 'persian')) && operators.includes('gte') && operators.includes('lte')) {
+    // Dates, and Jalali datetimes as whole local days: from the start of the first day to the end of the last (spec §12).
+    const toUrl = (operator: 'gte' | 'lte', value: string) =>
+      field.type === 'date' || !value ? value : new Date(`${value}T${operator === 'gte' ? '00:00:00.000' : '23:59:59.999'}`).toISOString();
+    const fromUrl = (value: string | null) => (value && field.type === 'datetime' ? toDatetimeLocal(value).slice(0, 10) : (value ?? ''));
+    return (
+      <fieldset className="flex flex-col gap-1.5">
+        <legend className="mb-1.5 text-sm font-medium">{field.label}</legend>
+        <div className="flex flex-wrap gap-2">
+          {(['gte', 'lte'] as const).map((operator) => {
+            const key = filterKey(field.name, operator);
+            const inputId = `${id}-${operator}`;
+            const label = t(operator === 'gte' ? 'filters.from' : 'filters.to');
+            return (
+              <div key={operator} className="flex min-w-36 flex-1 flex-col gap-1">
+                <Label htmlFor={inputId} className="text-xs text-muted-foreground">
+                  {label}
+                </Label>
+                <DateInput id={inputId} label={`${field.label} ${label}`} value={fromUrl(params.get(key))} onChange={(value) => onChange({ [key]: toUrl(operator, value) || null })} />
+              </div>
+            );
+          })}
+        </div>
+      </fieldset>
     );
   }
 

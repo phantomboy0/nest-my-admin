@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { fromJalali, isJalaliLeapYear, isValidJalali, jalaliMonthLength, toJalali } from './jalali';
+import { addDays, addJalaliMonths, formatJalali, fromJalali, isJalaliLeapYear, isValidJalali, jalaliMonthLength, parseJalali, toJalali } from './jalali';
 
 const persian = new Intl.DateTimeFormat('en-u-ca-persian-nu-latn', { timeZone: 'UTC', year: 'numeric', month: 'numeric', day: 'numeric' });
 const intlJalali = (date: Date) => {
@@ -40,5 +40,24 @@ describe('Jalali', () => {
       if (mismatches.length > 5) break;
     }
     expect(mismatches).toEqual([]);
+  });
+});
+
+describe('Jalali text', () => {
+  test('format and parse, in any digits and separators', () => {
+    expect(formatJalali('2024-04-03')).toBe('1403/01/15');
+    expect(parseJalali('1403/01/15')).toBe('2024-04-03');
+    expect(parseJalali('۱۴۰۳/۱/۱۵')).toBe('2024-04-03');
+    expect(parseJalali(' 1403-1-15 ')).toBe('2024-04-03');
+    expect(parseJalali('1402/12/30')).toBeUndefined(); // 1402 is not leap
+    expect(parseJalali('1403/13/01')).toBeUndefined();
+    expect(parseJalali('2024-04-03x')).toBeUndefined();
+  });
+  test('moving by months and days', () => {
+    expect(formatJalali(addJalaliMonths('2024-04-03', 1))).toBe('1403/02/15');
+    expect(formatJalali(addJalaliMonths(fromJalali(1403, 6, 31), 1))).toBe('1403/07/30'); // clamped
+    expect(formatJalali(addJalaliMonths(fromJalali(1403, 1, 10), -1))).toBe('1402/12/10');
+    expect(addDays('2024-03-31', 1)).toBe('2024-04-01');
+    expect(addDays('2024-03-01', -1)).toBe('2024-02-29');
   });
 });

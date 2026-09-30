@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { FieldConstraints, FieldSchema } from '@nest-my-admin/core/contract';
+import { DateInput, DateTimeInput } from '@/app/date-input';
 import { RelationInput, type RelationValue } from '@/app/relation-input';
 import { ColorInput, JsonInput, MoneyInput, PlainTextarea, RadioInput, SwitchInput, TextInput } from '@/app/widgets/inputs';
 import { Label } from '@/components/ui/label';
@@ -109,6 +110,12 @@ export function FieldInput({ resource, field, value, required, errors, constrain
     switch (widget) {
       case 'money':
         control = <MoneyInput {...widgetProps} />;
+        break;
+      case 'date':
+        control = <DateInput id={id} live value={text} label={field.label} onChange={(next) => onChange(next)} {...aria} />;
+        break;
+      case 'datetime':
+        control = <DateTimeInput id={id} value={text} label={field.label} onChange={(next) => onChange(next)} {...aria} />;
         break;
       case 'json':
         control = <JsonInput {...widgetProps} />;

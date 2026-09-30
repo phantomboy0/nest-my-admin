@@ -91,7 +91,17 @@ export const fa: Messages = {
   'filters.emptyValues': '{field}: مقدارهای خالی',
   'filters.selected': '{count} مورد',
 
-  'display.title': 'تقویم و ارقام',
+  'date.openCalendar': 'انتخاب {name} از تقویم',
+  'date.calendar': 'تقویم {name}',
+  'date.previous': 'قبلی',
+  'date.next': 'بعدی',
+  'date.chooseMonth': 'انتخاب ماه',
+  'date.chooseYear': 'انتخاب سال',
+  'date.today': 'امروز',
+  'date.clear': 'پاک کردن',
+  'date.time': 'ساعت {name}',
+
+  'display.title': 'تنظیمات نمایش',
   'display.calendar': 'تقویم',
   'display.gregorian': 'میلادی',
   'display.jalali': 'شمسی',

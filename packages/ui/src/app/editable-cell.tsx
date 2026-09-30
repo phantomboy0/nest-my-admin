@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, ListResponse, ResourceSchema } from '@nest-my-admin/core/contract';
 import { useT } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
+import { DateInput } from '@/app/date-input';
 import { DisplayValue } from '@/app/widgets/badge';
 import { formatCell } from '@/lib/format';
 import { toFormValues, toPayload } from '@/lib/form-values';
@@ -126,12 +127,30 @@ export function EditableCell({ schema, item, field }: EditableCellProps) {
         ))}
       </select>
     );
+  } else if (field.type === 'date') {
+    // Saved when a day is picked, or on Enter / leaving the text; Escape cancels.
+    control = (
+      <DateInput
+        id={`cell-${schema.name}-${String(item._id)}-${field.name}`}
+        label={field.label}
+        value={String(draft)}
+        onChange={(value) => {
+          setDraft(value);
+          commit(value);
+        }}
+        autoFocus
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        className="min-w-44"
+        onKeyDown={onKeyDown}
+      />
+    );
   } else {
     const numeric = field.type === 'number' || field.type === 'decimal' || field.type === 'bigint';
     control = (
       <input
         {...common}
-        type={field.type === 'date' ? 'date' : 'text'}
+        type="text"
         inputMode={numeric ? (field.type === 'bigint' ? 'numeric' : 'decimal') : undefined}
         value={String(draft)}
         onChange={(event) => setDraft(event.target.value)}

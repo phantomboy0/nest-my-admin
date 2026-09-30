@@ -278,12 +278,18 @@ test('switching to Persian turns the page right-to-left and survives a reload', 
   await expect(page.getByRole('link', { name: 'جدید' })).toBeVisible();
 });
 
-test('dark mode survives a reload', async ({ page }) => {
+test('dark mode survives a reload', async ({ page, isMobile }) => {
+  // On phones the theme is in the Display settings menu.
+  const openDisplay = async () => {
+    if (isMobile) await page.getByRole('button', { name: 'Display settings' }).click();
+  };
   await page.goto('/admin/product');
+  await openDisplay();
   await page.getByRole('radio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveClass(/dark/);
   await page.reload();
   await expect(page.locator('html')).toHaveClass(/dark/);
+  await openDisplay();
   await page.getByRole('radio', { name: 'Light' }).click();
   await expect(page.locator('html')).not.toHaveClass(/dark/);
 });
@@ -501,4 +507,39 @@ test('Duplicate prefills a copy without its SKU; Save & new opens an empty form'
   await expect(page.getByLabel('Name')).toHaveValue('');
   const copy = await (await page.request.get(`/admin/api/resources/product?search=TWIN2-${tag}`)).json();
   expect(copy.items[0]).toMatchObject({ name: 'Twin lamp', stock: 4, price: '15.00' });
+});
+
+test('Jalali dates: typed in any digits, picked from the calendar, and used in filters (M2-4 Review Focus 1)', async ({ page, isMobile }, testInfo) => {
+  const url = await makeProduct(page, { name: 'Nowruz lamp', sku: `JAL-${testInfo.project.name.toUpperCase()}`, price: '9', stock: 3, status: 'active' });
+  await page.goto(url);
+  await page.getByRole('button', { name: 'Display settings' }).click();
+  await page.getByRole('radio', { name: 'Jalali' }).click();
+  await page.keyboard.press('Escape');
+
+  const released = page.getByLabel('Released on', { exact: true });
+  await released.fill('۱۴۰۳/۰۱/۱۵');
+  await released.blur(); // leaving the input writes the date out in the chosen digits
+  await expect(released).toHaveValue('1403/01/15');
+  await page.keyboard.press('Control+s');
+  await expect(page.getByRole('status').filter({ hasText: 'saved' })).toBeVisible();
+  const id = decodeURIComponent(url.split('/').pop()!);
+  expect((await (await page.request.get(`/admin/api/resources/product/${encodeURIComponent(id)}`)).json()).releasedOn).toBe('2024-04-03');
+
+  await page.getByRole('button', { name: 'Choose Released on from a calendar' }).click();
+  const calendar = page.getByRole('dialog', { name: 'Released on calendar' });
+  await calendar.getByRole('button', { name: 'Choose a month' }).click();
+  await calendar.getByRole('button', { name: 'Ordibehesht' }).click();
+  await calendar.getByRole('grid').getByRole('button', { name: /Ordibehesht 10, 1403/ }).click();
+  await expect(released).toHaveValue('1403/02/10');
+  await page.keyboard.press('Control+s');
+  await expect.poll(async () => (await (await page.request.get(`/admin/api/resources/product/${encodeURIComponent(id)}`)).json()).releasedOn).toBe('2024-04-29');
+
+  await page.goto('/admin/product');
+  if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  const from = page.getByLabel('From', { exact: true }).and(page.locator('#filter-releasedOn-gte'));
+  await from.fill('1403/02/01');
+  await from.press('Enter');
+  await expect(page).toHaveURL(/filter%5BreleasedOn%5D%5Bgte%5D=2024-04-20/);
+  await expect(page.getByRole('list', { name: 'Active filters' })).toContainText('1403');
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });

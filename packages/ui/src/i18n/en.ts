@@ -89,7 +89,17 @@ export const en = {
   'filters.emptyValues': '{field}: empty values',
   'filters.selected': '{count} selected',
 
-  'display.title': 'Calendar and digits',
+  'date.openCalendar': 'Choose {name} from a calendar',
+  'date.calendar': '{name} calendar',
+  'date.previous': 'Previous',
+  'date.next': 'Next',
+  'date.chooseMonth': 'Choose a month',
+  'date.chooseYear': 'Choose a year',
+  'date.today': 'Today',
+  'date.clear': 'Clear',
+  'date.time': '{name} time',
+
+  'display.title': 'Display settings',
   'display.calendar': 'Calendar',
   'display.gregorian': 'Gregorian',
   'display.jalali': 'Jalali',

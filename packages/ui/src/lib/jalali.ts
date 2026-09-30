@@ -1,3 +1,5 @@
+import { toLatinDigits } from '@/lib/digits';
+
 /**
  * Jalali (Solar Hijri) ⇄ Gregorian conversion: the jalaali algorithm (Borkowski's 2820-year breaks), no dependency.
  * Dates are ISO `YYYY-MM-DD` strings on the Gregorian side, so nothing depends on a time zone.
@@ -105,4 +107,41 @@ export function fromJalali(jy: number, jm: number, jd: number): string {
 
 export function isValidJalali(jy: number, jm: number, jd: number): boolean {
   return Number.isInteger(jy) && jy >= 1 && jy < 3178 && jm >= 1 && jm <= 12 && jd >= 1 && jd <= jalaliMonthLength(jy, jm);
+}
+
+/** `2024-04-03` → `1403/01/15`. */
+export function formatJalali(iso: string): string {
+  const { jy, jm, jd } = toJalali(iso);
+  return `${jy}/${pad(jm)}/${pad(jd)}`;
+}
+
+/**
+ * A typed Jalali date (`1403/1/15`, `۱۴۰۳-۰۱-۱۵`, `1403.01.15`) → ISO, or undefined when it is not a real Jalali day.
+ * Digits of every set are accepted.
+ */
+export function parseJalali(text: string): string | undefined {
+  const match = /^(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})$/.exec(toLatinDigits(text.trim()));
+  if (!match) return undefined;
+  const [jy, jm, jd] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  return isValidJalali(jy, jm, jd) ? fromJalali(jy, jm, jd) : undefined;
+}
+
+/** A Jalali month moved by `months`, with the day kept (or clamped to the month's length). */
+export function addJalaliMonths(iso: string, months: number): string {
+  const { jy, jm, jd } = toJalali(iso);
+  const index = jy * 12 + (jm - 1) + months;
+  const year = Math.floor(index / 12);
+  const month = (index % 12) + 1;
+  return fromJalali(year, month, Math.min(jd, jalaliMonthLength(year, month)));
+}
+
+/** ISO date plus `days` (UTC arithmetic, so no daylight-saving surprises). */
+export function addDays(iso: string, days: number): string {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Today in the browser's time zone, as an ISO date. */
+export function todayIso(): string {
+  const now = new Date();
+  return `${pad(now.getFullYear(), 4)}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
