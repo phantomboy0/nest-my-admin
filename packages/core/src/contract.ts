@@ -133,6 +133,11 @@ export interface ResourceSchema {
    * since then answers 409 CONFLICT with `current`.
    */
   version?: string;
+  /**
+   * The entity has a `@DeleteDateColumn`: DELETE moves records to the trash, lists take `trashed=only|with`,
+   * `POST …/:id/restore` brings one back and `DELETE …/:id?purge=true` removes it for good.
+   */
+  softDelete: boolean;
   form: {
     create: string[];
     update: string[];

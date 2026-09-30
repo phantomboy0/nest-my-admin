@@ -182,7 +182,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
           (confirmingDelete ? (
             <div className="ms-auto flex gap-2">
               <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
-                {remove.isPending ? 'Deleting…' : 'Confirm delete'}
+                {remove.isPending ? 'Deleting…' : schema.softDelete ? 'Confirm move to trash' : 'Confirm delete'}
               </Button>
               <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
                 Keep
@@ -190,7 +190,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
             </div>
           ) : (
             <Button type="button" variant="outline" className="ms-auto" onClick={() => setConfirmingDelete(true)}>
-              Delete
+              {schema.softDelete ? 'Move to trash' : 'Delete'}
             </Button>
           ))}
       </div>

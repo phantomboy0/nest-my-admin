@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsArray, IsIn, IsOptional, IsString, Length, Matches, ValidateNested } from 'class-validator';
 import { Column, DeleteDateColumn, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, VersionColumn } from 'typeorm';
-import { AdminResource, AdminResourceBase, type FormConfig, type ListConfig } from '../../src/index.js';
+import { AdminResource, AdminResourceBase, BeforeDelete, type AdminContext, type DeleteMode, type FormConfig, type ListConfig } from '../../src/index.js';
 
 /** A composite primary key whose string part may contain the id separators. */
 @Entity()
@@ -90,8 +90,15 @@ export class Branch {
   @ManyToOne(() => Shop, { nullable: true, onDelete: 'RESTRICT' }) shop: Shop | null;
 }
 
+/** `name:mode` of every @BeforeDelete call on shops. */
+export const shopDeletes: string[] = [];
+
 @AdminResource(Shop)
-export class ShopAdmin extends AdminResourceBase<Shop> {}
+export class ShopAdmin extends AdminResourceBase<Shop> {
+  @BeforeDelete() track(shop: Shop, _ctx: AdminContext, mode: DeleteMode) {
+    shopDeletes.push(`${shop.name}:${mode}`);
+  }
+}
 
 @AdminResource(Branch)
 export class BranchAdmin extends AdminResourceBase<Branch> {}

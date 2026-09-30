@@ -1,12 +1,13 @@
 import { Fragment } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { AdminRecord, FieldSchema } from '@nest-my-admin/core/contract';
 import { FilterBar } from '@/app/filter-bar';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { describeError } from '@/lib/api';
+import { api, describeError } from '@/lib/api';
 import { formatCell } from '@/lib/format';
 import { isRef } from '@/lib/form-values';
 import { encodeRecordId } from '@/lib/record-id';
@@ -21,6 +22,12 @@ export function ListPage() {
   const sortParam = searchParams.get('sort') ?? undefined;
   const schema = useSchema(resource);
   const list = useList(resource, listQueryFromUrl(searchParams));
+  const queryClient = useQueryClient();
+  const restore = useMutation({
+    mutationFn: (id: string) => api.restore(resource, id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['list', resource] }),
+  });
+  const trash = searchParams.get('trashed') === 'only';
 
   if (schema.isPending) return <PageMessage>Loading…</PageMessage>;
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
@@ -50,7 +57,13 @@ export function ListPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">{s.label}</h1>
-        {s.creatable && (
+        {s.softDelete && (
+          <Button variant={trash ? 'secondary' : 'outline'} className="ms-auto" aria-pressed={trash} onClick={() => updateParams({ trashed: trash ? null : 'only' })}>
+            <Trash2 />
+            Trash
+          </Button>
+        )}
+        {s.creatable && !trash && (
           <Button asChild>
             <Link to={`/${s.name}/new`}>
               <Plus />
@@ -63,6 +76,8 @@ export function ListPage() {
       <FilterBar schema={s} params={searchParams} onChange={updateParams} />
 
       {list.isError && <PageMessage tone="error">{describeError(list.error)}</PageMessage>}
+      {restore.isError && <PageMessage tone="error">{describeError(restore.error)}</PageMessage>}
+      {trash && <p className="text-sm text-muted-foreground">Records in the trash. Restore one to edit it again.</p>}
 
       <div className="hidden overflow-x-auto rounded-lg border md:block">
         <Table>
@@ -81,14 +96,15 @@ export function ListPage() {
                   )}
                 </TableHead>
               ))}
+              {trash && <TableHead className="w-0"><span className="sr-only">Actions</span></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.map((item) => (
-              <TableRow key={String(item._id)} className="cursor-pointer" onClick={() => navigate(recordPath(item))}>
+              <TableRow key={String(item._id)} className={trash ? undefined : 'cursor-pointer'} onClick={trash ? undefined : () => navigate(recordPath(item))}>
                 {columns.map((column, index) => (
                   <TableCell key={column.name}>
-                    {index === 0 ? (
+                    {index === 0 && !trash ? (
                       <Link to={recordPath(item)} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
                         {formatCell(item[column.name], column)}
                       </Link>
@@ -97,11 +113,16 @@ export function ListPage() {
                     )}
                   </TableCell>
                 ))}
+                {trash && (
+                  <TableCell>
+                    <RestoreButton item={item} pending={restore.isPending} onRestore={(id) => restore.mutate(id)} />
+                  </TableCell>
+                )}
               </TableRow>
             ))}
             {list.isSuccess && items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={columns.length} className="text-center text-muted-foreground">
+                <TableCell colSpan={columns.length + (trash ? 1 : 0)} className="text-center text-muted-foreground">
                   {hasActiveFilters(searchParams) ? 'No records match.' : 'No records yet.'}
                 </TableCell>
               </TableRow>
@@ -113,19 +134,16 @@ export function ListPage() {
       <ul className="flex flex-col gap-2 md:hidden">
         {items.map((item) => (
           <li key={String(item._id)}>
-            <Link to={recordPath(item)} className="block rounded-lg border p-3 active:bg-muted">
-              <div className="font-medium">{typeof item._title === 'string' ? item._title : String(item._id)}</div>
-              <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
-                {detailColumns
-                  .filter((column) => formatCell(item[column.name], column) !== item._title) // the title is shown above
-                  .map((column) => (
-                  <Fragment key={column.name}>
-                    <dt className="text-muted-foreground">{column.label}</dt>
-                    <dd className="truncate">{formatCell(item[column.name], column)}</dd>
-                  </Fragment>
-                  ))}
-              </dl>
-            </Link>
+            {trash ? (
+              <div className="flex items-start justify-between gap-2 rounded-lg border p-3">
+                <Card item={item} columns={detailColumns} />
+                <RestoreButton item={item} pending={restore.isPending} onRestore={(id) => restore.mutate(id)} />
+              </div>
+            ) : (
+              <Link to={recordPath(item)} className="block rounded-lg border p-3 active:bg-muted">
+                <Card item={item} columns={detailColumns} />
+              </Link>
+            )}
           </li>
         ))}
         {list.isSuccess && items.length === 0 && <li className="text-center text-sm text-muted-foreground">{hasActiveFilters(searchParams) ? 'No records match.' : 'No records yet.'}</li>}
@@ -166,5 +184,33 @@ function CellValue({ value, field }: { value: unknown; field: FieldSchema }) {
         </Fragment>
       ))}
     </>
+  );
+}
+
+/** A mobile card's content: the record title, then the other columns. */
+function Card({ item, columns }: { item: AdminRecord; columns: FieldSchema[] }) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="font-medium">{typeof item._title === 'string' ? item._title : String(item._id)}</div>
+      <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
+        {columns
+          .filter((column) => formatCell(item[column.name], column) !== item._title) // the title is shown above
+          .map((column) => (
+            <Fragment key={column.name}>
+              <dt className="text-muted-foreground">{column.label}</dt>
+              <dd className="truncate">{formatCell(item[column.name], column)}</dd>
+            </Fragment>
+          ))}
+      </dl>
+    </div>
+  );
+}
+
+function RestoreButton({ item, pending, onRestore }: { item: AdminRecord; pending: boolean; onRestore: (id: string) => void }) {
+  return (
+    <Button type="button" variant="outline" size="sm" disabled={pending} aria-label={`Restore ${String(item._title ?? item._id)}`} onClick={() => onRestore(String(item._id))}>
+      <RotateCcw />
+      Restore
+    </Button>
   );
 }

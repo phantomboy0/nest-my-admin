@@ -181,13 +181,13 @@ export class AdminApiService {
    * (SQLite-family writes are already serialized), and answers 409 with the current record when its version is not
    * the one the client edited. Runs before the resource method, so host services are covered too.
    */
-  private async checkVersion(entry: RegisteredResource, id: RecordId, expected: number | undefined, ctx: AdminContext): Promise<void> {
+  private async checkVersion(entry: RegisteredResource, id: RecordId, expected: number | undefined, ctx: AdminContext, withDeleted = false): Promise<void> {
     const version = entry.schema.version;
     if (expected === undefined || !version) return;
     const manager = ctx.manager ?? entry.dataSource.manager;
     const lock = ctx.manager && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type) ? ({ mode: 'pessimistic_write' } as const) : undefined;
     const where = typeof id === 'object' ? id : { [entry.schema.primaryKeys[0]!]: id };
-    const current = await manager.getRepository(entry.metadata.target).findOne({ where, ...(lock ? { lock } : {}) });
+    const current = await manager.getRepository(entry.metadata.target).findOne({ where, withDeleted, ...(lock ? { lock } : {}) });
     if (!current) return; // the resource's own findOne answers 404
     if (Number((current as Record<string, unknown>)[version]) === expected) return;
     throw new AdminConflictError(`${entry.schema.label} was changed by someone else since you opened it`, await this.record(entry, current, ctx));
@@ -265,6 +265,25 @@ export class AdminApiService {
     else qb.orderBy(`option.${key}`, 'ASC');
     const rows = await qb.getMany();
     return { items: rows.map((row) => relationRef(field, relation, row, title)) };
+  }
+
+  /** Takes a record out of the trash. */
+  async restore(name: string, rawId: string, ctx: AdminContext): Promise<AdminRecord> {
+    const entry = this.registry.get(name);
+    const { schema, resource } = entry;
+    if (!schema.softDelete) throw new AdminBadRequestError(`${schema.label} records have no trash`);
+    const id = parseRecordId(rawId, schema);
+    return this.write(entry, ctx, async (tx) => this.record(entry, await resource.restore(id, tx), tx));
+  }
+
+  /** Removes a record for good (trashed or not). */
+  async purge(name: string, rawId: string, ctx: AdminContext, version?: number): Promise<void> {
+    const entry = this.registry.get(name);
+    const id = parseRecordId(rawId, entry.schema);
+    await this.write(entry, ctx, async (tx) => {
+      await this.checkVersion(entry, id, version, tx, true);
+      await entry.resource.purge(id, tx);
+    });
   }
 
   /** Host services often return nothing from update(); fall back to reading the record. */

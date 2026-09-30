@@ -13,6 +13,7 @@ const schema: ResourceSchema = {
   group: 'widgets',
   primaryKeys: ['id'],
   creatable: true,
+  softDelete: false,
   fields: [
     f('id', 'number', { primary: true, readonly: true }),
     f('name', 'string'),

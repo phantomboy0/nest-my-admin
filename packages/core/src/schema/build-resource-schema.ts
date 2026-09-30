@@ -244,6 +244,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     ...(definition.icon ? { icon: definition.icon } : {}),
     primaryKeys,
     creatable: children.length === 0,
+    softDelete: metadata.columns.some((column) => column.isDeleteDate),
     ...(versionField ? { version: versionField } : {}),
     fields: [...entityFields, ...dtoOnly, ...paths.values()],
     list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, filters, search },

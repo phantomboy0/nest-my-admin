@@ -74,8 +74,14 @@ export class AdminHttpServer implements OnModuleInit {
       .add('PATCH', '/api/resources/:resource/:id', async ({ req, res, ctx }, p) =>
         sendJson(res, 200, await this.api.update(p.resource, p.id, await readJsonBody(req), ctx, ifMatch(req))),
       )
-      .add('DELETE', '/api/resources/:resource/:id', async ({ req, res, ctx }, p) => {
-        await this.api.remove(p.resource, p.id, ctx, ifMatch(req));
+      .add('POST', '/api/resources/:resource/:id/restore', async ({ res, ctx }, p) =>
+        sendJson(res, 200, await this.api.restore(p.resource, p.id, ctx)),
+      )
+      .add('DELETE', '/api/resources/:resource/:id', async ({ req, res, url, ctx }, p) => {
+        const purge = url.searchParams.get('purge');
+        if (purge !== null && purge !== 'true') throw new AdminBadRequestError('purge must be true');
+        if (purge === 'true') await this.api.purge(p.resource, p.id, ctx, ifMatch(req));
+        else await this.api.remove(p.resource, p.id, ctx, ifMatch(req));
         res.statusCode = 204;
         res.end();
       });

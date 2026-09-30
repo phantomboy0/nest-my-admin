@@ -3,6 +3,8 @@ import { ADMIN_HOOKS_METADATA } from '../constants.js';
 
 export type HookKind = 'beforeSave' | 'afterSave' | 'beforeDelete';
 export type SaveMode = 'create' | 'update';
+/** `soft`: moved to the trash (@DeleteDateColumn); `hard`: the row is removed (no trash, or a purge). */
+export type DeleteMode = 'soft' | 'hard';
 
 type HookTable = Record<HookKind, Array<string | symbol>>;
 
@@ -25,7 +27,7 @@ function hook(kind: HookKind): MethodDecorator {
 export const BeforeSave = (): MethodDecorator => hook('beforeSave');
 /** `(entity, ctx, mode)` — runs after the default create/update saved. */
 export const AfterSave = (): MethodDecorator => hook('afterSave');
-/** `(entity, ctx)` — runs before the default delete; throw to refuse. */
+/** `(entity, ctx, mode: DeleteMode)` — runs before the default delete and purge; throw to refuse. */
 export const BeforeDelete = (): MethodDecorator => hook('beforeDelete');
 
 export function getHooks(target: Function, kind: HookKind): Array<string | symbol> {

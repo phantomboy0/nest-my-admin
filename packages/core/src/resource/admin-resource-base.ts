@@ -25,6 +25,8 @@ export interface ListParams {
   sort: { field: string; direction: SortDirection };
   filters: FilterCondition[];
   search?: { term: string; fields: string[] };
+  /** Soft-deletable resources: `only` lists the trash, `with` lists everything. */
+  trashed?: 'only' | 'with';
 }
 
 export interface FindManyResult<T> {
@@ -108,9 +110,10 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return { items, total };
   }
 
-  async findOne(id: RecordId, ctx: AdminContext): Promise<T | null> {
+  /** `options.withDeleted` also finds records in the trash (restore and purge use it). */
+  async findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<T | null> {
     const where = typeof id === 'object' ? id : { [this.primaryKeys[0]!]: id };
-    return this.repositoryFor(ctx).findOne({ where: where as FindOptionsWhere<T> });
+    return this.repositoryFor(ctx).findOne({ where: where as FindOptionsWhere<T>, ...(options.withDeleted ? { withDeleted: true } : {}) });
   }
 
   /**
@@ -146,11 +149,35 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return saved;
   }
 
-  /** Overriding this skips the @BeforeDelete hooks; call `this.runHooks(...)` yourself to keep them. */
+  /**
+   * Moves the record to the trash when the entity has a @DeleteDateColumn, else removes it.
+   * Overriding this skips the @BeforeDelete hooks; call `this.runHooks(...)` yourself to keep them.
+   */
   async delete(id: RecordId, ctx: AdminContext): Promise<void> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
-    await this.runHooks('beforeDelete', existing, ctx);
+    const repo = this.repositoryFor(ctx);
+    const soft = repo.metadata.deleteDateColumn !== undefined;
+    await this.runHooks('beforeDelete', existing, ctx, soft ? 'soft' : 'hard');
+    if (soft) await repo.softRemove(existing);
+    else await repo.remove(existing);
+  }
+
+  /** Takes a record out of the trash (soft-deletable entities only). */
+  async restore(id: RecordId, ctx: AdminContext): Promise<T> {
+    const repo = this.repositoryFor(ctx);
+    const column = repo.metadata.deleteDateColumn;
+    const existing = await this.findOne(id, ctx, { withDeleted: true });
+    if (!column || !existing || (existing as Record<string, unknown>)[column.propertyName] == null) throw new AdminNotFoundError();
+    await repo.restore(repo.getId(existing));
+    return (await this.findOne(id, ctx))!;
+  }
+
+  /** Removes a record for good, whether it is in the trash or not. Runs the @BeforeDelete hooks with `'hard'`. */
+  async purge(id: RecordId, ctx: AdminContext): Promise<void> {
+    const existing = await this.findOne(id, ctx, { withDeleted: true });
+    if (!existing) throw new AdminNotFoundError();
+    await this.runHooks('beforeDelete', existing, ctx, 'hard');
     await this.repositoryFor(ctx).remove(existing);
   }
 

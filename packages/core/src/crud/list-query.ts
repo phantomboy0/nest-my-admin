@@ -6,7 +6,7 @@ import { MAX_PAGE_SIZE } from '../schema/build-resource-schema.js';
 type Errors = Record<string, string[]>;
 type Parsed<T> = { value: T } | { error: string };
 
-const PAGING_KEYS = new Set(['page', 'pageSize', 'sort', 'search']);
+const PAGING_KEYS = new Set(['page', 'pageSize', 'sort', 'search', 'trashed']);
 const FILTER_KEY = /^filter\[([^\][]+)\](?:\[([^\][]+)\])?$/;
 const MAX_LIST_VALUES = 100;
 const MAX_TEXT = 200;
@@ -68,8 +68,16 @@ export function parseListQuery(query: URLSearchParams, schema: ResourceSchema): 
     else search = { term, fields: schema.list.search };
   }
 
+  let trashed: ListParams['trashed'];
+  const rawTrashed = readOne(query, 'trashed', errors);
+  if (rawTrashed !== undefined) {
+    if (!schema.softDelete) errors.trashed = ['this resource has no trash'];
+    else if (rawTrashed === 'only' || rawTrashed === 'with') trashed = rawTrashed;
+    else errors.trashed = ['must be only or with'];
+  }
+
   if (Object.keys(errors).length > 0) throw new AdminValidationError(errors, 'Invalid list query');
-  return { page, pageSize, sort, filters, ...(search ? { search } : {}) };
+  return { page, pageSize, sort, filters, ...(search ? { search } : {}), ...(trashed ? { trashed } : {}) };
 }
 
 function parseFilterValue(field: FieldSchema, operator: FilterOperator, raw: string): Parsed<FilterValue> {

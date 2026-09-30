@@ -2,7 +2,7 @@ import type { FilterOperator } from '@nest-my-admin/core/contract';
 
 export type ParamChanges = Record<string, string | null>;
 
-const isListKey = (key: string) => key === 'page' || key === 'sort' || key === 'search' || key.startsWith('filter[');
+const isListKey = (key: string) => key === 'page' || key === 'sort' || key === 'search' || key === 'trashed' || key.startsWith('filter[');
 
 /** The API list query is the page URL's list parameters, passed through unchanged (spec §11 syntax). */
 export function listQueryFromUrl(params: URLSearchParams): string {
