@@ -161,7 +161,11 @@ export class ResourceRegistry implements OnModuleInit {
         continue;
       }
       if (!this.groups.has(AUTO_GROUP.key)) this.groups.set(AUTO_GROUP.key, { ...AUTO_GROUP });
-      this.register(`${entity.name}Admin (auto)`, { entity, group: AUTO_GROUP.key }, new AutoRegisteredResource(), AUTO_GROUP.key);
+      try {
+        this.register(`${entity.name}Admin (auto)`, { entity, group: AUTO_GROUP.key }, new AutoRegisteredResource(), AUTO_GROUP.key);
+      } catch (error) {
+        this.logger.warn(`autoRegister skipped ${entity.name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 }

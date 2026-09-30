@@ -82,6 +82,11 @@ describe('ResourceRegistry', () => {
     @PrimaryColumn() second: string;
   }
 
+  @Entity()
+  class Opaque {
+    @PrimaryColumn({ type: 'simple-json' }) key: unknown;
+  }
+
   describe('autoRegister', () => {
     test('is off by default', async () => {
       app = await createTestApp({ entities: [Gizmo] });
@@ -97,6 +102,11 @@ describe('ResourceRegistry', () => {
       expect(registry.groupList().find((group) => group.key === 'entities')).toEqual({ key: 'entities', label: 'Entities', order: 1000 });
       const created = await request(app.getHttpServer()).post('/admin/api/resources/gizmo').send({ label: 'Auto' });
       expect(created.status).toBe(201);
+    });
+
+    test('skips an entity whose schema cannot be built instead of failing bootstrap', async () => {
+      app = await createTestApp({ admin: { autoRegister: true }, entities: [Gizmo, Opaque] });
+      expect(app.get(ResourceRegistry).list().map((entry) => entry.schema.name).sort()).toEqual(['gizmo', 'widget']);
     });
   });
 });
