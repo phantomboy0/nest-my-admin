@@ -15,7 +15,11 @@ export class Widget {
 
 @AdminResource(Widget)
 export class WidgetAdmin extends AdminResourceBase<Widget> {
-  list: ListConfig<Widget> = { columns: ['id', 'name', 'price', 'status', 'visible'] };
+  list: ListConfig<Widget> = {
+    columns: ['id', 'name', 'price', 'status', 'visible'],
+    filters: ['status', 'visible', 'price', 'notes', 'name', 'createdAt'],
+    search: ['name', 'notes'],
+  };
 }
 
 @AdminGroup({ label: 'Inventory', icon: 'boxes' })

@@ -45,6 +45,15 @@ export interface MetaResponse {
 
 export type SortDirection = 'asc' | 'desc';
 
+export type FilterOperator =
+  | 'eq' | 'ne' | 'in' | 'nin' | 'lt' | 'lte' | 'gt' | 'gte' | 'between' | 'contains' | 'startsWith' | 'isNull';
+
+/** A filterable field and the operators its column type supports (spec §11). */
+export interface FilterSchema {
+  field: string;
+  operators: FilterOperator[];
+}
+
 export interface ResourceSchema {
   name: string;
   label: string;
@@ -57,6 +66,9 @@ export interface ResourceSchema {
     sortable: string[];
     defaultSort: { field: string; direction: SortDirection };
     pageSize: number;
+    filters: FilterSchema[];
+    /** Fields matched case-insensitively by `?search=`. Empty = not searchable. */
+    search: string[];
   };
   form: {
     create: string[];

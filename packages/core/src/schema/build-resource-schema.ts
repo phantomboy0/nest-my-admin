@@ -1,10 +1,11 @@
-import type { FieldSchema, ResourceSchema, SortDirection } from '../contract.js';
+import type { FieldSchema, FilterSchema, ResourceSchema, SortDirection } from '../contract.js';
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
 import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional } from './dto-fields.js';
 import { humanize, kebabCase } from './humanize.js';
 import { didYouMean } from './suggest.js';
+import { SEARCHABLE_TYPES, operatorsFor } from './filter-operators.js';
 
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
@@ -81,6 +82,25 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     fail(`list.pageSize must be an integer between 1 and ${MAX_PAGE_SIZE}`);
   }
 
+  const allNames = [...byName.keys()];
+  const filterNames: string[] =
+    resource.list?.filters ?? entityFields.filter((field) => field.type === 'enum' || field.type === 'boolean').map((field) => field.name);
+  const filters: FilterSchema[] = [];
+  for (const name of filterNames) {
+    const field = byName.get(name);
+    if (!field) return fail(`list.filters: unknown column "${name}" on ${entityName}${didYouMean(name, allNames)}`);
+    const operators = operatorsFor(field);
+    if (operators.length === 0) return fail(`list.filters: column "${name}" (${field.type}) cannot be filtered`);
+    filters.push({ field: name, operators });
+  }
+
+  const search: string[] = resource.list?.search ?? entityFields.filter((field) => field.type === 'string').map((field) => field.name);
+  for (const name of search) {
+    const field = byName.get(name);
+    if (!field) return fail(`list.search: unknown column "${name}" on ${entityName}${didYouMean(name, allNames)}`);
+    if (!SEARCHABLE_TYPES.includes(field.type)) return fail(`list.search: column "${name}" (${field.type}) is not a text column`);
+  }
+
   return {
     name: definition.name ?? kebabCase(entityName),
     label: definition.label ?? humanize(entityName),
@@ -88,7 +108,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     ...(definition.icon ? { icon: definition.icon } : {}),
     primaryKey,
     fields: [...entityFields, ...dtoOnly],
-    list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize },
+    list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, filters, search },
     form: { create, update, requiredOnCreate },
   };
 }

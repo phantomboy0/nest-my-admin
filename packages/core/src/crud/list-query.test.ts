@@ -9,7 +9,7 @@ const schema: ResourceSchema = {
   group: 'widgets',
   primaryKey: 'id',
   fields: [],
-  list: { columns: ['id', 'name'], sortable: ['id', 'name'], defaultSort: { field: 'id', direction: 'desc' }, pageSize: 25 },
+  list: { columns: ['id', 'name'], sortable: ['id', 'name'], defaultSort: { field: 'id', direction: 'desc' }, pageSize: 25, filters: [], search: [] },
   form: { create: [], update: [], requiredOnCreate: [] },
 };
 

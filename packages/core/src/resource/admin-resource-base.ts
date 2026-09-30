@@ -24,6 +24,10 @@ export interface ListConfig<T> {
   /** `'name'` for ascending, `'-createdAt'` for descending. Defaults to `-<primary key>`. */
   sort?: EntityKey<T> | `-${EntityKey<T>}`;
   pageSize?: number;
+  /** Filterable fields. Default: every enum and boolean column. */
+  filters?: EntityKey<T>[];
+  /** Fields matched by `?search=`. Default: every string column. */
+  search?: EntityKey<T>[];
 }
 
 export interface FormConfig {

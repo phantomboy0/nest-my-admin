@@ -22,6 +22,15 @@ class Pair {
   @PrimaryColumn() second: string;
 }
 
+@Entity()
+class Tool {
+  @PrimaryGeneratedColumn() id: number;
+  @Column() title: string;
+  @Column({ type: 'int', nullable: true }) weight: number | null;
+  @Column({ default: false }) active: boolean;
+  @Column({ type: 'simple-json', nullable: true }) extra: Record<string, unknown> | null;
+}
+
 class CreateGadgetDto {
   @IsString() @Length(1, 60) name: string;
   @IsString() price: string;
@@ -35,7 +44,7 @@ class StampedGadgetDto {
 
 let dataSource: DataSource;
 beforeAll(async () => {
-  dataSource = await new DataSource({ type: 'sqljs', entities: [Gadget, Pair], synchronize: true }).initialize();
+  dataSource = await new DataSource({ type: 'sqljs', entities: [Gadget, Pair, Tool], synchronize: true }).initialize();
 });
 afterAll(async () => {
   await dataSource.destroy();
@@ -74,6 +83,8 @@ describe('buildResourceSchema', () => {
       sortable: ['id', 'name', 'price', 'condition', 'createdAt'],
       defaultSort: { field: 'id', direction: 'desc' },
       pageSize: 25,
+      filters: [{ field: 'condition', operators: ['eq', 'ne', 'in', 'nin'] }],
+      search: ['name'],
     });
     expect(schema.form).toEqual({
       create: ['name', 'price', 'condition', 'specs'],
@@ -148,5 +159,47 @@ describe('buildResourceSchema', () => {
       list: ListConfig<Gadget> = { columns: [] };
     }
     expect(() => schemaFor(new EmptyAdmin())).toThrow('EmptyAdmin: list.columns must name at least one column');
+  });
+
+  test('uses configured filters and search fields', () => {
+    @AdminResource(Tool)
+    class ToolAdmin extends AdminResourceBase<Tool> {
+      list: ListConfig<Tool> = { filters: ['weight', 'active', 'title'], search: ['title'] };
+    }
+    const schema = schemaFor(new ToolAdmin(), Tool);
+    expect(schema.list.filters).toEqual([
+      { field: 'weight', operators: ['eq', 'ne', 'in', 'nin', 'lt', 'lte', 'gt', 'gte', 'between', 'isNull'] },
+      { field: 'active', operators: ['eq', 'ne'] },
+      { field: 'title', operators: ['eq', 'ne', 'in', 'nin', 'contains', 'startsWith'] },
+    ]);
+    expect(schema.list.search).toEqual(['title']);
+  });
+
+  test('defaults: enum and boolean columns are filters, string columns are searched', () => {
+    @AdminResource(Tool)
+    class PlainToolAdmin extends AdminResourceBase<Tool> {}
+    const schema = schemaFor(new PlainToolAdmin(), Tool);
+    expect(schema.list.filters.map((f) => f.field)).toEqual(['active']);
+    expect(schema.list.search).toEqual(['title']);
+  });
+
+  test('rejects filters and search fields that cannot work', () => {
+    @AdminResource(Tool)
+    class JsonFilterAdmin extends AdminResourceBase<Tool> {
+      list: ListConfig<Tool> = { filters: ['extra'] };
+    }
+    expect(() => schemaFor(new JsonFilterAdmin(), Tool)).toThrow('list.filters: column "extra" (json) cannot be filtered');
+
+    @AdminResource(Tool)
+    class NumberSearchAdmin extends AdminResourceBase<Tool> {
+      list: ListConfig<Tool> = { search: ['weight'] };
+    }
+    expect(() => schemaFor(new NumberSearchAdmin(), Tool)).toThrow('list.search: column "weight" (number) is not a text column');
+
+    @AdminResource(Tool)
+    class TypoFilterAdmin extends AdminResourceBase<Tool> {
+      list: ListConfig<Tool> = { filters: ['wieght' as 'weight'] };
+    }
+    expect(() => schemaFor(new TypoFilterAdmin(), Tool)).toThrow('list.filters: unknown column "wieght" on Tool (did you mean "weight"?)');
   });
 });
