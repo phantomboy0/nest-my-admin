@@ -18,7 +18,8 @@ const INLINE_EDITABLE: readonly string[] = ['string', 'number', 'decimal', 'bigi
 export const MAX_PAGE_SIZE = 100;
 
 /** The subset of TypeORM's EntityMetadata the builder reads. */
-export type EntityMetadataLike = RelatedMetadataLike;
+type ColumnsLike = { columns: Array<{ propertyName: string }> };
+export type EntityMetadataLike = RelatedMetadataLike & { uniques?: ColumnsLike[]; indices?: Array<ColumnsLike & { isUnique: boolean }> };
 
 export interface BuildResourceSchemaInput {
   definition: AdminResourceDefinition;
@@ -77,6 +78,11 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     columnByName.set(field.name, column);
   }
   for (const { field, relation } of relations) if (!isToOne(relation)) entityFields.push(field);
+  // Columns unique on their own (Duplicate leaves them empty). MySQL reports unique constraints as unique indices.
+  const uniqueSets = [...(metadata.uniques ?? []), ...(metadata.indices ?? []).filter((index) => index.isUnique)];
+  for (const field of entityFields) {
+    if (uniqueSets.some((set) => set.columns.length === 1 && set.columns[0]!.propertyName === field.name)) field.unique = true;
+  }
   const byName = new Map(entityFields.map((field) => [field.name, field]));
   const versionField = metadata.columns.find((column) => column.isVersion && byName.has(column.propertyName))?.propertyName;
   for (const name of byName.keys()) {

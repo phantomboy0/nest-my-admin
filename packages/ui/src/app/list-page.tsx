@@ -247,7 +247,7 @@ export function ListPage() {
                       <Link to={recordPath(item)} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
                         {formatCell(item[column.name], column)}
                       </Link>
-                    ) : !trash && s.list.editable.includes(column.name) ? (
+                    ) : !trash && s.list.editable.includes(column.name) && !(Array.isArray(item._readonly) && item._readonly.includes(column.name)) ? (
                       <EditableCell schema={s} item={item} field={column} />
                     ) : (
                       <CellValue value={item[column.name]} field={column} />

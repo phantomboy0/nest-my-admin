@@ -125,7 +125,7 @@ function Tabs({ tabs, render, errors }: { tabs: TabNode[]; render: FormLayoutPro
         ))}
       </div>
       {tabs.map((tab, index) => (
-        <div key={index} id={`${base}-panel-${index}`} role="tabpanel" aria-labelledby={`${base}-tab-${index}`} hidden={index !== active} className="flex flex-col gap-5">
+        <div key={index} id={`${base}-panel-${index}`} role="tabpanel" aria-labelledby={`${base}-tab-${index}`} hidden={index !== active} className={cn('flex-col gap-5', index === active ? 'flex' : 'hidden')}>
           {tab.sections.map((section, sectionIndex) => (
             <Section key={sectionIndex} section={section} render={render} />
           ))}

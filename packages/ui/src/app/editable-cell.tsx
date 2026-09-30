@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, ListResponse, ResourceSchema } from '@nest-my-admin/core/contract';
 import { useT } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
+import { DisplayValue } from '@/app/widgets/badge';
 import { formatCell } from '@/lib/format';
 import { toFormValues, toPayload } from '@/lib/form-values';
 import { validatePayload } from '@/lib/validate';
@@ -100,7 +101,7 @@ export function EditableCell({ schema, item, field }: EditableCellProps) {
           setEditing(true);
         }}
       >
-        {formatCell(item[field.name], field)}
+        <DisplayValue value={item[field.name]} field={field} />
       </button>
     );
   } else if (field.type === 'enum' || field.type === 'boolean') {

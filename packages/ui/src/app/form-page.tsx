@@ -1,6 +1,6 @@
-import { Fragment, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ExternalLink, Lock } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Copy, ExternalLink, Lock } from 'lucide-react';
+import { Link, useBlocker, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
 import { FieldInput } from '@/app/field-input';
@@ -30,23 +30,52 @@ function recordHeading(label: string, record: AdminRecord | undefined, id: strin
 export function FormPage({ mode }: { mode: Mode }) {
   const t = useT();
   const { resource = '', id } = useParams();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  // Duplicate: `/r/new?from=<id>` starts the create form from that record.
+  const from = mode === 'create' ? (searchParams.get('from') ?? undefined) : undefined;
+  const loads = mode === 'edit' ? id : from;
   const schema = useSchema(resource);
-  const record = useRecord(resource, mode === 'edit' ? id : undefined);
+  const record = useRecord(resource, loads);
 
-  if (schema.isPending || (mode === 'edit' && record.isPending)) return <PageMessage>{t('common.loading')}</PageMessage>;
+  if (schema.isPending || (loads !== undefined && record.isPending)) return <PageMessage>{t('common.loading')}</PageMessage>;
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
-  if (mode === 'edit' && record.isError) return <PageMessage tone="error">{record.error.message}</PageMessage>;
-  return <RecordForm key={`${resource}:${id ?? 'new'}`} schema={schema.data} mode={mode} id={id} record={record.data} />;
+  if (loads !== undefined && record.isError) return <PageMessage tone="error">{record.error.message}</PageMessage>;
+  const saved = (location.state as { saved?: string } | null)?.saved;
+  return (
+    <RecordForm
+      // Save & new opens /r/new again: a new location key gives it a fresh form.
+      key={mode === 'edit' ? `${resource}:${id}` : `${resource}:new:${location.key}`}
+      schema={schema.data}
+      mode={mode}
+      id={id}
+      record={mode === 'edit' ? record.data : undefined}
+      source={from ? record.data : undefined}
+      saved={saved}
+    />
+  );
 }
+
+/** A record's values for a copy: without keys, unique values and fields that cannot be written on create. */
+function copyOf(schema: ResourceSchema, source: AdminRecord): AdminRecord {
+  const skip = new Set(schema.fields.filter((field) => field.primary || field.unique || field.readonly).map((field) => field.name));
+  return Object.fromEntries(Object.entries(source).filter(([name]) => !skip.has(name) && !name.startsWith('_'))) as AdminRecord;
+}
+
+type After = 'list' | 'new' | 'stay';
 
 interface RecordFormProps {
   schema: ResourceSchema;
   mode: Mode;
   id?: string;
   record?: AdminRecord;
+  /** Duplicate: the record the create form starts from. */
+  source?: AdminRecord;
+  /** The title of the record saved just before (Save & new, ⌘S on a new record). */
+  saved?: string;
 }
 
-function RecordForm({ schema, mode, id, record }: RecordFormProps) {
+function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps) {
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -58,7 +87,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
   const names = fields.map((field) => field.name);
   // What the user started from: the loaded record (or, after "Load theirs", the record as it was then).
   const [base, setBase] = useState<AdminRecord | undefined>(record);
-  const [initial, setInitial] = useState<FormValues>(() => toFormValues(fields, record));
+  const [initial, setInitial] = useState<FormValues>(() => toFormValues(fields, record ?? (source ? copyOf(schema, source) : undefined)));
   const [values, setValues] = useState<FormValues>(initial);
   const version = schema.version ? base?.[schema.version] : undefined;
   const [conflict, setConflict] = useState<AdminRecord | null>(null);
@@ -81,13 +110,60 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
     if (fields.some((field) => field.name === name && field.widget === 'slug')) typedSlugs.current.add(name);
   }
 
+  const [notice, setNotice] = useState<string | null>(saved ? t('form.savedName', { name: saved }) : null);
+
+  // Unsaved changes: in-app navigation asks first (an inline bar), closing the tab asks through the browser.
+  const dirty = JSON.stringify(values) !== JSON.stringify(initial);
+  const released = useRef(false);
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty && !released.current && (currentLocation.pathname !== nextLocation.pathname || currentLocation.search !== nextLocation.search),
+  );
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const formRef = useRef<HTMLFormElement>(null);
+  const after = useRef<After>('list');
+  // ⌘S / Ctrl+S saves and stays on the record.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 's') return;
+      event.preventDefault();
+      after.current = 'stay';
+      formRef.current?.requestSubmit();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const save = useMutation({
-    mutationFn: ({ payload, version: expected }: { payload: Record<string, unknown>; version?: unknown }) =>
+    mutationFn: ({ payload, version: expected }: { payload: Record<string, unknown>; version?: unknown; then: After }) =>
       mode === 'create' ? api.create(schema.name, payload) : api.update(schema.name, id!, payload, expected),
-    onSuccess: async () => {
+    onSuccess: async (stored, { then }) => {
       await queryClient.invalidateQueries({ queryKey: ['list', schema.name] });
-      navigate(`/${schema.name}`);
+      const title = typeof stored._title === 'string' ? stored._title : `#${String(stored._id)}`;
+      if (then === 'stay' && mode === 'edit') {
+        // Continue from what was stored; the record query refetches for `_readonly` and `_links`.
+        const next = toFormValues(fields, stored);
+        setBase(stored);
+        setInitial(next);
+        setValues(next);
+        setNotice(t('form.savedName', { name: title }));
+        await queryClient.invalidateQueries({ queryKey: ['record', schema.name, id] });
+        return;
+      }
+      released.current = true;
       queryClient.removeQueries({ queryKey: ['record', schema.name] });
+      if (then === 'new') navigate(`/${schema.name}/new`, { state: { saved: title } });
+      else if (then === 'stay') navigate(`/${schema.name}/${encodeURIComponent(String(stored._id))}`, { replace: true, state: { saved: title } });
+      else navigate(`/${schema.name}`);
     },
     onError: (error) => {
       if (!(error instanceof ApiError)) {
@@ -111,6 +187,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
   const remove = useMutation({
     mutationFn: () => api.remove(schema.name, id!, version),
     onSuccess: async () => {
+      released.current = true;
       await queryClient.invalidateQueries({ queryKey: ['list', schema.name] });
       navigate(`/${schema.name}`);
       queryClient.removeQueries({ queryKey: ['record', schema.name, id] });
@@ -128,8 +205,12 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
     return toPayload(visible, values, mode === 'edit' ? initial : undefined);
   }
 
-  function submit(event: FormEvent) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const then: After = submitter?.value === 'new' ? 'new' : submitter ? 'list' : after.current;
+    after.current = 'list';
+    setNotice(null);
     const { payload, errors } = payloadOf();
     const formMode = mode === 'create' ? 'create' : 'update';
     const constraints = Object.fromEntries(Object.entries(schema.form.constraints[formMode]).filter(([name]) => visible.some((field) => field.name === name.split('.')[0])));
@@ -137,13 +218,13 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
     const allErrors = { ...ruleErrors, ...errors }; // conversion errors ("must be a number") win for the same field
     setFieldErrors(allErrors);
     setFormError(null);
-    if (Object.keys(allErrors).length === 0) save.mutate({ payload, version });
+    if (Object.keys(allErrors).length === 0) save.mutate({ payload, version, then });
   }
 
   /** Save anyway: send the same changes against the version that is stored now. */
   function keepMine(current: AdminRecord) {
     setConflict(null);
-    save.mutate({ payload: payloadOf().payload, version: schema.version ? current[schema.version] : undefined });
+    save.mutate({ payload: payloadOf().payload, version: schema.version ? current[schema.version] : undefined, then: save.variables?.then ?? 'list' });
   }
 
   /** Drop the edits and continue from the stored record. */
@@ -188,11 +269,29 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
   }
 
   return (
-    <form onSubmit={submit} noValidate className={cn('flex flex-col gap-5', schema.form.layout?.length ? 'max-w-4xl' : 'max-w-2xl')}>
+    <form ref={formRef} onSubmit={submit} noValidate className={cn('flex flex-col gap-5', schema.form.layout?.length ? 'max-w-4xl' : 'max-w-2xl')}>
       {mode === 'create' ? (
         <h1 className="text-xl font-semibold">{t('form.new', { name: schema.label })}</h1>
       ) : (
         <DetailHeader schema={schema} record={record} id={id} />
+      )}
+      {notice && (
+        <p role="status" className="rounded-md border border-green-600/30 bg-green-500/10 px-3 py-2 text-sm">
+          {notice}
+        </p>
+      )}
+      {blocker.state === 'blocked' && (
+        <div role="alertdialog" aria-labelledby="leave-title" className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/50 bg-background p-3 shadow-sm">
+          <p id="leave-title" className="flex-1 text-sm font-medium">
+            {t('form.leaveTitle')}
+          </p>
+          <Button type="button" variant="outline" autoFocus onClick={() => blocker.reset()}>
+            {t('form.stay')}
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => blocker.proceed()}>
+            {t('form.leave')}
+          </Button>
+        </div>
       )}
       {conflict && (
         <ConflictNotice
@@ -210,13 +309,26 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
         </div>
       )}
       <FormLayout layout={schema.form.layout} names={allFields.map((field) => field.name)} errors={fieldErrors} render={renderField} />
-      <div className="sticky bottom-0 flex gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
-        <Button type="submit" disabled={save.isPending}>
+      <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
+        <Button type="submit" value="list" disabled={save.isPending} aria-keyshortcuts="Control+S Meta+S">
           {t(save.isPending ? 'form.saving' : 'form.save')}
         </Button>
+        {schema.creatable && (
+          <Button type="submit" value="new" variant="outline" disabled={save.isPending}>
+            {t('form.saveAndNew')}
+          </Button>
+        )}
         <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
           {t('common.cancel')}
         </Button>
+        {mode === 'edit' && schema.creatable && (
+          <Button asChild variant="outline">
+            <Link to={`/${schema.name}/new?${new URLSearchParams({ from: id! })}`}>
+              <Copy />
+              {t('form.duplicate')}
+            </Link>
+          </Button>
+        )}
         {mode === 'edit' &&
           (confirmingDelete ? (
             <div className="ms-auto flex gap-2">

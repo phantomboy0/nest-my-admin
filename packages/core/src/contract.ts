@@ -21,6 +21,8 @@ export interface FieldSchema {
   nullable: boolean;
   /** Part of the primary key. */
   primary: boolean;
+  /** Unique on its own (a unique column, constraint or index); Duplicate leaves it empty. */
+  unique?: boolean;
   /** Set by the database or TypeORM (generated ids, create/update/delete dates, version). */
   readonly: boolean;
   /** Backed by an entity column (false for DTO-only fields such as `password`). */

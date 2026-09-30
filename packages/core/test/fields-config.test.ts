@@ -15,6 +15,7 @@ class Gadget {
   @Column({ type: 'decimal', precision: 10, scale: 2, default: '0.00' }) price: string;
   @Column({ type: 'simple-enum', enum: ['draft', 'active', 'archived'], default: 'draft' }) status: 'draft' | 'active' | 'archived';
   @Column({ default: '' }) note: string;
+  @Column({ type: 'varchar', length: 20, unique: true, nullable: true }) code: string | null;
 }
 
 @AdminResource(Gadget)
@@ -76,6 +77,12 @@ describe(`field config (${TEST_DB})`, () => {
     expect(en.fields.find((f: { name: string }) => f.name === 'name').label).toBe('Name');
     expect(en.fields.find((f: { name: string }) => f.name === 'status').enumLabels.draft).toBe('Draft');
     expect(en.form.layout[0].title).toBe('Details');
+  });
+
+  test('columns unique on their own are flagged', async () => {
+    const { fields } = (await http().get('/admin/api/meta/resources/gadget')).body;
+    expect(fields.find((f: { name: string }) => f.name === 'code').unique).toBe(true);
+    expect(fields.find((f: { name: string }) => f.name === 'name').unique).toBeUndefined();
   });
 
   test('readonly: true is off the update form and listed as read-only', async () => {
