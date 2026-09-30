@@ -10,7 +10,7 @@ import { isLoadedField, loadReferences, relationRef } from '../crud/references.j
 import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
-import { AdminBadRequestError, AdminNotFoundError, AdminValidationError } from '../errors.js';
+import { AdminBadRequestError, AdminConflictError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
@@ -144,7 +144,7 @@ export class AdminApiService {
     });
   }
 
-  async update(name: string, rawId: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
+  async update(name: string, rawId: string, body: unknown, ctx: AdminContext, version?: number): Promise<AdminRecord> {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
     const id = parseRecordId(rawId, schema);
@@ -157,6 +157,7 @@ export class AdminApiService {
     });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
+      await this.checkVersion(entry, id, version, tx);
       if (!(await resource.findOne(id, tx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       await this.checkRelationsExist(entry, relationIds, tx);
       const updated: unknown = await resource.update(id, dto, tx);
@@ -164,14 +165,32 @@ export class AdminApiService {
     });
   }
 
-  async remove(name: string, rawId: string, ctx: AdminContext): Promise<void> {
+  async remove(name: string, rawId: string, ctx: AdminContext, version?: number): Promise<void> {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
     const id = parseRecordId(rawId, schema);
     await this.write(entry, ctx, async (tx) => {
+      await this.checkVersion(entry, id, version, tx);
       if (!(await resource.findOne(id, tx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       await resource.delete(id, tx);
     });
+  }
+
+  /**
+   * Optimistic concurrency (`If-Match`): inside the write transaction, reads the row, locked on drivers that lock rows
+   * (SQLite-family writes are already serialized), and answers 409 with the current record when its version is not
+   * the one the client edited. Runs before the resource method, so host services are covered too.
+   */
+  private async checkVersion(entry: RegisteredResource, id: RecordId, expected: number | undefined, ctx: AdminContext): Promise<void> {
+    const version = entry.schema.version;
+    if (expected === undefined || !version) return;
+    const manager = ctx.manager ?? entry.dataSource.manager;
+    const lock = ctx.manager && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type) ? ({ mode: 'pessimistic_write' } as const) : undefined;
+    const where = typeof id === 'object' ? id : { [entry.schema.primaryKeys[0]!]: id };
+    const current = await manager.getRepository(entry.metadata.target).findOne({ where, ...(lock ? { lock } : {}) });
+    if (!current) return; // the resource's own findOne answers 404
+    if (Number((current as Record<string, unknown>)[version]) === expected) return;
+    throw new AdminConflictError(`${entry.schema.label} was changed by someone else since you opened it`, await this.record(entry, current, ctx));
   }
 
   /** A query for the records a relation field may point to (`option`), restricted by the resource's relationOptions(). */

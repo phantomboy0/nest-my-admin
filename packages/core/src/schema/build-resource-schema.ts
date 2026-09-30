@@ -74,6 +74,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   }
   for (const { field, relation } of relations) if (!isToOne(relation)) entityFields.push(field);
   const byName = new Map(entityFields.map((field) => [field.name, field]));
+  const versionField = metadata.columns.find((column) => column.isVersion && byName.has(column.propertyName))?.propertyName;
   for (const name of byName.keys()) {
     if (name.startsWith('_')) fail(`${entityName}.${name}: field names starting with "_" are reserved for the admin`);
   }
@@ -243,6 +244,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     ...(definition.icon ? { icon: definition.icon } : {}),
     primaryKeys,
     creatable: children.length === 0,
+    ...(versionField ? { version: versionField } : {}),
     fields: [...entityFields, ...dtoOnly, ...paths.values()],
     list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, filters, search },
     form: { create, update, requiredOnCreate, constraints },

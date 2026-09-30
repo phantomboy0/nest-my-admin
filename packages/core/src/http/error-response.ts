@@ -1,7 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import type { AdminErrorBody, AdminErrorCode } from '../contract.js';
-import { AdminError } from '../errors.js';
+import { AdminConflictError, AdminError } from '../errors.js';
 import type { ErrorMapper } from '../options.js';
 import type { DbNames } from '../registry/db-names.js';
 
@@ -41,7 +41,13 @@ export function toErrorResponse(error: unknown, correlationId: string, logger: E
   if (error instanceof AdminError) {
     return {
       status: error.status,
-      body: { code: error.code, message: error.message, ...(error.fields ? { fields: error.fields } : {}), correlationId },
+      body: {
+        code: error.code,
+        message: error.message,
+        ...(error.fields ? { fields: error.fields } : {}),
+        ...(error instanceof AdminConflictError && error.current ? { current: error.current } : {}),
+        correlationId,
+      },
     };
   }
   if (error instanceof HttpException && error.getStatus() < 500) {

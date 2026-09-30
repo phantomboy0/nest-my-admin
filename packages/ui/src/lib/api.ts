@@ -32,11 +32,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const enc = encodeURIComponent;
 
+const ifMatch = (version: unknown): Record<string, string> =>
+  typeof version === 'number' || typeof version === 'string' ? { 'If-Match': `"${version}"` } : {};
+
 export const api = {
   meta: () => request<MetaResponse>('/meta'),
   schema: (resource: string) => request<ResourceSchema>(`/meta/resources/${enc(resource)}`),
   list: (resource: string, query: URLSearchParams) => request<ListResponse>(`/resources/${enc(resource)}?${query}`),
-  remove: (resource: string, id: string) => request<void>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'DELETE' }),
+  /** `version` (the record's @VersionColumn value) makes the server refuse with 409 if the record changed since. */
+  remove: (resource: string, id: string, version?: unknown) =>
+    request<void>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'DELETE', headers: ifMatch(version) }),
   /** Picker options of a relation field: matching `search`, or the records with these `ids`. */
   options: (resource: string, field: string, query: { search?: string; ids?: Array<string | number> }) => {
     const params = new URLSearchParams();
@@ -47,6 +52,6 @@ export const api = {
   get: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`),
   create: (resource: string, body: Record<string, unknown>) =>
     request<AdminRecord>(`/resources/${enc(resource)}`, { method: 'POST', body: JSON.stringify(body) }),
-  update: (resource: string, id: string, body: Record<string, unknown>) =>
-    request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  update: (resource: string, id: string, body: Record<string, unknown>, version?: unknown) =>
+    request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body), headers: ifMatch(version) }),
 };

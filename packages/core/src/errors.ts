@@ -1,4 +1,4 @@
-import type { AdminErrorCode } from './contract.js';
+import type { AdminErrorCode, AdminRecord } from './contract.js';
 
 export class AdminError extends Error {
   constructor(
@@ -21,6 +21,16 @@ export class AdminValidationError extends AdminError {
 export class AdminNotFoundError extends AdminError {
   constructor(message = 'Not found') {
     super('NOT_FOUND', 404, message);
+  }
+}
+
+/** 409 CONFLICT; `current` is the record as it is now, when the conflict is a stale version. */
+export class AdminConflictError extends AdminError {
+  constructor(
+    message: string,
+    readonly current?: AdminRecord,
+  ) {
+    super('CONFLICT', 409, message);
   }
 }
 

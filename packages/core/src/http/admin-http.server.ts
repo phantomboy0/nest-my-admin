@@ -3,7 +3,7 @@ import { HttpAdapterHost } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 import type { AdminErrorCode } from '../contract.js';
-import { AdminError, AdminNotFoundError, AdminUnsupportedMediaTypeError } from '../errors.js';
+import { AdminBadRequestError, AdminError, AdminNotFoundError, AdminUnsupportedMediaTypeError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import { createAdminContext, runInAdminContext, type AdminContext } from '../resource/admin-context.js';
@@ -72,10 +72,10 @@ export class AdminHttpServer implements OnModuleInit {
         sendJson(res, 201, await this.api.create(p.resource, await readJsonBody(req), ctx)),
       )
       .add('PATCH', '/api/resources/:resource/:id', async ({ req, res, ctx }, p) =>
-        sendJson(res, 200, await this.api.update(p.resource, p.id, await readJsonBody(req), ctx)),
+        sendJson(res, 200, await this.api.update(p.resource, p.id, await readJsonBody(req), ctx, ifMatch(req))),
       )
-      .add('DELETE', '/api/resources/:resource/:id', async ({ res, ctx }, p) => {
-        await this.api.remove(p.resource, p.id, ctx);
+      .add('DELETE', '/api/resources/:resource/:id', async ({ req, res, ctx }, p) => {
+        await this.api.remove(p.resource, p.id, ctx, ifMatch(req));
         res.statusCode = 204;
         res.end();
       });
@@ -166,4 +166,13 @@ export class AdminHttpServer implements OnModuleInit {
       sendJson(res, status, body);
     }
   }
+}
+
+/** The version in `If-Match: "3"` (or `3`, or a weak `W/"3"`); undefined without the header. */
+function ifMatch(req: AdminRequest): number | undefined {
+  const header = req.headers['if-match'];
+  if (header === undefined) return undefined;
+  const match = /^\s*(?:W\/)?"?(\d{1,15})"?\s*$/.exec(Array.isArray(header) ? header.join(',') : header);
+  if (!match) throw new AdminBadRequestError('If-Match must be a record version, like "3"');
+  return Number(match[1]);
 }

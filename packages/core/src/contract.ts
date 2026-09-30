@@ -128,6 +128,11 @@ export interface ResourceSchema {
   };
   /** False for the root of a single-table inheritance: records are created through its child resources. */
   creatable: boolean;
+  /**
+   * The `@VersionColumn` field. Send its value as `If-Match: "<version>"` with PATCH and DELETE: a record changed
+   * since then answers 409 CONFLICT with `current`.
+   */
+  version?: string;
   form: {
     create: string[];
     update: string[];
@@ -157,6 +162,8 @@ export interface AdminErrorBody {
   code: AdminErrorCode;
   message: string;
   fields?: Record<string, string[]>;
+  /** On a 409 for a stale `If-Match` version: the record as it is now (for the diff dialog). */
+  current?: AdminRecord;
   correlationId: string;
 }
 

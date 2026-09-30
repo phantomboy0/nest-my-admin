@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { Fragment, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, ResourceSchema } from '@nest-my-admin/core/contract';
@@ -7,6 +7,7 @@ import { ObjectInput } from '@/app/object-input';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
+import { formatCell } from '@/lib/format';
 import { toFormValues, toPayload, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema } from '@/lib/queries';
 import { validatePayload } from '@/lib/validate';
@@ -44,14 +45,18 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
   const fields = names
     .map((name) => schema.fields.find((field) => field.name === name))
     .filter((field): field is FieldSchema => field !== undefined);
-  const [initial] = useState<FormValues>(() => toFormValues(fields, record));
+  // What the user started from: the loaded record (or, after "Load theirs", the record as it was then).
+  const [base, setBase] = useState<AdminRecord | undefined>(record);
+  const [initial, setInitial] = useState<FormValues>(() => toFormValues(fields, record));
   const [values, setValues] = useState<FormValues>(initial);
+  const version = schema.version ? base?.[schema.version] : undefined;
+  const [conflict, setConflict] = useState<AdminRecord | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);
 
   const save = useMutation({
-    mutationFn: (payload: Record<string, unknown>) =>
-      mode === 'create' ? api.create(schema.name, payload) : api.update(schema.name, id!, payload),
+    mutationFn: ({ payload, version: expected }: { payload: Record<string, unknown>; version?: unknown }) =>
+      mode === 'create' ? api.create(schema.name, payload) : api.update(schema.name, id!, payload, expected),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['list', schema.name] });
       navigate(`/${schema.name}`);
@@ -60,6 +65,10 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
     onError: (error) => {
       if (!(error instanceof ApiError)) {
         setFormError(error.message);
+        return;
+      }
+      if (error.status === 409 && error.body.current) {
+        setConflict(error.body.current);
         return;
       }
       const entries = Object.entries(error.fields);
@@ -73,7 +82,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const remove = useMutation({
-    mutationFn: () => api.remove(schema.name, id!),
+    mutationFn: () => api.remove(schema.name, id!, version),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['list', schema.name] });
       navigate(`/${schema.name}`);
@@ -85,20 +94,51 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
     },
   });
 
+  function payloadOf() {
+    return toPayload(fields, values, mode === 'edit' ? initial : undefined);
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
-    const { payload, errors } = toPayload(fields, values, mode === 'edit' ? initial : undefined);
+    const { payload, errors } = payloadOf();
     const formMode = mode === 'create' ? 'create' : 'update';
     const ruleErrors = validatePayload(payload, schema.form.constraints[formMode], formMode);
     const allErrors = { ...ruleErrors, ...errors }; // conversion errors ("must be a number") win for the same field
     setFieldErrors(allErrors);
     setFormError(null);
-    if (Object.keys(allErrors).length === 0) save.mutate(payload);
+    if (Object.keys(allErrors).length === 0) save.mutate({ payload, version });
+  }
+
+  /** Save anyway: send the same changes against the version that is stored now. */
+  function keepMine(current: AdminRecord) {
+    setConflict(null);
+    save.mutate({ payload: payloadOf().payload, version: schema.version ? current[schema.version] : undefined });
+  }
+
+  /** Drop the edits and continue from the stored record. */
+  function loadTheirs(current: AdminRecord) {
+    const next = toFormValues(fields, current);
+    setConflict(null);
+    setBase(current);
+    setInitial(next);
+    setValues(next);
+    setFieldErrors({});
   }
 
   return (
     <form onSubmit={submit} noValidate className="flex max-w-2xl flex-col gap-5">
       <h1 className="text-xl font-semibold">{mode === 'create' ? `New ${schema.label.toLowerCase()}` : recordHeading(schema.label, record, id)}</h1>
+      {conflict && (
+        <ConflictNotice
+          label={schema.label}
+          fields={fields}
+          before={base}
+          current={conflict}
+          busy={save.isPending}
+          onKeepMine={() => keepMine(conflict)}
+          onLoadTheirs={() => loadTheirs(conflict)}
+        />
+      )}
       {formError && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {formError}
@@ -155,5 +195,51 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
           ))}
       </div>
     </form>
+  );
+}
+
+interface ConflictNoticeProps {
+  label: string;
+  fields: FieldSchema[];
+  before?: AdminRecord;
+  current: AdminRecord;
+  busy: boolean;
+  onKeepMine: () => void;
+  onLoadTheirs: () => void;
+}
+
+/** 409 on a stale version (spec §9.4): what the other person changed, and the two ways forward. */
+function ConflictNotice({ label, fields, before, current, busy, onKeepMine, onLoadTheirs }: ConflictNoticeProps) {
+  const changed = fields.filter((field) => JSON.stringify(before?.[field.name] ?? null) !== JSON.stringify(current[field.name] ?? null));
+  return (
+    <div role="alertdialog" aria-labelledby="conflict-title" aria-describedby="conflict-body" className="flex flex-col gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+      <p id="conflict-title" className="font-medium">
+        Someone else saved this {label.toLowerCase()} while you were editing it.
+      </p>
+      <div id="conflict-body">
+        {changed.length > 0 ? (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+            {changed.map((field) => (
+              <Fragment key={field.name}>
+                <dt className="text-muted-foreground">{field.label}</dt>
+                <dd>
+                  <span className="line-through opacity-60">{formatCell(before?.[field.name], field)}</span> → {formatCell(current[field.name], field)}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        ) : (
+          <p>None of the fields on this form changed.</p>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" disabled={busy} onClick={onKeepMine}>
+          Keep my changes
+        </Button>
+        <Button type="button" variant="outline" onClick={onLoadTheirs}>
+          Load theirs
+        </Button>
+      </div>
+    </div>
   );
 }

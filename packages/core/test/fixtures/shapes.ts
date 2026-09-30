@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsArray, IsIn, IsOptional, IsString, Length, Matches, ValidateNested } from 'class-validator';
-import { Column, Entity, PrimaryColumn, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, DeleteDateColumn, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, VersionColumn } from 'typeorm';
 import { AdminResource, AdminResourceBase, type FormConfig, type ListConfig } from '../../src/index.js';
 
 /** A composite primary key whose string part may contain the id separators. */
@@ -72,7 +72,31 @@ export class VenueDtoAdmin extends AdminResourceBase<Venue> {
   form: FormConfig = { create: VenueDto };
 }
 
-@Module({ providers: [LineAdmin, KeyedAdmin, VenueAdmin, VenueDtoAdmin] })
+/** Optimistic concurrency and soft delete. */
+@Entity()
+export class Shop {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 40 }) name: string;
+  @Column({ type: 'int', default: 0 }) stock: number;
+  @VersionColumn() version: number;
+  @DeleteDateColumn() deletedAt: Date | null;
+}
+
+/** Points at a shop: a trashed shop must not be offered or accepted. */
+@Entity()
+export class Branch {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 40 }) name: string;
+  @ManyToOne(() => Shop, { nullable: true, onDelete: 'RESTRICT' }) shop: Shop | null;
+}
+
+@AdminResource(Shop)
+export class ShopAdmin extends AdminResourceBase<Shop> {}
+
+@AdminResource(Branch)
+export class BranchAdmin extends AdminResourceBase<Branch> {}
+
+@Module({ providers: [LineAdmin, KeyedAdmin, VenueAdmin, VenueDtoAdmin, ShopAdmin, BranchAdmin] })
 export class ShapesModule {}
 
-export const SHAPE_ENTITIES: Function[] = [Line, Keyed, Venue];
+export const SHAPE_ENTITIES: Function[] = [Line, Keyed, Venue, Shop, Branch];
