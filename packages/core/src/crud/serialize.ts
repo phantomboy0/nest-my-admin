@@ -1,8 +1,9 @@
 import type { AdminRecord, FieldSchema } from '../contract.js';
 
 /**
- * Entity → JSON-safe record containing only the schema's persisted fields. Relation fields and dotted paths come
- * from `loaded` (the reference loader) and are left out when it has none for them; `meta` adds `_id` and `_title`.
+ * Entity → JSON-safe record containing only the schema's persisted fields. Values in `loaded` win (the reference
+ * loader's relations and paths, the discriminator); relation fields and dotted paths without one are left out.
+ * `meta` adds `_id` and `_title`.
  */
 export function serializeRecord(
   entity: object,
@@ -14,6 +15,10 @@ export function serializeRecord(
   const out: AdminRecord = {};
   for (const field of fields) {
     if (!field.persisted) continue;
+    if (loaded && Object.hasOwn(loaded, field.name)) {
+      out[field.name] = loaded[field.name];
+      continue;
+    }
     if (field.type === 'relation' || field.name.includes('.')) {
       if (loaded && Object.hasOwn(loaded, field.name)) out[field.name] = loaded[field.name];
       continue;

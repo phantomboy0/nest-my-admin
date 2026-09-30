@@ -12,6 +12,7 @@ const schema: ResourceSchema = {
   label: 'Widget',
   group: 'widgets',
   primaryKeys: ['id'],
+  creatable: true,
   fields: [
     f('id', 'number', { primary: true, readonly: true }),
     f('name', 'string'),

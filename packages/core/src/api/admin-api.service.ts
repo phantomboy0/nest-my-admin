@@ -80,9 +80,14 @@ export class AdminApiService {
     const { schema } = entry;
     const manager: EntityManager = ctx.manager ?? entry.dataSource.manager;
     const loaded = fields.length > 0 ? await loadReferences(entry, entities, fields, { registry: this.registry, manager }) : undefined;
+    const discriminator = entry.metadata.discriminatorColumn?.propertyName;
+    const kindOf = (entity: object) =>
+      entry.metadata.childEntityMetadatas.find((child) => child.target === entity.constructor)?.discriminatorValue ?? entry.metadata.discriminatorValue;
     return entities.map((entity) => {
       const id = recordIdOf(entity, schema.primaryKeys);
-      return serializeRecord(entity, schema.fields, loaded?.get(id), { id, title: entry.title(entity) });
+      // TypeORM does not load the discriminator into entities; each row's class says which kind it is.
+      const values = discriminator && schema.fields.some((field) => field.name === discriminator) ? { ...loaded?.get(id), [discriminator]: kindOf(entity) } : loaded?.get(id);
+      return serializeRecord(entity, schema.fields, values, { id, title: entry.title(entity) });
     });
   }
 
@@ -118,6 +123,15 @@ export class AdminApiService {
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
     const entry = this.registry.get(name);
     const { schema, resource } = entry;
+    if (!schema.creatable) {
+      const children = this.registry
+        .list()
+        .filter((candidate) => entry.metadata.childEntityMetadatas.some((child) => child.target === candidate.entity))
+        .map((candidate) => candidate.schema.label);
+      throw new AdminBadRequestError(
+        `${schema.label} records are created as one of their kinds${children.length > 0 ? `: ${children.join(', ')}` : ''}`,
+      );
+    }
     const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {

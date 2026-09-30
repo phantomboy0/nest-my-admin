@@ -209,7 +209,7 @@ export class ResourceRegistry implements OnModuleInit {
     const covered = new Set(this.list().map((entry) => entry.entity));
     for (const metadata of dataSource.entityMetadatas) {
       const entity = metadata.target;
-      if (typeof entity !== 'function' || covered.has(entity) || metadata.tableType !== 'regular') continue;
+      if (typeof entity !== 'function' || covered.has(entity) || !['regular', 'entity-child'].includes(metadata.tableType)) continue;
       if (this.resources.has(kebabCase(entity.name))) {
         this.logger.warn(`autoRegister skipped ${entity.name}: a resource named "${kebabCase(entity.name)}" already exists`);
         continue;

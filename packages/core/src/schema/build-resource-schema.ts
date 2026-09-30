@@ -42,7 +42,23 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const columnByName = new Map<string, ColumnLike>();
   /** Columns of embeddeds by dotted path (`address.city`), for their constraints. */
   const columnByPath = new Map<string, ColumnLike>();
+  // Single-table inheritance: a child's discriminator is fixed (hidden); the root shows it read-only, as an enum of
+  // the stored values, and leaves out columns only its children declare.
+  const children = metadata.childEntityMetadatas ?? [];
+  const isChild = metadata.tableType === 'entity-child';
+  const childTargets = new Set(children.map((child) => child.target));
   for (const column of metadata.columns) {
+    if (column.isDiscriminator) {
+      if (isChild || !column.isSelect) continue;
+      const values = [...new Set([metadata.discriminatorValue, ...children.map((child) => child.discriminatorValue)])].filter(
+        (value): value is string => typeof value === 'string',
+      );
+      const field: FieldSchema = { ...columnToField(column), type: 'enum', enumValues: values, readonly: true };
+      entityFields.push(field);
+      columnByName.set(field.name, column);
+      continue;
+    }
+    if (column.target !== undefined && childTargets.has(column.target)) continue;
     if (column.embeddedMetadata) {
       // An embedded is one object field, placed where its first column is.
       const top = topEmbedded(column.embeddedMetadata as EmbeddedLike);
@@ -226,6 +242,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     group: definition.group ?? moduleGroup,
     ...(definition.icon ? { icon: definition.icon } : {}),
     primaryKeys,
+    creatable: children.length === 0,
     fields: [...entityFields, ...dtoOnly, ...paths.values()],
     list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, filters, search },
     form: { create, update, requiredOnCreate, constraints },

@@ -6,6 +6,11 @@ import { humanize } from './humanize.js';
 export interface RelatedMetadataLike {
   name: string;
   target: Function | string;
+  /** `entity-child` for a child of a single-table inheritance. */
+  tableType?: string;
+  discriminatorValue?: string;
+  /** Children of a single-table inheritance root. */
+  childEntityMetadatas?: Array<{ target: Function | string; discriminatorValue?: string }>;
   columns: ColumnLike[];
   primaryColumns: ColumnLike[];
   relations: RelationLike[];

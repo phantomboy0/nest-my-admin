@@ -126,6 +126,8 @@ export interface ResourceSchema {
     /** Fields matched case-insensitively by `?search=`. Empty = not searchable. */
     search: string[];
   };
+  /** False for the root of a single-table inheritance: records are created through its child resources. */
+  creatable: boolean;
   form: {
     create: string[];
     update: string[];

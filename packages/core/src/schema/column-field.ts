@@ -22,6 +22,10 @@ export interface ColumnLike {
   default?: unknown;
   relationMetadata?: unknown;
   embeddedMetadata?: unknown;
+  /** The single-table inheritance discriminator. */
+  isDiscriminator?: boolean;
+  /** The class that declares the column. */
+  target?: Function | string;
 }
 
 const TYPE_BY_NAME: Record<string, FieldType> = {

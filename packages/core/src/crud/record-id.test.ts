@@ -8,6 +8,7 @@ const schemaWithKey = (type: FieldType): ResourceSchema => ({
   label: 'Thing',
   group: 'g',
   primaryKeys: ['id'],
+  creatable: true,
   fields: [{ name: 'id', label: 'Id', type, nullable: false, primary: true, readonly: true, persisted: true }],
   list: { columns: ['id'], sortable: ['id'], defaultSort: { field: 'id', direction: 'desc' }, pageSize: 25, filters: [], search: [] },
   form: { create: [], update: [], requiredOnCreate: [], constraints: { create: {}, update: {} } },
