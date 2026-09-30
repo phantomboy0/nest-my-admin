@@ -1,9 +1,12 @@
-import { Fragment, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { ExternalLink, Lock } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { AdminRecord, FieldSchema, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, FieldSchema, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
 import { FieldInput } from '@/app/field-input';
+import { FormLayout } from '@/app/form-layout';
 import { ObjectInput } from '@/app/object-input';
+import { DisplayValue, ValueBadge } from '@/app/widgets/badge';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
@@ -11,6 +14,8 @@ import { useT } from '@/i18n';
 import { formatCell } from '@/lib/format';
 import { dependencyValues, toFormValues, toPayload, type FormValue, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema } from '@/lib/queries';
+import { cn } from '@/lib/utils';
+import { isShown } from '@/lib/show-if';
 import { slugify } from '@/lib/slug';
 import { validatePayload } from '@/lib/validate';
 
@@ -45,10 +50,12 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const names = mode === 'create' ? schema.form.create : schema.form.update;
-  const fields = names
-    .map((name) => schema.fields.find((field) => field.name === name))
-    .filter((field): field is FieldSchema => field !== undefined);
+  // Edit forms also show read-only fields: `readonly` in the config, and those `readonlyIf` locks on this record.
+  const locked = new Set(mode === 'edit' ? [...schema.form.readonly, ...lockedOn(record)] : []);
+  const shownNames = mode === 'create' ? schema.form.create : [...schema.form.update, ...schema.form.readonly];
+  const allFields = schema.fields.filter((field) => shownNames.includes(field.name));
+  const fields = allFields.filter((field) => !locked.has(field.name));
+  const names = fields.map((field) => field.name);
   // What the user started from: the loaded record (or, after "Load theirs", the record as it was then).
   const [base, setBase] = useState<AdminRecord | undefined>(record);
   const [initial, setInitial] = useState<FormValues>(() => toFormValues(fields, record));
@@ -114,15 +121,19 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
     },
   });
 
+  /** Fields hidden by `showIf` are not sent (and not checked): hiding is presentation, the server keeps their values. */
+  const visible = fields.filter((field) => isShown(field, values));
+
   function payloadOf() {
-    return toPayload(fields, values, mode === 'edit' ? initial : undefined);
+    return toPayload(visible, values, mode === 'edit' ? initial : undefined);
   }
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const { payload, errors } = payloadOf();
     const formMode = mode === 'create' ? 'create' : 'update';
-    const ruleErrors = validatePayload(payload, schema.form.constraints[formMode], formMode);
+    const constraints = Object.fromEntries(Object.entries(schema.form.constraints[formMode]).filter(([name]) => visible.some((field) => field.name === name.split('.')[0])));
+    const ruleErrors = validatePayload(payload, constraints, formMode);
     const allErrors = { ...ruleErrors, ...errors }; // conversion errors ("must be a number") win for the same field
     setFieldErrors(allErrors);
     setFormError(null);
@@ -145,9 +156,44 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
     setFieldErrors({});
   }
 
+  function renderField(name: string): ReactNode | null {
+    const field = allFields.find((candidate) => candidate.name === name);
+    if (!field || !isShown(field, values)) return null;
+    if (locked.has(name)) return <ReadOnlyField field={field} value={record?.[name]} />;
+    const formMode = mode === 'create' ? 'create' : 'update';
+    return field.type === 'object' ? (
+      <ObjectInput
+        resource={schema.name}
+        field={field}
+        path={field.name}
+        pattern={field.name}
+        value={values[field.name]}
+        constraints={schema.form.constraints[formMode]}
+        markRequired={mode === 'create'}
+        errors={fieldErrors}
+        onChange={(value) => change(field.name, value)}
+      />
+    ) : (
+      <FieldInput
+        resource={schema.name}
+        field={field}
+        value={values[field.name]}
+        required={mode === 'create' && schema.form.requiredOnCreate.includes(field.name)}
+        errors={fieldErrors[field.name]}
+        formValues={field.type === 'relation' ? dependencies : undefined}
+        constraints={schema.form.constraints[formMode][field.name]}
+        onChange={(value) => change(field.name, value)}
+      />
+    );
+  }
+
   return (
-    <form onSubmit={submit} noValidate className="flex max-w-2xl flex-col gap-5">
-      <h1 className="text-xl font-semibold">{mode === 'create' ? t('form.new', { name: schema.label }) : recordHeading(schema.label, record, id)}</h1>
+    <form onSubmit={submit} noValidate className={cn('flex flex-col gap-5', schema.form.layout?.length ? 'max-w-4xl' : 'max-w-2xl')}>
+      {mode === 'create' ? (
+        <h1 className="text-xl font-semibold">{t('form.new', { name: schema.label })}</h1>
+      ) : (
+        <DetailHeader schema={schema} record={record} id={id} />
+      )}
       {conflict && (
         <ConflictNotice
           fields={fields}
@@ -163,34 +209,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
           {formError}
         </div>
       )}
-      {fields.map((field) =>
-        field.type === 'object' ? (
-          <ObjectInput
-            key={field.name}
-            resource={schema.name}
-            field={field}
-            path={field.name}
-            pattern={field.name}
-            value={values[field.name]}
-            constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update']}
-            markRequired={mode === 'create'}
-            errors={fieldErrors}
-            onChange={(value) => change(field.name, value)}
-          />
-        ) : (
-          <FieldInput
-            key={field.name}
-            resource={schema.name}
-            field={field}
-            value={values[field.name]}
-            required={mode === 'create' && schema.form.requiredOnCreate.includes(field.name)}
-            errors={fieldErrors[field.name]}
-            formValues={field.type === 'relation' ? dependencies : undefined}
-            constraints={schema.form.constraints[mode === 'create' ? 'create' : 'update'][field.name]}
-            onChange={(value) => change(field.name, value)}
-          />
-        ),
-      )}
+      <FormLayout layout={schema.form.layout} names={allFields.map((field) => field.name)} errors={fieldErrors} render={renderField} />
       <div className="sticky bottom-0 flex gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
         <Button type="submit" disabled={save.isPending}>
           {t(save.isPending ? 'form.saving' : 'form.save')}
@@ -231,6 +250,54 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
         </nav>
       )}
     </form>
+  );
+}
+
+const lockedOn = (record: AdminRecord | undefined): string[] => (Array.isArray(record?._readonly) ? (record._readonly as string[]) : []);
+
+/** A field shown but not editable: its value as text, with a lock. */
+function ReadOnlyField({ field, value }: { field: FieldSchema; value: unknown }) {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-1.5" data-readonly={field.name}>
+      <span className="flex items-center gap-1.5 text-sm font-medium">
+        {field.label}
+        <Lock className="size-3.5 text-muted-foreground" aria-label={t('form.readOnly')} role="img" />
+      </span>
+      <div className="min-h-8 rounded-lg bg-muted/50 px-2.5 py-1.5 text-sm break-words">
+        <DisplayValue value={value} field={field} />
+      </div>
+      {field.help && <p className="text-sm text-muted-foreground">{field.help}</p>}
+    </div>
+  );
+}
+
+/** The record's title with its badge fields and the resource's external links (spec §9.4). */
+function DetailHeader({ schema, record, id }: { schema: ResourceSchema; record?: AdminRecord; id?: string }) {
+  const t = useT();
+  const badges = schema.fields.filter((field) => field.widget === 'badge' && record?.[field.name] !== undefined && record?.[field.name] !== null);
+  const links = Array.isArray(record?._links) ? (record._links as RecordLink[]) : [];
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-xl font-semibold">{recordHeading(schema.label, record, id)}</h1>
+        {badges.map((field) => (
+          <ValueBadge key={field.name} value={record![field.name]} field={field} />
+        ))}
+      </div>
+      {links.length > 0 && (
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          {links.map((link) => (
+            <li key={`${link.label}:${link.href}`}>
+              <a href={link.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline" aria-label={t('form.externalLink', { name: link.label })}>
+                {link.label}
+                <ExternalLink className="size-3.5 rtl:-scale-x-100" aria-hidden />
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

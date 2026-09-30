@@ -106,6 +106,9 @@ export const en = {
   'form.keepMine': 'Keep my changes',
   'form.loadTheirs': 'Load theirs',
   'form.formatJson': 'Format',
+  'form.tabHasErrors': '(has errors)',
+  'form.readOnly': 'Read-only',
+  'form.externalLink': '{name} (opens in a new tab)',
   'form.colorCode': '{name} colour code',
 
   'picker.typeToSearch': 'Type to search…',

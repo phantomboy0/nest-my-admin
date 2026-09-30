@@ -108,6 +108,9 @@ export const fa: Messages = {
   'form.keepMine': 'تغییرات من بماند',
   'form.loadTheirs': 'نسخه‌ی آن‌ها را بارگذاری کن',
   'form.formatJson': 'مرتب‌سازی',
+  'form.tabHasErrors': '(دارای خطا)',
+  'form.readOnly': 'فقط خواندنی',
+  'form.externalLink': '{name} (در زبانه‌ی جدید باز می‌شود)',
   'form.colorCode': 'کد رنگ {name}',
 
   'picker.typeToSearch': 'برای جست‌وجو تایپ کنید…',
