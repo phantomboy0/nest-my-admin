@@ -77,11 +77,17 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   /**
    * The list query with filters, search, sort and paging applied. Override findMany and extend this to add
    * joins or restrictions: `this.buildListQuery(params).andWhere('entity.ownerId = :id', { id })`.
+   * A restriction added here applies to the list only: apply the same restriction in `findOne`, which
+   * GET, PATCH and DELETE by id use.
    */
   protected buildListQuery(params: ListParams, alias = 'entity'): SelectQueryBuilder<T> {
     return applyListParams(this.repository.createQueryBuilder(alias), params, this.primaryKey);
   }
 
+  /**
+   * Overrides must honour `params.filters` and `params.search` (easiest: start from `this.buildListQuery(params)`),
+   * otherwise the UI shows filters and search that do nothing.
+   */
   async findMany(params: ListParams, _ctx: AdminContext): Promise<FindManyResult<T>> {
     const [items, total] = await this.buildListQuery(params).getManyAndCount();
     return { items, total };
@@ -91,6 +97,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return this.repository.findOne({ where: { [this.primaryKey]: id } as FindOptionsWhere<T> });
   }
 
+  /** Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them. */
   async create(dto: object, ctx: AdminContext): Promise<T> {
     await this.runHooks('beforeSave', dto, ctx, 'create');
     const saved = await this.repository.save(this.repository.create({ ...dto } as DeepPartial<T>));
@@ -98,6 +105,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return saved;
   }
 
+  /** Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them. */
   async update(id: RecordId, dto: object, ctx: AdminContext): Promise<T> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
@@ -108,6 +116,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return saved;
   }
 
+  /** Overriding this skips the @BeforeDelete hooks; call `this.runHooks(...)` yourself to keep them. */
   async delete(id: RecordId, ctx: AdminContext): Promise<void> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();

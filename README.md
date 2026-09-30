@@ -33,11 +33,26 @@ Lists support filters and search with a URL syntax you can bookmark:
 Operators: `eq ne in nin lt lte gt gte between contains startsWith isNull`. Choose filterable and searchable
 fields with `list: { filters: [...], search: [...] }`; hooks (`@BeforeSave`, `@AfterSave`, `@BeforeDelete`) run
 in the default create/update/delete, and `AdminModule.forRoot({ autoRegister: true })` exposes every entity
-without a resource.
+without a resource. `ne` and `nin` exclude NULLs (SQL semantics), and datetime filter values must be ISO-8601
+with a time zone.
+
+### Customising lists
+
+Override `findMany` and start from `this.buildListQuery(params)`, which already applies filters, search, sort and
+paging; add your joins or restrictions to it. A restriction added there applies to the list only, so apply the same
+one in `findOne`, which GET, PATCH and DELETE by id use:
+
+```ts
+async findMany(params: ListParams) {
+  const [items, total] = await this.buildListQuery(params).andWhere('entity.archived = false').getManyAndCount();
+  return { items, total };
+}
+findOne(id: RecordId) { return this.repository.findOne({ where: { id, archived: false } }); }
+```
 
 ## Security (pre-alpha)
 
-M0 has **no authentication**. Anyone who can reach the port can read every column of the registered entities that is not `select: false`, and create or update records. Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers).
+M0 has **no authentication**. Anyone who can reach the port can read every column of the registered entities that is not `select: false`, and create, update or delete records (the default delete uses `repository.remove`; override `delete` to call your service instead). Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers).
 
 Gate it yourself with Express middleware registered in `main.ts` before `listen`:
 
