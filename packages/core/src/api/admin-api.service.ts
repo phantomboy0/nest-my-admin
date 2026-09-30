@@ -109,7 +109,7 @@ export class AdminApiService {
     const dto = await validateWrite(body, {
       allowed: schema.form.update,
       dto: updateDto ?? resource.form?.create,
-      partial: !updateDto,
+      partial: true, // PATCH validates only the keys that were sent, dedicated update DTO or not
     });
     return this.write(entry, ctx, async (tx) => {
       if (!(await resource.findOne(id, tx))) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);

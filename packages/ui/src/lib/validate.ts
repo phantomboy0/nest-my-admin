@@ -1,6 +1,6 @@
 import type { FieldConstraints } from '@nest-my-admin/core/contract';
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL = /^.+@[^\s@]+\.[^\s@]+$/; // the local part may be quoted, so it may hold spaces and @
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -25,11 +25,19 @@ function matchesPattern(value: string, pattern: NonNullable<FieldConstraints['pa
   }
 }
 
+/** Length as validator's isLength counts it: surrogate pairs and emoji variation selectors are one character. */
+function characterCount(value: string): number {
+  const surrogatePairs = value.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g) ?? [];
+  const presentation = value.match(/[^\uFE0F\uFE0E][\uFE0F\uFE0E]/g) ?? [];
+  return value.length - surrogatePairs.length - presentation.length;
+}
+
 function check(value: unknown, c: FieldConstraints): string[] {
   const messages: string[] = [];
   if (typeof value === 'string') {
-    if (c.minLength !== undefined && value.length < c.minLength) messages.push(`must be at least ${c.minLength} characters`);
-    if (c.maxLength !== undefined && value.length > c.maxLength) messages.push(`must be at most ${c.maxLength} characters`);
+    const length = characterCount(value);
+    if (c.minLength !== undefined && length < c.minLength) messages.push(`must be at least ${c.minLength} characters`);
+    if (c.maxLength !== undefined && length > c.maxLength) messages.push(`must be at most ${c.maxLength} characters`);
     if (c.pattern && !matchesPattern(value, c.pattern)) messages.push(c.pattern.message ?? 'is not in the expected format');
     if (c.format === 'email' && !EMAIL.test(value)) messages.push('must be an email address');
     if (c.format === 'url' && !isUrl(value)) messages.push('must be a URL');

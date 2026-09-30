@@ -45,4 +45,12 @@ describe('dto fields', () => {
     expect(dtoOnlyField(ChoiceDto, 'choice')).toMatchObject({ type: 'enum', enumValues: ['a', 'b'] });
     expect(dtoOnlyField(ChoiceDto, 'count')).toMatchObject({ type: 'number', integer: true });
   });
+
+  test('a DTO-only @IsIn with non-string values stays a plain field', () => {
+    class NumericChoiceDto {
+      @IsIn([1, 2]) level: number;
+    }
+    expect(dtoOnlyField(NumericChoiceDto, 'level')).toMatchObject({ type: 'number' });
+    expect(dtoOnlyField(NumericChoiceDto, 'level').enumValues).toBeUndefined();
+  });
 });

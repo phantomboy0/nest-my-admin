@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, expect, test } from 'bun:test';
-import { IsEmail, IsIn, IsInt, IsOptional, IsString, IsUrl, IsUUID, Length, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ValidateIf, IsEmail, IsIn, IsInt, IsOptional, IsString, IsUrl, IsUUID, Length, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { dtoConstraints } from './dto-constraints.js';
 
 class SampleDto {
@@ -35,5 +35,31 @@ describe('dtoConstraints', () => {
       @Matches('^x+$', 'i') value: string;
     }
     expect(dtoConstraints(StringPatternDto).value).toEqual({ required: true, pattern: { source: '^x+$', flags: 'i' } });
+  });
+
+  test('@ValidateIf makes every other rule server-conditional, so only required:false is emitted', () => {
+    class ConditionalDto {
+      @ValidateIf((o: { kind?: string }) => o.kind === 'a') @MinLength(5) name: string;
+    }
+    expect(dtoConstraints(ConditionalDto)).toEqual({ name: { required: false } });
+  });
+
+  test('pattern flags g and y are dropped (stateful on the server)', () => {
+    class FlagDto {
+      @Matches(/^a+$/gi) value: string;
+    }
+    expect(dtoConstraints(FlagDto).value.pattern).toEqual({ source: '^a+$', flags: 'i' });
+  });
+
+  test('pattern messages: $property is filled in, $value / $constraint drop the message', () => {
+    class MessageDto {
+      @Matches(/^a$/, { message: '$property must be a' }) one: string;
+      @Matches(/^a$/, { message: '$value is bad' }) two: string;
+      @Matches(/^a$/, { message: 'not $constraint1' }) three: string;
+    }
+    const c = dtoConstraints(MessageDto);
+    expect(c.one.pattern?.message).toBe('one must be a');
+    expect(c.two.pattern?.message).toBeUndefined();
+    expect(c.three.pattern?.message).toBeUndefined();
   });
 });

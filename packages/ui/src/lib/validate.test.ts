@@ -57,4 +57,15 @@ describe('validatePayload', () => {
     expect(validatePayload({ site: 'ftp://files.example.com' }, constraints, 'create').site).toBeUndefined();
     expect(validatePayload({ code: 'x' }, { code: { pattern: { source: '(', flags: '' } } }, 'create')).toEqual({});
   });
+
+  test('length counts like validator: surrogate pairs and variation selectors are one character', () => {
+    expect(validatePayload({ name: '😀😀😀😀😀' }, constraints, 'create')).toEqual({});
+    expect(validatePayload({ name: '❤️❤️❤️❤️❤️' }, constraints, 'create')).toEqual({});
+    expect(validatePayload({ name: '😀😀😀😀😀😀' }, constraints, 'create')).toEqual({ name: ['must be at most 5 characters'] });
+  });
+
+  test('email accepts quoted local parts', () => {
+    expect(validatePayload({ email: '"a b"@example.com' }, { email: constraints.email! }, 'create')).toEqual({});
+    expect(validatePayload({ email: '"a@b"@example.com' }, { email: constraints.email! }, 'create')).toEqual({});
+  });
 });

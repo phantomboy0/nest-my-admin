@@ -4,14 +4,22 @@ import type { DtoClass } from './dto-fields.js';
 
 const num = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
 
+/** A custom message is usable only when its placeholders can be resolved without a value. */
+function patternMessage(message: unknown, property: string): { message?: string } {
+  if (typeof message !== 'string') return {};
+  const filled = message.replaceAll('$property', property);
+  return /\$(value|constraint)/.test(filled) ? {} : { message: filled };
+}
+
 /** Browser-checkable constraints per DTO property, compiled from class-validator metadata (spec §5.3, §9.4). */
 export function dtoConstraints(dto: DtoClass): Record<string, FieldConstraints> {
   const result: Record<string, FieldConstraints> = {};
   const optional = new Set<string>();
+  const conditional = new Set<string>(); // @ValidateIf: the server may skip every rule, so the browser checks none
   for (const meta of getMetadataStorage().getTargetValidationMetadatas(dto, '', true, false)) {
     const constraints = (result[meta.propertyName] ??= {});
     if (meta.type === ValidationTypes.CONDITIONAL_VALIDATION) {
-      optional.add(meta.propertyName);
+      (meta.name === 'isOptional' ? optional : conditional).add(meta.propertyName);
       continue;
     }
     if (meta.each) continue; // array-element rules do not describe the field itself
@@ -49,19 +57,22 @@ export function dtoConstraints(dto: DtoClass): Record<string, FieldConstraints> 
         constraints.format = 'uuid';
         break;
       case 'isIn':
-        if (Array.isArray(first)) constraints.oneOf = first.map(String);
+        if (Array.isArray(first) && first.every((value) => typeof value === 'string')) constraints.oneOf = first; // non-string choices are left to the server
         break;
       case 'matches': {
         const regex = first instanceof RegExp ? first : new RegExp(String(first), typeof second === 'string' ? second : undefined);
         constraints.pattern = {
           source: regex.source,
-          flags: regex.flags,
-          ...(typeof meta.message === 'string' ? { message: meta.message } : {}),
+          flags: regex.flags.replace(/[gy]/g, ''), // stateful flags make class-validator's RegExp.test() unreliable
+          ...patternMessage(meta.message, meta.propertyName),
         };
         break;
       }
     }
   }
-  for (const [name, constraints] of Object.entries(result)) constraints.required = !optional.has(name);
+  for (const [name, constraints] of Object.entries(result)) {
+    if (conditional.has(name)) result[name] = { required: false };
+    else constraints.required = !optional.has(name);
+  }
   return result;
 }
