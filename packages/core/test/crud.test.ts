@@ -26,6 +26,33 @@ describe('create', () => {
     expect(res.body.fields).toEqual({ id: ['is not a writable field'], bogus: ['is not a writable field'] });
   });
 
+  test('rejects cross-site "simple" content types with 415', async () => {
+    const form = await request(app.getHttpServer()).post(base).type('form').send('name=x');
+    expect(form.status).toBe(415);
+    expect(form.body).toMatchObject({ code: 'BAD_REQUEST', message: 'Content-Type must be application/json' });
+    const text = await request(app.getHttpServer()).post(base).set('Content-Type', 'text/plain').send('{"name":"x"}');
+    expect(text.status).toBe(415);
+    expect(text.body.code).toBe('BAD_REQUEST');
+    const noBody = await request(app.getHttpServer()).post(base);
+    expect(noBody.status).toBe(415);
+    const charset = await request(app.getHttpServer()).post(base).set('Content-Type', 'application/json; charset=utf-8').send('{"name":"cs"}');
+    expect(charset.status).toBe(201);
+  });
+
+  test('malformed JSON bodies use the error contract', async () => {
+    const res = await request(app.getHttpServer()).post(base).set('Content-Type', 'application/json').send('{nope');
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ code: 'BAD_REQUEST', message: 'Request body is not valid JSON' });
+    expect(typeof res.body.correlationId).toBe('string');
+  });
+
+  test('oversized bodies use the error contract', async () => {
+    const res = await request(app.getHttpServer()).post(base).send({ name: 'x'.repeat(200_000) });
+    expect(res.status).toBe(413);
+    expect(res.body).toMatchObject({ code: 'BAD_REQUEST', message: 'Request body is too large' });
+    expect(typeof res.body.correlationId).toBe('string');
+  });
+
   test('rejects non-object bodies', async () => {
     const res = await request(app.getHttpServer()).post(base).send([1, 2]);
     expect(res.status).toBe(400);

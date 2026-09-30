@@ -3,7 +3,7 @@ import { HttpAdapterHost } from '@nestjs/core';
 import type { ServerResponse } from 'node:http';
 import { AdminApiService } from '../api/admin-api.service.js';
 import { ADMIN_OPTIONS } from '../constants.js';
-import { AdminNotFoundError } from '../errors.js';
+import { AdminNotFoundError, AdminUnsupportedMediaTypeError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import { createAdminContext, type AdminContext } from '../resource/admin-context.js';
@@ -17,6 +17,23 @@ interface RequestState {
   res: ServerResponse;
   url: URL;
   ctx: AdminContext;
+}
+
+const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+
+function isJsonContentType(header: string | undefined): boolean {
+  return header?.split(';')[0]?.trim().toLowerCase() === 'application/json';
+}
+
+/** Maps an error raised by the host's body parser (which runs before this handler) to the admin contract. */
+function bodyParserError(error: unknown): { status: number; message: string } | undefined {
+  const { type, status } = (error ?? {}) as { type?: unknown; status?: unknown };
+  if (type === 'entity.parse.failed') return { status: 400, message: 'Request body is not valid JSON' };
+  if (type === 'entity.too.large') return { status: 413, message: 'Request body is too large' };
+  if (typeof status === 'number' && status >= 400 && status < 500) {
+    return { status, message: error instanceof Error ? error.message : 'Bad request' };
+  }
+  return undefined;
 }
 
 /**
@@ -72,6 +89,21 @@ export class AdminHttpServer implements OnModuleInit {
         res.end();
       });
     });
+    // Body-parser failures happen before the handler above runs; answer them with the same error contract.
+    adapter.use(this.options.path, (error: unknown, req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void) => {
+      if (res.headersSent) {
+        next(error);
+        return;
+      }
+      const correlationId = createAdminContext(req).correlationId;
+      const parserError = bodyParserError(error);
+      if (parserError) {
+        sendJson(res, parserError.status, { code: 'BAD_REQUEST', message: parserError.message, correlationId });
+        return;
+      }
+      const { status, body } = toErrorResponse(error, correlationId, this.logger);
+      sendJson(res, status, body);
+    });
     this.logger.log(`Admin mounted at ${this.options.path}`);
   }
 
@@ -86,6 +118,10 @@ export class AdminHttpServer implements OnModuleInit {
       if (pathname === '/api' || pathname.startsWith('/api/')) {
         const match = this.router.match(req.method ?? 'GET', pathname);
         if (!match) throw new AdminNotFoundError(`No admin API route for ${req.method} ${pathname}`);
+        // Only JSON can be sent by a script; forms and text/plain are CORS "simple" requests a foreign page could forge.
+        if (WRITE_METHODS.has(req.method ?? '') && !isJsonContentType(req.headers['content-type'])) {
+          throw new AdminUnsupportedMediaTypeError('Content-Type must be application/json');
+        }
         resourceName = match.params.resource;
         await match.handler({ req, res, url, ctx }, match.params);
         return;
