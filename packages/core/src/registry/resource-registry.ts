@@ -83,7 +83,7 @@ export class ResourceRegistry implements OnModuleInit {
       for (const warning of hookWarnings(instance, metatype.name)) this.logger.warn(warning);
       this.register(metatype.name, definition, instance, moduleGroup);
     }
-    if (this.options.autoRegister) this.registerAutoResources();
+    this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
   }
 
@@ -199,26 +199,38 @@ export class ResourceRegistry implements OnModuleInit {
     }
   }
 
-  private registerAutoResources(): void {
-    let dataSource: DataSource;
-    try {
-      dataSource = this.moduleRef.get<DataSource>(getDataSourceToken(), { strict: false });
-    } catch {
-      throw new Error('nest-my-admin: autoRegister needs the default TypeORM DataSource (TypeOrmModule.forRoot())');
-    }
-    const covered = new Set(this.list().map((entry) => entry.entity));
-    for (const metadata of dataSource.entityMetadatas) {
-      const entity = metadata.target;
-      if (typeof entity !== 'function' || covered.has(entity) || !['regular', 'entity-child'].includes(metadata.tableType)) continue;
-      if (this.resources.has(kebabCase(entity.name))) {
-        this.logger.warn(`autoRegister skipped ${entity.name}: a resource named "${kebabCase(entity.name)}" already exists`);
-        continue;
-      }
-      if (!this.groups.has(AUTO_GROUP.key)) this.groups.set(AUTO_GROUP.key, { ...AUTO_GROUP });
+  /**
+   * A default resource for every entity of the listed DataSources that has none. A name already taken is prefixed
+   * with the DataSource name (`reports-widget`) outside the default DataSource, and skipped with a warning in it.
+   */
+  private registerAutoResources(dataSourceNames: string[]): void {
+    for (const dataSourceName of dataSourceNames) {
+      let dataSource: DataSource;
       try {
-        this.register(`${entity.name}Admin (auto)`, { entity, group: AUTO_GROUP.key }, new AutoRegisteredResource(), AUTO_GROUP.key);
-      } catch (error) {
-        this.logger.warn(`autoRegister skipped ${entity.name}: ${error instanceof Error ? error.message : String(error)}`);
+        dataSource = this.moduleRef.get<DataSource>(getDataSourceToken(dataSourceName), { strict: false });
+      } catch {
+        throw new Error(`nest-my-admin: autoRegister needs the TypeORM DataSource "${dataSourceName}" (TypeOrmModule.forRoot())`);
+      }
+      for (const metadata of dataSource.entityMetadatas) {
+        const entity = metadata.target;
+        if (typeof entity !== 'function' || this.forEntity(entity, dataSource) || !['regular', 'entity-child'].includes(metadata.tableType)) continue;
+        let name = kebabCase(entity.name);
+        if (this.resources.has(name)) {
+          const prefixed = `${kebabCase(dataSourceName)}-${name}`;
+          if (dataSourceName === 'default' || this.resources.has(prefixed)) {
+            this.logger.warn(`autoRegister skipped ${entity.name}: a resource named "${name}" already exists`);
+            continue;
+          }
+          this.logger.warn(`autoRegister named ${entity.name} of DataSource "${dataSourceName}" "${prefixed}": "${name}" is taken`);
+          name = prefixed;
+        }
+        if (!this.groups.has(AUTO_GROUP.key)) this.groups.set(AUTO_GROUP.key, { ...AUTO_GROUP });
+        try {
+          const definition = { entity, name, group: AUTO_GROUP.key, dataSource: dataSourceName };
+          this.register(`${entity.name}Admin (auto)`, definition, new AutoRegisteredResource(), AUTO_GROUP.key);
+        } catch (error) {
+          this.logger.warn(`autoRegister skipped ${entity.name}: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
   }

@@ -4,7 +4,7 @@ import { resolveAdminOptions } from './options.js';
 describe('resolveAdminOptions', () => {
   test('defaults', () => {
     expect(resolveAdminOptions()).toEqual({
-      path: '/admin', title: 'Admin', uiDistPath: undefined, autoRegister: false, transactions: true, errorMapper: undefined,
+      path: '/admin', title: 'Admin', uiDistPath: undefined, autoRegister: [], transactions: true, errorMapper: undefined,
     });
   });
 
@@ -16,5 +16,13 @@ describe('resolveAdminOptions', () => {
   test('refuses to mount at the root or on odd paths', () => {
     expect(() => resolveAdminOptions({ path: '/' })).toThrow('must not be "/"');
     expect(() => resolveAdminOptions({ path: '/a b' })).toThrow('invalid path');
+  });
+});
+
+describe('autoRegister', () => {
+  test('true means the default DataSource; a list names DataSources', () => {
+    expect(resolveAdminOptions({ autoRegister: true }).autoRegister).toEqual(['default']);
+    expect(resolveAdminOptions({ autoRegister: ['default', 'reports'] }).autoRegister).toEqual(['default', 'reports']);
+    expect(resolveAdminOptions({}).autoRegister).toEqual([]);
   });
 });

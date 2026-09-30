@@ -15,8 +15,11 @@ export interface AdminModuleOptions {
   path?: string;
   /** Title shown in the UI. Default `Admin`. */
   title?: string;
-  /** Give every entity of the default DataSource without an @AdminResource a default resource. Default `false`. */
-  autoRegister?: boolean;
+  /**
+   * Give every entity without an @AdminResource a default resource: `true` for the default DataSource, or the names
+   * of the DataSources to cover (`['default', 'reports']`). Default `false`.
+   */
+  autoRegister?: boolean | string[];
   /** Run every create/update/delete in one database transaction (ctx.manager). Default `true`. */
   transactions?: boolean;
   /** Translate your own exceptions into admin errors (see ErrorMapper). Default: none. */
@@ -28,7 +31,8 @@ export interface AdminModuleOptions {
 export interface ResolvedAdminOptions {
   path: string;
   title: string;
-  autoRegister: boolean;
+  /** DataSource names whose entities get default resources. */
+  autoRegister: string[];
   transactions: boolean;
   errorMapper?: ErrorMapper;
   uiDistPath?: string;
@@ -45,7 +49,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     path,
     title: options.title ?? 'Admin',
     uiDistPath: options.uiDistPath,
-    autoRegister: options.autoRegister ?? false,
+    autoRegister: options.autoRegister === true ? ['default'] : Array.isArray(options.autoRegister) ? options.autoRegister : [],
     transactions: options.transactions ?? true,
     errorMapper: options.errorMapper,
   };
