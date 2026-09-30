@@ -105,7 +105,8 @@ export interface ResourceSchema {
   label: string;
   group: string;
   icon?: string;
-  primaryKey: string;
+  /** Primary key columns in order; records carry `_id`, their encoded id (see `AdminRecord`). */
+  primaryKeys: string[];
   fields: FieldSchema[];
   list: {
     columns: string[];
@@ -125,8 +126,9 @@ export interface ResourceSchema {
 }
 
 /**
- * A record: field name → value, dotted list paths (`'customer.name'`) as flat keys,
- * and `_title`, the record's display name (spec §5.2 `title`).
+ * A record: field name → value, dotted list paths (`'customer.name'`) as flat keys, `_id` (the encoded record id used
+ * in URLs: key values in primary-key order, `~` as `~0` and `,` as `~1`, joined by `,`; `new` is `~new`) and `_title`,
+ * the record's display name (spec §5.2 `title`).
  */
 export type AdminRecord = Record<string, unknown>;
 

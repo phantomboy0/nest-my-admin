@@ -87,6 +87,7 @@ describe('relation values in lists', () => {
     expect(total).toBe(7);
     expect(items.map((item) => item.number)).toEqual(['A1', 'A2', 'B1']);
     expect(items[0]).toEqual({
+      _id: String(ids.A1),
       id: ids.A1,
       number: 'A1',
       customer: ref('Ada'),
@@ -180,7 +181,7 @@ describe('relation values in lists', () => {
 describe('relation values in records', () => {
   test('a record has every relation field, titled by the target resource or by default', async () => {
     const order = await request(app.getHttpServer()).get(`/admin/api/resources/order/${ids.C1}`);
-    expect(order.body).toEqual({ id: ids.C1, number: 'C1', customer: ref('Cyd'), sellerId: null, tags: tagRefs('blue', 'red'), _title: 'Order C1' });
+    expect(order.body).toEqual({ _id: String(ids.C1), id: ids.C1, number: 'C1', customer: ref('Cyd'), sellerId: null, tags: tagRefs('blue', 'red'), _title: 'Order C1' });
     const customer = await request(app.getHttpServer()).get(`/admin/api/resources/customer/${ids.Ada}`);
     expect(customer.body).toMatchObject({ name: 'Ada', company: { id: expect.any(Number), title: 'Acme' }, _title: 'Ada' });
   });

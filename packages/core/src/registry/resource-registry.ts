@@ -210,10 +210,6 @@ export class ResourceRegistry implements OnModuleInit {
     for (const metadata of dataSource.entityMetadatas) {
       const entity = metadata.target;
       if (typeof entity !== 'function' || covered.has(entity) || metadata.tableType !== 'regular') continue;
-      if (metadata.primaryColumns.length !== 1) {
-        this.logger.warn(`autoRegister skipped ${entity.name}: composite primary keys are not supported yet`);
-        continue;
-      }
       if (this.resources.has(kebabCase(entity.name))) {
         this.logger.warn(`autoRegister skipped ${entity.name}: a resource named "${kebabCase(entity.name)}" already exists`);
         continue;

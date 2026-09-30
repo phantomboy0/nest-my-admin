@@ -2,6 +2,7 @@ import type { EntityManager, SelectQueryBuilder } from 'typeorm';
 import type { FieldSchema, RelationRef } from '../contract.js';
 import type { RegisteredResource, RelationMetadataLike, ResourceRegistry } from '../registry/resource-registry.js';
 import { resolvePath, type RelationLike } from '../schema/relation-fields.js';
+import { recordIdOf } from './record-id.js';
 import { serializeValue } from './serialize.js';
 
 export interface ReferenceSource {
@@ -15,13 +16,11 @@ export function isLoadedField(field: FieldSchema): boolean {
   return field.type === 'relation' || field.name.includes('.');
 }
 
-/** Map key of a record: its primary key as text. */
-export const recordKey = (id: unknown): string => String(id);
 
 /**
  * Loads relation values (`RelationRef`s) and dotted path values of `fields` for `entities`, whatever the finder
  * that returned them loaded: one query joining every to-one relation needed, plus one query per many-to-many
- * field. Returns the values by `recordKey(primary key)`.
+ * field. Returns the values by `_id` (`recordIdOf`).
  */
 export async function loadReferences(
   entry: RegisteredResource,
@@ -30,10 +29,14 @@ export async function loadReferences(
   { registry, manager }: ReferenceSource,
 ): Promise<Map<string, Record<string, unknown>>> {
   const { metadata, schema } = entry;
-  const ids = [...new Map(entities.map((entity) => [recordKey(read(entity, schema.primaryKey)), read(entity, schema.primaryKey)])).values()].filter(
-    (id) => id !== null && id !== undefined,
-  );
-  const out = new Map(ids.map((id) => [recordKey(id), {} as Record<string, unknown>]));
+  const keys = schema.primaryKeys;
+  const keyOf = (entity: object) => (keys.length === 1 ? read(entity, keys[0]!) : Object.fromEntries(keys.map((key) => [key, read(entity, key)])));
+  const byId = new Map<string, unknown>();
+  for (const entity of entities) {
+    if (keys.every((key) => read(entity, key) !== null && read(entity, key) !== undefined)) byId.set(recordIdOf(entity, keys), keyOf(entity));
+  }
+  const ids = [...byId.values()];
+  const out = new Map([...byId.keys()].map((id) => [id, {} as Record<string, unknown>]));
   if (ids.length === 0) return out;
 
   const toRef = (field: FieldSchema, relation: RelationLike, target: object): RelationRef =>
@@ -57,7 +60,7 @@ export async function loadReferences(
       joinAndSelect(qb, relations);
     }
     for (const row of await qb.getMany()) {
-      const values = out.get(recordKey(read(row, schema.primaryKey)));
+      const values = out.get(recordIdOf(row, keys));
       if (!values) continue;
       for (const { field, relation } of toOne) {
         const target = read(row, relation.propertyName);
@@ -80,7 +83,7 @@ export async function loadReferences(
       .orderBy(`ref_many.${targetKey}`, 'ASC')
       .getMany();
     for (const row of rows) {
-      const values = out.get(recordKey(read(row, schema.primaryKey)));
+      const values = out.get(recordIdOf(row, keys));
       const targets = read(row, relation.propertyName);
       if (values) values[field.name] = Array.isArray(targets) ? targets.map((target: object) => toRef(field, relation, target)) : [];
     }

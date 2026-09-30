@@ -8,7 +8,8 @@ import type { FieldPath } from '../schema/field-paths.js';
 import { getHooks, type HookKind } from '../decorators/hooks.js';
 import type { AdminContext } from './admin-context.js';
 
-export type RecordId = string | number;
+/** A record's key: the value for single-key entities, `{ key: value, … }` for composite primary keys. */
+export type RecordId = string | number | Record<string, string | number>;
 
 export type FilterValue = string | number | boolean | Date | Array<string | number | Date>;
 
@@ -76,8 +77,8 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return this.#repository;
   }
 
-  protected get primaryKey(): string {
-    return this.repository.metadata.primaryColumns[0]!.propertyName;
+  protected get primaryKeys(): string[] {
+    return this.repository.metadata.primaryColumns.map((column) => column.propertyName);
   }
 
   /** The repository for this operation: the admin transaction's when one is running (ctx.manager), else the default. */
@@ -108,7 +109,8 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   async findOne(id: RecordId, ctx: AdminContext): Promise<T | null> {
-    return this.repositoryFor(ctx).findOne({ where: { [this.primaryKey]: id } as FindOptionsWhere<T> });
+    const where = typeof id === 'object' ? id : { [this.primaryKeys[0]!]: id };
+    return this.repositoryFor(ctx).findOne({ where: where as FindOptionsWhere<T> });
   }
 
   /**

@@ -1,4 +1,5 @@
 import { fieldTypeOf, isSupportedColumn, type ColumnLike } from './column-field.js';
+import { recordIdOf } from '../crud/record-id.js';
 import { didYouMean } from './suggest.js';
 
 /** `@AdminResource({ title })`: a column name, or a function of the entity (spec §5.2). */
@@ -22,8 +23,8 @@ interface TitleMetadataLike {
  * like a title is used. Empty, missing or failing titles fall back to `#<id>`.
  */
 export function compileTitle(definition: TitleDefinition | undefined, metadata: TitleMetadataLike, fail: (message: string) => never): TitleFn {
-  const primaryKey = metadata.primaryColumns[0]?.propertyName;
-  const fallback = (entity: object) => `#${String((entity as Record<string, unknown>)[primaryKey ?? ''] ?? '?')}`;
+  const primaryKeys = metadata.primaryColumns.map((column) => column.propertyName);
+  const fallback = (entity: object) => `#${recordIdOf(entity, primaryKeys)}`;
   const columns = metadata.columns.filter(isSupportedColumn);
 
   let read: (entity: object) => unknown;

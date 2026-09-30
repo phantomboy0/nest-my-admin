@@ -3,10 +3,10 @@ import type { DataSource, EntityManager } from 'typeorm';
 import type { AdminRecord, FieldSchema, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '../contract.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
-import { parseRecordId } from '../crud/record-id.js';
+import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { likePattern } from '../crud/list-query-builder.js';
 import { parseId } from '../crud/list-query.js';
-import { isLoadedField, loadReferences, recordKey, relationRef } from '../crud/references.js';
+import { isLoadedField, loadReferences, relationRef } from '../crud/references.js';
 import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
@@ -14,6 +14,7 @@ import { AdminBadRequestError, AdminNotFoundError, AdminValidationError } from '
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
+import type { RecordId } from '../resource/admin-resource-base.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
 const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
@@ -80,8 +81,8 @@ export class AdminApiService {
     const manager: EntityManager = ctx.manager ?? entry.dataSource.manager;
     const loaded = fields.length > 0 ? await loadReferences(entry, entities, fields, { registry: this.registry, manager }) : undefined;
     return entities.map((entity) => {
-      const id = (entity as Record<string, unknown>)[schema.primaryKey];
-      return serializeRecord(entity, schema.fields, loaded?.get(recordKey(id)), entry.title(entity));
+      const id = recordIdOf(entity, schema.primaryKeys);
+      return serializeRecord(entity, schema.fields, loaded?.get(id), { id, title: entry.title(entity) });
     });
   }
 
@@ -233,10 +234,10 @@ export class AdminApiService {
   }
 
   /** Host services often return nothing from update(); fall back to reading the record. */
-  private async reloadIfEmpty(entry: RegisteredResource, result: unknown, id: string | number, ctx: AdminContext): Promise<object> {
+  private async reloadIfEmpty(entry: RegisteredResource, result: unknown, id: RecordId, ctx: AdminContext): Promise<object> {
     if (typeof result === 'object' && result !== null) return result;
     const reloaded = await entry.resource.findOne(id, ctx);
-    if (!reloaded) throw new AdminNotFoundError(`${entry.schema.label} "${id}" not found`);
+    if (!reloaded) throw new AdminNotFoundError(`${entry.schema.label} "${typeof id === 'object' ? encodeRecordId(Object.values(id)) : id}" not found`);
     return reloaded;
   }
 }

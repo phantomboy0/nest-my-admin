@@ -32,10 +32,8 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     throw new Error(`${className}: ${message}`);
   };
 
-  if (metadata.primaryColumns.length !== 1) {
-    fail(`entity ${entityName} has ${metadata.primaryColumns.length} primary columns; exactly one is supported`);
-  }
-  const primaryKey = metadata.primaryColumns[0]!.propertyName;
+  if (metadata.primaryColumns.length === 0) fail(`entity ${entityName} has no primary column`);
+  const primaryKeys = metadata.primaryColumns.map((column) => column.propertyName);
 
   // Columns in entity order; a join column becomes its relation's field; many-to-many fields come last.
   const relations = relationFields(metadata);
@@ -58,7 +56,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const updateDto = resource.form?.update ?? createDto;
   const writable = entityFields.filter((field) => !field.readonly).map((field) => field.name);
   const create = createDto ? dtoPropertyNames(createDto) : writable;
-  const update = (updateDto ? dtoPropertyNames(updateDto) : writable).filter((name) => name !== primaryKey);
+  const update = (updateDto ? dtoPropertyNames(updateDto) : writable).filter((name) => !primaryKeys.includes(name));
 
   const dtoOnly: FieldSchema[] = [];
   for (const [dto, names] of [[createDto, create], [updateDto, update]] as const) {
@@ -110,7 +108,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   if (columns.length === 0) fail('list.columns must name at least one column');
   for (const column of columns) lookup('list.columns', column);
 
-  const rawSort: string = resource.list?.sort ?? `-${primaryKey}`;
+  const rawSort: string = resource.list?.sort ?? `-${primaryKeys[0]}`;
   const direction: SortDirection = rawSort.startsWith('-') ? 'desc' : 'asc';
   const sortField = rawSort.replace(/^-/, '');
   const plainSortable = entityFields.filter(isSortable).map((field) => field.name);
@@ -174,7 +172,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     label: definition.label ?? humanize(entityName),
     group: definition.group ?? moduleGroup,
     ...(definition.icon ? { icon: definition.icon } : {}),
-    primaryKey,
+    primaryKeys,
     fields: [...entityFields, ...dtoOnly, ...paths.values()],
     list: { columns, sortable, defaultSort: { field: sortField, direction }, pageSize, filters, search },
     form: { create, update, requiredOnCreate, constraints },

@@ -75,7 +75,7 @@ describe('buildResourceSchema', () => {
     class GadgetAdmin extends AdminResourceBase<Gadget> {}
     const schema = schemaFor(new GadgetAdmin());
 
-    expect(schema).toMatchObject({ name: 'gadget', label: 'Gadget', group: 'catalog', primaryKey: 'id' });
+    expect(schema).toMatchObject({ name: 'gadget', label: 'Gadget', group: 'catalog', primaryKeys: ['id'] });
     expect(schema.fields.map((f) => [f.name, f.type, f.readonly])).toEqual([
       ['id', 'number', true],
       ['name', 'string', false],
@@ -165,10 +165,14 @@ describe('buildResourceSchema', () => {
     expect(() => schemaFor(new StampedAdmin())).toThrow('DTO property "createdAt" maps to read-only column Gadget.createdAt');
   });
 
-  test('rejects composite primary keys', () => {
+  test('composite primary keys: every key is writable on create only, the first is the default sort', () => {
     @AdminResource(Pair)
     class PairAdmin extends AdminResourceBase<Pair> {}
-    expect(() => schemaFor(new PairAdmin(), Pair)).toThrow('PairAdmin: entity Pair has 2 primary columns; exactly one is supported');
+    const schema = schemaFor(new PairAdmin(), Pair);
+    expect(schema.primaryKeys).toEqual(['first', 'second']);
+    expect(schema.form.create).toEqual(['first', 'second']);
+    expect(schema.form.update).toEqual([]);
+    expect(schema.list.defaultSort).toEqual({ field: 'first', direction: 'desc' });
   });
 
   test('configuration errors suggest the closest column', () => {

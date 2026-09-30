@@ -96,7 +96,6 @@ function applyFilter<T extends ObjectLiteral>(qb: SelectQueryBuilder<T>, column:
  */
 export function applyListParams<T extends ObjectLiteral>(qb: SelectQueryBuilder<T>, params: ListParams, metadata: EntityMetadata): SelectQueryBuilder<T> {
   const alias = qb.alias;
-  const primaryKey = metadata.primaryColumns[0]!.propertyName;
   params.filters.forEach((filter, index) => {
     const target = targetOf(qb, metadata, filter.field);
     if ('manyToMany' in target) applyManyToMany(qb, target.manyToMany, filter, `nmaFilter${index}`);
@@ -115,6 +114,8 @@ export function applyListParams<T extends ObjectLiteral>(qb: SelectQueryBuilder<
     qb.addSelect(sort.column);
   }
   qb.orderBy(sort.column, params.sort.direction === 'asc' ? 'ASC' : 'DESC');
-  if (params.sort.field !== primaryKey) qb.addOrderBy(`${alias}.${primaryKey}`, 'ASC');
+  for (const { propertyName } of metadata.primaryColumns) {
+    if (params.sort.field !== propertyName) qb.addOrderBy(`${alias}.${propertyName}`, 'ASC');
+  }
   return qb.skip((params.page - 1) * params.pageSize).take(params.pageSize);
 }

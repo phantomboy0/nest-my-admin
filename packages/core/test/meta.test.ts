@@ -26,7 +26,7 @@ describe('meta API', () => {
   test('returns the resource schema', async () => {
     const res = await request(app.getHttpServer()).get('/admin/api/meta/resources/widget');
     expect(res.status).toBe(200);
-    expect(res.body.primaryKey).toBe('id');
+    expect(res.body.primaryKeys).toEqual(['id']);
     expect(res.body.list.columns).toEqual(['id', 'name', 'price', 'status', 'visible']);
     expect(res.body.form).toMatchObject({
       create: ['name', 'price', 'status', 'visible', 'notes'],

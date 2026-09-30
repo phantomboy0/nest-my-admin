@@ -56,10 +56,11 @@ describe('serializeRecord with loaded values', () => {
 
   test('relation fields and paths come from the loaded values, and are left out when not loaded', () => {
     const entity = { id: 1, owner: { id: 2, name: 'raw entity value' } };
-    expect(serializeRecord(entity, fields, { owner: { id: 2, title: 'Ada' }, 'owner.name': 'Ada' }, 'Order 1')).toEqual({
+    expect(serializeRecord(entity, fields, { owner: { id: 2, title: 'Ada' }, 'owner.name': 'Ada' }, { id: '1', title: 'Order 1' })).toEqual({
       id: 1,
       owner: { id: 2, title: 'Ada' },
       'owner.name': 'Ada',
+      _id: '1',
       _title: 'Order 1',
     });
     expect(serializeRecord(entity, fields)).toEqual({ id: 1 });

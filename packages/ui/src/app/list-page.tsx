@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { describeError } from '@/lib/api';
 import { formatCell } from '@/lib/format';
 import { isRef } from '@/lib/form-values';
+import { encodeRecordId } from '@/lib/record-id';
 import { hasActiveFilters, listQueryFromUrl, withChanges, type ParamChanges } from '@/lib/list-state';
 import { useList, useSchema } from '@/lib/queries';
 
@@ -28,13 +29,13 @@ export function ListPage() {
   const columns = s.list.columns
     .map((name) => s.fields.find((field) => field.name === name))
     .filter((field): field is FieldSchema => field !== undefined);
-  const detailColumns = columns.filter((column) => column.name !== s.primaryKey);
+  const detailColumns = columns.filter((column) => !s.primaryKeys.includes(column.name));
   const sort = sortParam
     ? { field: sortParam.replace(/^-/, ''), direction: sortParam.startsWith('-') ? 'desc' : 'asc' }
     : s.list.defaultSort;
   const items = list.data?.items ?? [];
   const totalPages = list.data ? Math.max(1, Math.ceil(list.data.total / list.data.pageSize)) : 1;
-  const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item[s.primaryKey]))}`;
+  const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item._id))}`;
 
   function updateParams(changes: ParamChanges) {
     setSearchParams((previous) => withChanges(previous, changes));
@@ -82,7 +83,7 @@ export function ListPage() {
           </TableHeader>
           <TableBody>
             {items.map((item) => (
-              <TableRow key={String(item[s.primaryKey])} className="cursor-pointer" onClick={() => navigate(recordPath(item))}>
+              <TableRow key={String(item._id)} className="cursor-pointer" onClick={() => navigate(recordPath(item))}>
                 {columns.map((column, index) => (
                   <TableCell key={column.name}>
                     {index === 0 ? (
@@ -109,9 +110,9 @@ export function ListPage() {
 
       <ul className="flex flex-col gap-2 md:hidden">
         {items.map((item) => (
-          <li key={String(item[s.primaryKey])}>
+          <li key={String(item._id)}>
             <Link to={recordPath(item)} className="block rounded-lg border p-3 active:bg-muted">
-              <div className="font-medium">{typeof item._title === 'string' ? item._title : String(item[s.primaryKey])}</div>
+              <div className="font-medium">{typeof item._title === 'string' ? item._title : String(item._id)}</div>
               <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
                 {detailColumns
                   .filter((column) => formatCell(item[column.name], column) !== item._title) // the title is shown above
@@ -157,7 +158,7 @@ function CellValue({ value, field }: { value: unknown; field: FieldSchema }) {
       {refs.map((ref, index) => (
         <Fragment key={String(ref.id)}>
           {index > 0 && ', '}
-          <Link to={`/${target}/${encodeURIComponent(String(ref.id))}`} className="hover:underline" onClick={(event) => event.stopPropagation()}>
+          <Link to={`/${target}/${encodeURIComponent(encodeRecordId([ref.id]))}`} className="hover:underline" onClick={(event) => event.stopPropagation()}>
             {ref.title}
           </Link>
         </Fragment>

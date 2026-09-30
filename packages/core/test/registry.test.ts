@@ -94,10 +94,10 @@ describe('ResourceRegistry', () => {
       expect(app.get(ResourceRegistry).list().map((entry) => entry.schema.name)).toEqual(['widget']);
     });
 
-    test('exposes entities without a resource under "Entities" and skips composite keys', async () => {
+    test('exposes entities without a resource under "Entities", composite keys included', async () => {
       app = await createTestApp({ admin: { autoRegister: true }, entities: [Gizmo, Pairing] });
       const registry = app.get(ResourceRegistry);
-      expect(registry.list().map((entry) => entry.schema.name).sort()).toEqual(['gizmo', 'widget']);
+      expect(registry.list().map((entry) => entry.schema.name).sort()).toEqual(['gizmo', 'pairing', 'widget']);
       expect(registry.get('gizmo').schema.group).toBe('entities');
       expect(registry.get('widget').schema.group).toBe('widgets');
       expect(registry.groupList().find((group) => group.key === 'entities')).toEqual({ key: 'entities', label: 'Entities', order: 1000 });
