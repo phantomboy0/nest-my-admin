@@ -84,7 +84,8 @@ describe('ResourceRegistry', () => {
 
   @Entity()
   class Opaque {
-    @PrimaryColumn({ type: 'simple-json' }) key: unknown;
+    // select: false leaves the admin nothing to list or sort by, so its schema cannot be built
+    @PrimaryColumn({ type: 'varchar', length: 40, select: false }) key: string;
   }
 
   describe('autoRegister', () => {

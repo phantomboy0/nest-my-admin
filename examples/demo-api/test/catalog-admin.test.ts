@@ -3,19 +3,25 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { testDatabase, type TestDatabase } from '../../../packages/core/test/helpers/test-db.js';
 import { AppModule } from '../src/app.module.js';
 
 let app: INestApplication;
+let db: TestDatabase;
 const base = '/admin/api/resources/product';
 const post = (body: object) => request(app.getHttpServer()).post(base).send(body);
 
 beforeAll(async () => {
+  db = await testDatabase([]); // entities come from the demo's own databaseOptions()
+  if (db.url) process.env.DATABASE_URL = db.url;
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication({ logger: false });
   await app.init();
 });
 afterAll(async () => {
   await app.close();
+  delete process.env.DATABASE_URL;
+  await db.drop();
 });
 
 describe('product admin (service-first)', () => {

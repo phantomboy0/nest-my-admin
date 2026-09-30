@@ -1,0 +1,25 @@
+# Databases for `bun run test:postgres` and `bun run test:mysql`. Start with `bun run db:up`.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: nma
+    ports: ['55432:5432']
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'postgres']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: nma
+    ports: ['53306:3306']
+    tmpfs: [/var/lib/mysql]
+    healthcheck:
+      # TCP ping: the image's init phase runs a socket-only server, so this turns healthy only when the real one is up
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-pnma']
+      interval: 2s
+      timeout: 3s
+      retries: 60
