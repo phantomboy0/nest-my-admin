@@ -4,6 +4,7 @@ import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
 import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional } from './dto-fields.js';
 import { humanize, kebabCase } from './humanize.js';
+import { didYouMean } from './suggest.js';
 
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
@@ -65,14 +66,15 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const columns: string[] =
     resource.list?.columns ??
     entityFields.filter((field) => field.type !== 'json' && field.type !== 'text').map((field) => field.name);
+  if (columns.length === 0) fail('list.columns must name at least one column');
   for (const column of columns) {
-    if (!byName.has(column)) fail(`list.columns: unknown column "${column}" on ${entityName}`);
+    if (!byName.has(column)) return fail(`list.columns: unknown column "${column}" on ${entityName}${didYouMean(column, [...byName.keys()])}`);
   }
 
   const rawSort: string = resource.list?.sort ?? `-${primaryKey}`;
   const direction: SortDirection = rawSort.startsWith('-') ? 'desc' : 'asc';
   const sortField = rawSort.replace(/^-/, '');
-  if (!sortable.includes(sortField)) fail(`list.sort: cannot sort by "${sortField}"`);
+  if (!sortable.includes(sortField)) return fail(`list.sort: cannot sort by "${sortField}"${didYouMean(sortField, sortable)}`);
 
   const pageSize = resource.list?.pageSize ?? DEFAULT_PAGE_SIZE;
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {

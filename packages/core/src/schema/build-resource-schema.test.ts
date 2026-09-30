@@ -127,4 +127,26 @@ describe('buildResourceSchema', () => {
     class PairAdmin extends AdminResourceBase<Pair> {}
     expect(() => schemaFor(new PairAdmin(), Pair)).toThrow('PairAdmin: entity Pair has 2 primary columns; exactly one is supported');
   });
+
+  test('configuration errors suggest the closest column', () => {
+    @AdminResource(Gadget)
+    class TypoAdmin extends AdminResourceBase<Gadget> {
+      list: ListConfig<Gadget> = { columns: ['nmae' as 'name'] };
+    }
+    expect(() => schemaFor(new TypoAdmin())).toThrow('TypoAdmin: list.columns: unknown column "nmae" on Gadget (did you mean "name"?)');
+
+    @AdminResource(Gadget)
+    class SortTypoAdmin extends AdminResourceBase<Gadget> {
+      list: ListConfig<Gadget> = { sort: '-prcie' as '-price' };
+    }
+    expect(() => schemaFor(new SortTypoAdmin())).toThrow('list.sort: cannot sort by "prcie" (did you mean "price"?)');
+  });
+
+  test('rejects an empty column list', () => {
+    @AdminResource(Gadget)
+    class EmptyAdmin extends AdminResourceBase<Gadget> {
+      list: ListConfig<Gadget> = { columns: [] };
+    }
+    expect(() => schemaFor(new EmptyAdmin())).toThrow('EmptyAdmin: list.columns must name at least one column');
+  });
 });
