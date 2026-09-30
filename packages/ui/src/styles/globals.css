@@ -7,7 +7,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--nma-font);
   --font-mono: ui-monospace, SFMono-Regular, monospace;
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -49,6 +49,8 @@
 }
 
 :root {
+  /* Geist for Latin scripts; Persian pages switch to Vazirmatn (it covers Latin too). */
+  --nma-font: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --background: oklch(1 0 0); --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0); --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0); --popover-foreground: oklch(0.145 0 0);
@@ -81,6 +83,10 @@
   --sidebar-primary: oklch(0.488 0.243 264.376); --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0); --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%); --sidebar-ring: oklch(0.556 0 0);
+}
+
+html:lang(fa) {
+  --nma-font: 'Vazirmatn Variable', ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {

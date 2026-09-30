@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { Menu } from 'lucide-react';
 import type { MetaGroup } from '@nest-my-admin/core/contract';
+import { LocaleSwitch, ThemeSwitch } from '@/app/preferences';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
@@ -42,6 +43,10 @@ export function AdminLayout() {
             <Menu />
           </Button>
           <span className="font-semibold md:hidden">{title}</span>
+          <div className="ms-auto flex items-center gap-2">
+            <LocaleSwitch />
+            <ThemeSwitch />
+          </div>
         </header>
         <main className="flex-1 p-4 md:p-6">
           <Outlet />
