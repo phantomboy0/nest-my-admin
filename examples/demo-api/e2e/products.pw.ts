@@ -46,9 +46,58 @@ test('deep link refresh works and errors are shown where they belong', async ({ 
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.locator('#field-price-error')).toContainText('must be a number');
 
+  await page.getByLabel('Price').fill('1.234'); // valid number, but the DTO allows 2 decimals
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('#field-price-error')).toContainText('decimal');
+
   await page.getByLabel('Price').fill('10');
   await page.getByLabel('Status').selectOption('active');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('alert')).toContainText('Active products need stock');
   await expect(page).toHaveURL(/\/admin\/product\/new$/);
+});
+
+test('filters and search narrow the list', async ({ page, isMobile }) => {
+  await page.goto('/admin/product');
+  if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await page.getByLabel('Status').selectOption('draft');
+  await expect(page).toHaveURL(/filter%5Bstatus%5D%5Beq%5D=draft/);
+  await expect(page.getByText('DEMO-3', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByLabel('Search').fill('notebook');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect(page.getByText('DEMO-2', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
+});
+
+test('deletes a draft product and refuses to delete an active one', async ({ page }, testInfo) => {
+  const sku = `DEL-${testInfo.project.name.toUpperCase()}`;
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Name').fill('Short-lived');
+  await page.getByLabel('Sku').fill(sku);
+  await page.getByLabel('Price').fill('1');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+
+  await page.getByText(sku, { exact: true }).filter({ visible: true }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm delete' }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+  await expect(page.getByText(sku, { exact: true }).filter({ visible: true })).toHaveCount(0);
+
+  await page.getByText('DEMO-1', { exact: true }).filter({ visible: true }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm delete' }).click();
+  await expect(page.getByRole('alert')).toContainText('Active products cannot be deleted');
+});
+
+test('table rows can be opened with the keyboard', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the desktop table is hidden on small screens (cards are links already)');
+  await page.goto('/admin/product');
+  const firstLink = page.getByRole('row').nth(1).getByRole('link');
+  await firstLink.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/admin\/product\/\d+$/);
 });

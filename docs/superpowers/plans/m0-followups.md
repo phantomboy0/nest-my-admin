@@ -4,12 +4,10 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 
 ## Promoted by the final review (do early in M1)
 - Error contract for body-parser/host errors is in place; keep it covered as M1 adds routes.
-- Desktop list rows are not keyboard-reachable (list-page.tsx): render the first cell as a Link.
-- Add UNAUTHENTICATED to AdminErrorCode before auth lands (401 currently maps to FORBIDDEN).
-- Backstop 500 in admin-http.server.ts has no body/correlationId; form doesn't show correlationId for INTERNAL.
 - Record with string primary key "new" is shadowed by the :resource/new route.
 - pack-smoke only proves an ESM consumer: add a CJS consumer with the Nest 11 / TypeORM 0.3 matrix.
-- isolation.test.ts covers guard + prefix only; add global interceptor/filter/pipe cases (D12).
+- (from M1a) Count modes (`exact | estimate | none`) and keyset pagination (spec §11) are driver-specific: do them in M1c with the database matrix.
+- (from M1a) Persian/Arabic search normalization (spec §12) belongs with i18n in M2.
 
 ## Deferred minors
 - Task 3: minor (deferred): @ValidateIf treated as optional → dtoOnlyField nullable; no tests for isDeleteDate/Array/simple-array mapping
@@ -26,4 +24,3 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - Task 14: minor (deferred → carried to Task 16): document PW_CHANNEL in README/CLAUDE.md
 - Task 15: minor (deferred): tarball lookup uses `!` not assert; hardcoded ports 4311/4312; asset regex tied to Vite output
 - Task 16: minor (deferred): docs phrase e2e as `PW_CHANNEL=chrome bun run e2e` — reads as required, is optional
-- Final: minor (deferred to M1): e2e no longer covers server-side field errors (use price 1.234); host 401/403 under /admin mapped to BAD_REQUEST by new error middleware

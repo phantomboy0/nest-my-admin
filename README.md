@@ -24,6 +24,17 @@ export class AppModule {}
 
 Open `http://localhost:3000/admin`.
 
+Lists support filters and search with a URL syntax you can bookmark:
+
+```
+/admin/api/resources/product?search=lamp&filter[status][eq]=active&filter[price][between]=10,20&sort=-price
+```
+
+Operators: `eq ne in nin lt lte gt gte between contains startsWith isNull`. Choose filterable and searchable
+fields with `list: { filters: [...], search: [...] }`; hooks (`@BeforeSave`, `@AfterSave`, `@BeforeDelete`) run
+in the default create/update/delete, and `AdminModule.forRoot({ autoRegister: true })` exposes every entity
+without a resource.
+
 ## Security (pre-alpha)
 
 M0 has **no authentication**. Anyone who can reach the port can read every column of the registered entities that is not `select: false`, and create or update records. Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers).
