@@ -5,7 +5,7 @@ describe('resolveAdminOptions', () => {
   test('defaults', () => {
     expect(resolveAdminOptions()).toEqual({
       path: '/admin', title: 'Admin', locale: 'en', locales: ['en'], branding: {}, uiDistPath: undefined, autoRegister: [], transactions: true, errorMapper: undefined,
-      auth: undefined, roles: [], resolveRoles: undefined, globalScopes: [], permissions: [],
+      auth: undefined, roles: [], resolveRoles: undefined, globalScopes: [], permissions: [], rbac: undefined,
     });
   });
 

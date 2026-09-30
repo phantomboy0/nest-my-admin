@@ -4,6 +4,7 @@ import { AdminApiService } from './api/admin-api.service.js';
 import { ADMIN_OPTIONS } from './constants.js';
 import { AdminAuthService } from './auth/auth.service.js';
 import { AdminPolicy } from './policy/admin-policy.service.js';
+import { AdminRbac } from './rbac/rbac.service.js';
 import { AdminHttpServer } from './http/admin-http.server.js';
 import { resolveAdminOptions, type AdminModuleOptions } from './options.js';
 import { ResourceRegistry } from './registry/resource-registry.js';
@@ -19,6 +20,7 @@ export class AdminModule {
         { provide: ADMIN_OPTIONS, useValue: resolveAdminOptions(options) },
         ResourceRegistry,
         AdminAuthService,
+        AdminRbac,
         AdminPolicy,
         AdminApiService,
         AdminHttpServer,

@@ -22,6 +22,7 @@ export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutSectionConfig, Layo
 export { AdminContext } from './resource/admin-context.js';
 export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from './decorators/admin-scope.js';
 export type { FieldRule, ResourceOperation, RoleDefinition, ScopedOperation } from './policy/roles.js';
+export { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './rbac/entities.js';
 export type { FieldPath } from './schema/field-paths.js';
 export type { TitleDefinition } from './schema/titles.js';
 export {

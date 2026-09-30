@@ -12,6 +12,8 @@ import type { GlobalScope, ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import type { RecordId } from '../resource/admin-resource-base.js';
+import { AdminRbac } from '../rbac/rbac.service.js';
+import { buildCatalog, customCodes } from './catalog.js';
 import { EffectivePermissions, type FieldLevel } from './effective.js';
 import { RESOURCE_OPERATIONS, checkRoles, type ResourceOperation, type RoleDefinition, type ScopedOperation } from './roles.js';
 
@@ -31,18 +33,17 @@ export interface ResourceView {
 @Injectable()
 export class AdminPolicy implements OnApplicationBootstrap {
   private readonly logger = new Logger('NestMyAdmin');
-  private roles = new Map<string, RoleDefinition>();
   private readonly warned = new Set<string>();
   private parameter = 0;
 
   constructor(
     private readonly registry: ResourceRegistry,
     private readonly auth: AdminAuthService,
+    private readonly rbac: AdminRbac,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {}
 
   onApplicationBootstrap(): void {
-    const resources = new Map<string, { fields: string[]; scopes: string[]; custom: string[] }>();
     for (const entry of this.registry.list()) {
       const custom = customCodes(entry);
       for (const code of custom) {
@@ -54,14 +55,12 @@ export class AdminPolicy implements OnApplicationBootstrap {
       for (const [name, key] of Object.entries(scopes)) {
         if (typeof (entry.resource as unknown as Record<string | symbol, unknown>)[key] !== 'function') throw new Error(`${entry.className}: @AdminScope("${name}") must decorate a method`);
       }
-      resources.set(entry.schema.name, { fields: topLevelFields(entry.schema).map((field) => field.name), scopes: Object.keys(scopes), custom });
       entry.resource.attachScoper((qb, ctx) => this.applyScopes(qb, entry, 'view', ctx));
     }
-    checkRoles(this.options.roles, { resources, global: this.options.permissions }, (message) => {
+    checkRoles(this.options.roles, buildCatalog(this.registry, this.options), (message) => {
       throw new Error(`nest-my-admin: ${message}`);
     });
-    this.roles = new Map(this.options.roles.map((role) => [role.name, role]));
-    if (this.auth.adapter && this.options.roles.length === 0) {
+    if (this.auth.adapter && this.options.roles.length === 0 && !this.options.rbac) {
       this.logger.warn('Sign-in is on but no `roles` are defined: only superusers can use the admin.');
     }
   }
@@ -73,14 +72,22 @@ export class AdminPolicy implements OnApplicationBootstrap {
     try {
       const fromOptions = (await this.options.resolveRoles?.(user)) ?? [];
       const fromAdapter = (await this.auth.adapter?.resolveRoles?.(user)) ?? [];
-      names = [...fromOptions, ...fromAdapter];
+      const stored = await this.rbac.assignedRoleNames(String(user.id));
+      names = [...fromOptions, ...fromAdapter, ...stored];
     } catch (error) {
       this.warnOnce(`resolveRoles threw for user ${String(user.id)} (${error instanceof Error ? error.message : String(error)}); the user gets no roles`);
       names = [];
     }
     const roles: RoleDefinition[] = [];
+    let known: Map<string, RoleDefinition>;
+    try {
+      known = await this.rbac.roles();
+    } catch (error) {
+      this.warnOnce(`roles could not be loaded (${error instanceof Error ? error.message : String(error)}); users get no roles`);
+      known = new Map();
+    }
     for (const name of new Set(names)) {
-      const role = this.roles.get(name);
+      const role = known.get(name);
       if (role) roles.push(role);
       else this.warnOnce(`resolveRoles returned "${name}", which is not a role; it is ignored`);
     }
@@ -409,7 +416,3 @@ export function topLevelFields(schema: ResourceSchema): FieldSchema[] {
   return schema.fields.filter((field) => !field.name.includes('.'));
 }
 
-function customCodes(entry: RegisteredResource): string[] {
-  const definition = Reflect.getMetadata(ADMIN_RESOURCE_METADATA, entry.resource.constructor) as AdminResourceDefinition | undefined;
-  return definition?.permissions ?? [];
-}

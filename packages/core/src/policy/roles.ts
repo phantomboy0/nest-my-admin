@@ -40,7 +40,7 @@ export function codeMatches(pattern: string, code: string): boolean {
 
 /** What the roles are checked against: every resource's fields, scopes and custom codes. */
 export interface PolicyCatalog {
-  resources: Map<string, { fields: string[]; scopes: string[]; custom: string[] }>;
+  resources: Map<string, { fields: string[]; scopes: string[]; custom: string[]; restricted?: string[] }>;
   /** Codes declared in `forRoot({ permissions })`. */
   global: string[];
 }

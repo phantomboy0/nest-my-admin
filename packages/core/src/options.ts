@@ -78,6 +78,11 @@ export interface AdminModuleOptions {
   globalScopes?: GlobalScope[];
   /** Global custom permission codes (`reports.run`) for roles and `ctx.can()`. */
   permissions?: string[];
+  /**
+   * Roles, groups and memberships stored in the database and managed in the admin (Users, Groups, Roles pages).
+   * Add `ADMIN_RBAC_ENTITIES` to the TypeORM entities of `dataSource` (default: the default DataSource).
+   */
+  rbac?: { dataSource?: string };
 }
 
 export interface ResolvedAdminOptions {
@@ -96,6 +101,7 @@ export interface ResolvedAdminOptions {
   resolveRoles?: (user: AdminUser) => string[] | Promise<string[]>;
   globalScopes: GlobalScope[];
   permissions: string[];
+  rbac?: { dataSource?: string };
 }
 
 export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedAdminOptions {
@@ -129,6 +135,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     resolveRoles: options.resolveRoles,
     globalScopes: options.globalScopes ?? [],
     permissions: options.permissions ?? [],
+    rbac: options.rbac,
   };
 }
 
