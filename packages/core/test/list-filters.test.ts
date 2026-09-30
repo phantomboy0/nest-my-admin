@@ -86,6 +86,27 @@ describe('search', () => {
   });
 });
 
+describe('database-side case folding, bang escaping and date-time ranges', () => {
+  test('non-ASCII text matches through search and contains', async () => {
+    const extra = await createTestApp();
+    const http = extra.getHttpServer();
+    await request(http).post(base).send({ name: 'École', notes: 'Hey!%' });
+    await request(http).post(base).send({ name: 'Plain', notes: 'Hey!' });
+    const found = async (query: string) =>
+      ((await request(http).get(`${base}?${query}`)).body.items as Array<{ name: string }>).map((w) => w.name).sort();
+    expect(await found(`search=${encodeURIComponent('École')}`)).toEqual(['École']);
+    expect(await found(`filter[name][contains]=${encodeURIComponent('Éco')}`)).toEqual(['École']);
+    expect(await found(`filter[notes][contains]=${encodeURIComponent('!%')}`)).toEqual(['École']);
+    expect(await found(`filter[notes][contains]=${encodeURIComponent('!')}`)).toEqual(['Plain', 'École']);
+    await extra.close();
+  });
+
+  test('datetime between returns records inside the range', async () => {
+    expect(await names('filter[createdAt][between]=2000-01-01T00:00:00Z,2100-01-01T00:00:00Z')).toHaveLength(4);
+    expect(await names('filter[createdAt][between]=1990-01-01T00:00:00Z,2000-01-01T00:00:00Z')).toEqual([]);
+  });
+});
+
 describe('stable pagination (Review Focus 3)', () => {
   test('ties in the sort column never repeat or skip records across pages', async () => {
     const tied = await createTestApp();

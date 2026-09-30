@@ -61,3 +61,12 @@ describe('isSupportedColumn', () => {
     expect(isSupportedColumn(column({ isSelect: false }))).toBe(false);
   });
 });
+
+describe('columnToField integer flag', () => {
+  test.each([['int', true], ['smallint', true], ['int4', true], ['float', undefined], [Number, undefined], ['bigint', undefined]] as const)(
+    '%p → integer %p',
+    (type, expected) => {
+      expect(columnToField(column({ type })).integer).toBe(expected);
+    },
+  );
+});

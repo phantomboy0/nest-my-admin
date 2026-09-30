@@ -22,6 +22,8 @@ export interface FieldSchema {
   enumValues?: string[];
   /** Digits after the decimal point, for `decimal` fields. */
   scale?: number;
+  /** Backed by a known integer column type (int, smallint, ...); `number` fields without it may be floats. */
+  integer?: boolean;
 }
 
 export interface MetaResourceSummary {

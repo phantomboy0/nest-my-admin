@@ -78,8 +78,16 @@ function constraintError(
       body: { code: 'VALIDATION', message: 'A required value is missing', ...(field ? { fields: { [field]: ['is required'] } } : {}) },
     };
   }
+  if (/^22/.test(code) || MYSQL_INVALID_VALUE.has(code)) {
+    return {
+      status: 422,
+      body: { code: 'VALIDATION', message: 'A value is invalid for its column', ...(field ? { fields: { [field]: ['is invalid'] } } : {}) },
+    };
+  }
   return undefined;
 }
+
+const MYSQL_INVALID_VALUE = new Set(['ER_WARN_DATA_OUT_OF_RANGE', 'ER_TRUNCATED_WRONG_VALUE', 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD']);
 
 function columnFromMessage(text: string): string | undefined {
   return (

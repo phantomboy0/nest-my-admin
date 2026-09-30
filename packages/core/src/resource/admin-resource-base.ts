@@ -7,7 +7,7 @@ import type { AdminContext } from './admin-context.js';
 
 export type RecordId = string | number;
 
-export type FilterValue = string | number | boolean | Date | Array<string | number>;
+export type FilterValue = string | number | boolean | Date | Array<string | number | Date>;
 
 export interface FilterCondition {
   field: string;

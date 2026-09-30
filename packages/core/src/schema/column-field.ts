@@ -38,6 +38,8 @@ const TYPE_BY_NAME: Record<string, FieldType> = {
   uuid: 'uuid',
 };
 
+const INTEGER_TYPES = new Set(['int', 'integer', 'int2', 'int4', 'smallint', 'tinyint', 'mediumint']);
+
 export function fieldTypeOf(type: unknown): FieldType {
   if (type === String) return 'string';
   if (type === Number) return 'number';
@@ -69,5 +71,6 @@ export function columnToField(column: ColumnLike): FieldSchema {
   };
   if (type === 'enum') field.enumValues = column.enum!.map(String);
   if (type === 'decimal' && typeof column.scale === 'number') field.scale = column.scale;
+  if (type === 'number' && typeof column.type === 'string' && INTEGER_TYPES.has(column.type.toLowerCase())) field.integer = true;
   return field;
 }

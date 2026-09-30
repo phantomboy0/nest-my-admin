@@ -83,3 +83,25 @@ describe('toErrorResponse', () => {
     });
   });
 });
+
+describe('toErrorResponse: invalid values reaching the database', () => {
+  test.each([
+    [{ code: '22P02', message: 'invalid input syntax for type integer: "x"' }],
+    [{ code: '22003', message: 'value out of range' }],
+    [{ code: '22008', message: 'date/time field value out of range' }],
+    [{ code: 'ER_WARN_DATA_OUT_OF_RANGE', message: 'Out of range value' }],
+    [{ code: 'ER_TRUNCATED_WRONG_VALUE', message: 'Incorrect datetime value' }],
+    [{ code: 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD', message: 'Incorrect integer value' }],
+  ])('%p is a 422', (driver) => {
+    expect(toErrorResponse(dbError(driver), 'c', logger())).toEqual({
+      status: 422,
+      body: { code: 'VALIDATION', message: 'A value is invalid for its column', correlationId: 'c' },
+    });
+  });
+
+  test('names the column when the driver reports it', () => {
+    expect(toErrorResponse(dbError({ code: '22003', message: 'out of range', column: 'stock' }), 'c', logger()).body.fields).toEqual({
+      stock: ['is invalid'],
+    });
+  });
+});

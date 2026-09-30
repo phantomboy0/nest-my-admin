@@ -17,6 +17,9 @@ const schema: ResourceSchema = {
     f('name', 'string'),
     f('price', 'decimal', { scale: 2 }),
     f('stock', 'number'),
+    f('qty', 'number', { integer: true }),
+    f('big', 'bigint'),
+    f('day', 'date'),
     f('status', 'enum', { enumValues: ['draft', 'live'] }),
     f('visible', 'boolean'),
     f('notes', 'text', { nullable: true }),
@@ -31,6 +34,9 @@ const schema: ResourceSchema = {
       { field: 'name', operators: ['eq', 'ne', 'in', 'nin', 'contains', 'startsWith'] },
       { field: 'price', operators: ['eq', 'ne', 'in', 'nin', 'lt', 'lte', 'gt', 'gte', 'between'] },
       { field: 'stock', operators: ['eq', 'ne', 'in', 'nin', 'lt', 'lte', 'gt', 'gte', 'between'] },
+      { field: 'qty', operators: ['eq', 'in'] },
+      { field: 'big', operators: ['eq'] },
+      { field: 'day', operators: ['eq'] },
       { field: 'status', operators: ['eq', 'ne', 'in', 'nin'] },
       { field: 'visible', operators: ['eq', 'ne'] },
       { field: 'notes', operators: ['contains', 'startsWith', 'isNull'] },
@@ -70,6 +76,15 @@ describe('parseListQuery: paging and sorting', () => {
     expect(errorsOf(() => parse('sort=secret'))).toEqual({ sort: ['cannot sort by "secret"'] });
     expect(errorsOf(() => parse('page=1&page=2'))).toEqual({ page: ['must be given once'] });
     expect(errorsOf(() => parse('foo=1'))).toEqual({ foo: ['is not a supported list parameter'] });
+    expect(errorsOf(() => parse('__proto__=x'))).toEqual({ ['__proto__']: ['is not a supported list parameter'] });
+  });
+
+  test('page and pageSize must be positive integers', () => {
+    expect(errorsOf(() => parse('page=abc&pageSize=2.5'))).toEqual({
+      page: ['must be a positive integer'],
+      pageSize: ['must be a positive integer'],
+    });
+    expect(errorsOf(() => parse('page=99999999999999999999'))).toEqual({ page: ['must be a positive integer'] });
   });
 });
 
@@ -107,9 +122,42 @@ describe('parseListQuery: filters', () => {
     expect(errorsOf(() => parse('filter[price][between]=1'))).toEqual({ 'filter[price][between]': ['must be two comma-separated values'] });
     expect(errorsOf(() => parse('filter[status][in]=draft,'))).toEqual({ 'filter[status][in]': ['must be 1 to 100 comma-separated values'] });
     expect(errorsOf(() => parse('filter[notes][isNull]=maybe'))).toEqual({ 'filter[notes][isNull]': ['must be true or false'] });
-    expect(errorsOf(() => parse('filter[createdAt][lt]=never'))).toEqual({ 'filter[createdAt][lt]': ['must be a date and time'] });
+    expect(errorsOf(() => parse('filter[createdAt][lt]=never'))).toEqual({ 'filter[createdAt][lt]': ['must be an ISO date-time with a time zone'] });
     expect(errorsOf(() => parse('filter[status][eq]=draft&filter[status][eq]=live'))).toEqual({ 'filter[status][eq]': ['must be given once'] });
     expect(errorsOf(() => parse('filter[name][contains]='))).toEqual({ 'filter[name][contains]': ['must be 1 to 200 characters'] });
+  });
+});
+
+describe('parseListQuery: values the database would reject', () => {
+  test('numbers must be finite; integer columns integers within int32', () => {
+    expect(errorsOf(() => parse(`filter[stock][eq]=1${'0'.repeat(400)}`))).toEqual({ 'filter[stock][eq]': ['must be a number'] });
+    expect(parse('filter[qty][eq]=-7').filters[0]!.value).toBe(-7);
+    expect(errorsOf(() => parse('filter[qty][eq]=1.5'))).toEqual({ 'filter[qty][eq]': ['must be an integer'] });
+    expect(errorsOf(() => parse('filter[qty][eq]=2147483648'))).toEqual({ 'filter[qty][eq]': ['is out of range'] });
+  });
+
+  test('bigint is range-checked', () => {
+    expect(parse('filter[big][eq]=9223372036854775807').filters[0]!.value).toBe('9223372036854775807');
+    expect(errorsOf(() => parse('filter[big][eq]=9223372036854775808'))).toEqual({ 'filter[big][eq]': ['is out of range'] });
+    expect(errorsOf(() => parse('filter[big][eq]=1.5'))).toEqual({ 'filter[big][eq]': ['must be an integer'] });
+  });
+
+  test('dates must exist; date-times need an ISO form with a time zone', () => {
+    expect(parse('filter[day][eq]=2028-02-29').filters[0]!.value).toBe('2028-02-29');
+    expect(errorsOf(() => parse('filter[day][eq]=2026-02-31'))).toEqual({ 'filter[day][eq]': ['must be a date (YYYY-MM-DD)'] });
+    const tz = 'must be an ISO date-time with a time zone';
+    expect(errorsOf(() => parse('filter[createdAt][gt]=2026-01-01T00:00:00'))).toEqual({ 'filter[createdAt][gt]': [tz] });
+    expect(errorsOf(() => parse('filter[createdAt][gt]=2026-02-31T00:00:00Z'))).toEqual({ 'filter[createdAt][gt]': [tz] });
+    expect(errorsOf(() => parse('filter[createdAt][gt]=2026-01-01'))).toEqual({ 'filter[createdAt][gt]': [tz] });
+    const [c] = parse('filter[createdAt][gt]=2026-01-01T02:00:00%2B02:00').filters;
+    expect((c!.value as Date).toISOString()).toBe('2026-01-01T00:00:00.000Z');
+  });
+
+  test('datetime between yields two Dates; nin and numeric in work', () => {
+    const [between] = parse('filter[createdAt][between]=2000-01-01T00:00:00Z,2100-01-01T00:00:00Z').filters;
+    expect((between!.value as Date[]).every((d) => d instanceof Date)).toBe(true);
+    expect(parse('filter[qty][in]=1,2,3').filters[0]!.value).toEqual([1, 2, 3]);
+    expect(parse('filter[status][nin]=draft').filters[0]).toEqual({ field: 'status', operator: 'nin', value: ['draft'] });
   });
 });
 
@@ -117,6 +165,7 @@ describe('parseListQuery: search', () => {
   test('trims the term and carries the searchable fields', () => {
     expect(parse('search=%20lamp%20').search).toEqual({ term: 'lamp', fields: ['name', 'notes'] });
     expect(parse('search=%20%20').search).toBeUndefined();
+    expect(parse(`search=${'x'.repeat(199)}%20%20%20`).search!.term).toHaveLength(199);
   });
 
   test('rejects over-long terms and unsearchable resources', () => {

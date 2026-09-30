@@ -11,11 +11,15 @@ const FILTER_KEY = /^filter\[([^\][]+)\](?:\[([^\][]+)\])?$/;
 const MAX_LIST_VALUES = 100;
 const MAX_TEXT = 200;
 const NUMBER = /^-?\d+(\.\d+)?$/;
+const INTEGER = /^-?\d+$/;
+const MAX_INT32 = 2147483647;
+const MAX_INT64 = 9223372036854775807n;
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Parses `page`, `pageSize`, `sort`, `search` and `filter[field][op]` (spec §11). Field names come only from the schema. */
 export function parseListQuery(query: URLSearchParams, schema: ResourceSchema): ListParams {
-  const errors: Errors = {};
+  const errors: Errors = Object.create(null) as Errors;
   const page = readPositiveInt(query, 'page', 1, errors);
   const pageSize = readPositiveInt(query, 'pageSize', schema.list.pageSize, errors);
   if (!errors.pageSize && pageSize > MAX_PAGE_SIZE) errors.pageSize = [`must be at most ${MAX_PAGE_SIZE}`];
@@ -58,9 +62,10 @@ export function parseListQuery(query: URLSearchParams, schema: ResourceSchema): 
   let search: ListParams['search'];
   const rawSearch = readOne(query, 'search', errors);
   if (rawSearch !== undefined && rawSearch.trim() !== '') {
+    const term = rawSearch.trim();
     if (schema.list.search.length === 0) errors.search = ['this resource is not searchable'];
-    else if (rawSearch.length > MAX_TEXT) errors.search = [`must be at most ${MAX_TEXT} characters`];
-    else search = { term: rawSearch.trim(), fields: schema.list.search };
+    else if (term.length > MAX_TEXT) errors.search = [`must be at most ${MAX_TEXT} characters`];
+    else search = { term, fields: schema.list.search };
   }
 
   if (Object.keys(errors).length > 0) throw new AdminValidationError(errors, 'Invalid list query');
@@ -82,11 +87,11 @@ function parseFilterValue(field: FieldSchema, operator: FilterOperator, raw: str
     if (parts.length > MAX_LIST_VALUES || parts.some((part) => part === '')) {
       return { error: `must be 1 to ${MAX_LIST_VALUES} comma-separated values` };
     }
-    const values: Array<string | number> = [];
+    const values: Array<string | number | Date> = [];
     for (const part of parts) {
       const parsed = parseScalar(field, part);
       if ('error' in parsed) return parsed;
-      if (typeof parsed.value === 'boolean' || parsed.value instanceof Date) return { error: 'is not supported for this field' };
+      if (typeof parsed.value === 'boolean') return { error: 'is not supported for this field' };
       values.push(parsed.value);
     }
     return { value: values };
@@ -96,21 +101,31 @@ function parseFilterValue(field: FieldSchema, operator: FilterOperator, raw: str
 
 function parseScalar(field: FieldSchema, raw: string): Parsed<string | number | boolean | Date> {
   switch (field.type) {
-    case 'number':
-      return NUMBER.test(raw) ? { value: Number(raw) } : { error: 'must be a number' };
+    case 'number': {
+      if (field.integer) {
+        if (!INTEGER.test(raw)) return { error: 'must be an integer' };
+        return Math.abs(Number(raw)) > MAX_INT32 ? { error: 'is out of range' } : { value: Number(raw) };
+      }
+      return NUMBER.test(raw) && Number.isFinite(Number(raw)) ? { value: Number(raw) } : { error: 'must be a number' };
+    }
     case 'decimal':
       return NUMBER.test(raw) ? { value: raw } : { error: 'must be a number' };
-    case 'bigint':
-      return /^-?\d+$/.test(raw) ? { value: raw } : { error: 'must be an integer' };
+    case 'bigint': {
+      if (!INTEGER.test(raw)) return { error: 'must be an integer' };
+      const big = BigInt(raw);
+      return big > MAX_INT64 || big < -MAX_INT64 ? { error: 'is out of range' } : { value: raw };
+    }
     case 'boolean':
       if (raw === 'true') return { value: true };
       if (raw === 'false') return { value: false };
       return { error: 'must be true or false' };
     case 'date':
-      return /^\d{4}-\d{2}-\d{2}$/.test(raw) && !Number.isNaN(Date.parse(raw)) ? { value: raw } : { error: 'must be a date (YYYY-MM-DD)' };
+      return isRealDate(raw) ? { value: raw } : { error: 'must be a date (YYYY-MM-DD)' };
     case 'datetime': {
-      const time = Date.parse(raw);
-      return Number.isNaN(time) ? { error: 'must be a date and time' } : { value: new Date(time) };
+      const time = ISO_DATETIME.test(raw) ? Date.parse(raw) : Number.NaN;
+      return Number.isNaN(time) || !isRealDate(raw.slice(0, 10))
+        ? { error: 'must be an ISO date-time with a time zone' }
+        : { value: new Date(time) };
     }
     case 'enum':
       return field.enumValues?.includes(raw) ? { value: raw } : { error: `must be one of: ${(field.enumValues ?? []).join(', ')}` };
@@ -138,4 +153,10 @@ function readPositiveInt(query: URLSearchParams, key: string, fallback: number, 
     return fallback;
   }
   return Number(raw);
+}
+
+function isRealDate(raw: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const time = Date.parse(`${raw}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === raw;
 }
