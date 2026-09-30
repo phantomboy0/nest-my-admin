@@ -6,7 +6,8 @@ admin writes that go through your own services, and a prebuilt shadcn UI served 
 > Status: pre-alpha (milestone M0 — walking skeleton). APIs will change.
 
 Requires NestJS 11 or 12, TypeORM 0.3.20+ or 1.x, Node 20.19+ (or Bun), and Postgres, MySQL 8 or SQLite.
-The package is ESM; CommonJS apps load it through Node's `require(esm)`.
+The package is ESM; CommonJS apps load it through Node's `require(esm)`. A CommonJS app compiled with
+`"module": "nodenext"` (the `nest new` default since Nest 11) needs TypeScript 5.8+; with `"module": "commonjs"` any 5.x works.
 
 ```ts
 @AdminResource(Product, { icon: 'package' })

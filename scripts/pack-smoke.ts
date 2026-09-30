@@ -68,7 +68,14 @@ const pick = (names: string[], from: Record<string, string>) => Object.fromEntri
 const runtimeDeps = ['sql.js', 'reflect-metadata', 'rxjs', 'class-validator', 'class-transformer'];
 const hostDeps = ['@nestjs/common', '@nestjs/core', '@nestjs/platform-express', '@nestjs/typeorm', 'typeorm'];
 
-const consumers = [
+const consumers: Array<{
+  name: string;
+  fixture?: string;
+  tsconfig?: string;
+  type: 'module' | undefined;
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+}> = [
   {
     name: 'esm',
     type: 'module' as const,
@@ -79,13 +86,23 @@ const consumers = [
     name: 'cjs',
     type: undefined, // no "type": CommonJS
     dependencies: { ...pick(hostDeps, OLDEST_SUPPORTED), ...pick(runtimeDeps, coreDev) },
-    devDependencies: { typescript: '5.9.3', '@types/node': '22.10.0' },
+    // "module": "commonjs" (node10 resolution) compiles on the TypeScript Nest 11 shipped with
+    devDependencies: { typescript: '5.7.3', '@types/node': '22.10.0' },
+  },
+  {
+    name: 'cjs-nest11',
+    fixture: 'cjs',
+    tsconfig: 'tsconfig.nest11.json', // what `nest new` generates for Nest 11: nodenext, CommonJS output
+    type: undefined,
+    dependencies: { ...pick(hostDeps, OLDEST_SUPPORTED), ...pick(runtimeDeps, coreDev) },
+    // nodenext may require() an ES module only from TypeScript 5.8 on (TS1479 before); README says so
+    devDependencies: { typescript: '5.8.3', '@types/node': '22.10.0' },
   },
 ];
 
 for (const consumer of consumers) {
   const app = join(work, `consumer-${consumer.name}`);
-  cpSync(join(root, 'scripts/pack-fixtures', consumer.name), app, { recursive: true });
+  cpSync(join(root, 'scripts/pack-fixtures', consumer.fixture ?? consumer.name), app, { recursive: true });
   writeFileSync(
     join(app, 'package.json'),
     JSON.stringify(
@@ -102,7 +119,7 @@ for (const consumer of consumers) {
     ),
   );
   await $`npm install --no-audit --no-fund`.cwd(app);
-  await $`npx tsc -p tsconfig.json`.cwd(app);
+  await $`npx tsc -p ${consumer.tsconfig ?? 'tsconfig.json'}`.cwd(app);
 
   for (const runtime of ['node', 'bun'] as const) {
     const label = `${consumer.name}/${runtime}`;

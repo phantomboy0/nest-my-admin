@@ -433,6 +433,7 @@ Exported `AdminMigrations` for `synchronize: false` hosts; configurable table pr
 - NestJS 11 and 12 (D14). The admin sub-app does its own routing, so Nest/path-to-regexp route-syntax differences do not affect it. Express in v1; Fastify in v1.1.
 - TypeORM 0.3.x and 1.x. Postgres, MySQL 8, SQLite. Search strategy per driver (`ILIKE` vs `LOWER … LIKE`); overridable `search(qb, term)` for full-text/trigram.
 - `core`, `auth`, `testing`, `cli` ship ESM + `.d.ts` (D14); `ui` ships static assets only (React etc. are build-time dependencies, never installed by hosts).
+- CommonJS hosts compiled with `"module": "nodenext"` (the Nest 11 starter) need TypeScript ≥ 5.8 to `require` the ESM packages; `"module": "commonjs"` hosts work with any TypeScript 5.x.
 - Built and tested with Bun; must run under Node 20+ for consumers.
 - License: MIT. Securing the `@nest-my-admin` npm scope is a task in M0.
 
