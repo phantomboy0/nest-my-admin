@@ -1,4 +1,15 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+/**
+ * Opens a record's edit page from the list: on desktop a row click opens the quick view first (its Edit link goes on),
+ * on mobile the card is a link.
+ */
+async function openRecord(page: Page, text: string): Promise<void> {
+  await page.getByText(text, { exact: true }).filter({ visible: true }).first().click();
+  const dialog = page.getByRole('dialog');
+  await Promise.race([dialog.waitFor({ state: 'visible' }), page.waitForURL(/\/admin\/[^/]+\/[^/?]+$/)]);
+  if (await dialog.isVisible()) await dialog.getByRole('link', { name: 'Edit' }).click();
+}
 
 test('the home page lists resources with counts, and the sidebar navigates', async ({ page, isMobile }) => {
   await page.goto('/admin');
@@ -31,7 +42,7 @@ test('creates a product through the service and edits it', async ({ page }, test
   const created = page.getByText(sku, { exact: true }).filter({ visible: true }); // upper-cased by ProductsService
   await expect(created).toBeVisible();
 
-  await created.click();
+  await openRecord(page, sku);
   await expect(page).toHaveURL(/\/admin\/product\/\d+$/);
   const editUrl = page.url();
   await page.getByLabel('Stock', { exact: true }).fill('3');
@@ -90,13 +101,13 @@ test('moves a draft product to the trash and refuses to delete an active one', a
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
 
-  await page.getByText(sku, { exact: true }).filter({ visible: true }).click();
+  await openRecord(page, sku);
   await page.getByRole('button', { name: 'Move to trash', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm move to trash' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
   await expect(page.getByText(sku, { exact: true }).filter({ visible: true })).toHaveCount(0);
 
-  await page.getByText('DEMO-1', { exact: true }).filter({ visible: true }).click();
+  await openRecord(page, 'DEMO-1');
   await page.getByRole('button', { name: 'Move to trash', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm move to trash' }).click();
   await expect(page.getByRole('alert')).toContainText('Active products cannot be deleted');
@@ -160,7 +171,7 @@ test('picks a category and tags, filters by category, and refuses to delete a ca
   await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue('Furniture');
 
   await page.goto('/admin/category');
-  await page.getByText('Lighting', { exact: true }).filter({ visible: true }).click();
+  await openRecord(page, 'Lighting');
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm delete' }).click();
   await expect(page.getByRole('alert')).toContainText('Other records still refer to this record');
@@ -173,7 +184,7 @@ test('a second editor gets a conflict notice and can keep their changes', async 
   await page.getByLabel('Sku').fill(sku);
   await page.getByLabel('Price').fill('10');
   await page.getByRole('button', { name: 'Save' }).click();
-  await page.getByText(sku, { exact: true }).filter({ visible: true }).click();
+  await openRecord(page, sku);
   const editUrl = page.url();
 
   const other = await page.context().newPage();
@@ -203,7 +214,7 @@ test('a product in the trash can be restored', async ({ page }, testInfo) => {
   await page.getByLabel('Sku').fill(sku);
   await page.getByLabel('Price').fill('2');
   await page.getByRole('button', { name: 'Save' }).click();
-  await page.getByText(sku, { exact: true }).filter({ visible: true }).click();
+  await openRecord(page, sku);
   await page.getByRole('button', { name: 'Move to trash', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm move to trash' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
@@ -225,13 +236,13 @@ test('an embedded contact is edited as a group of fields', async ({ page }, test
   await contact.getByLabel('Phone').fill('+98 21 1234');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/admin\/supplier$/);
-  await page.getByText(name, { exact: true }).filter({ visible: true }).first().click();
+  await openRecord(page, name);
   await expect(page.getByRole('group', { name: 'Contact' }).getByLabel('Email')).toHaveValue('orders@example.test');
 });
 
 test("a category's related products open as a filtered list", async ({ page }) => {
   await page.goto('/admin/category');
-  await page.getByText('Lighting', { exact: true }).filter({ visible: true }).click();
+  await openRecord(page, 'Lighting');
   await page.getByRole('navigation', { name: 'Related' }).getByRole('link', { name: 'Product' }).click();
   await expect(page).toHaveURL(/\/admin\/product\?filter%5BcategoryId%5D%5Beq%5D=\d+/);
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
@@ -288,11 +299,49 @@ test('pinned resources, the collapsed sidebar and breadcrumbs', async ({ page, i
   await page.getByRole('button', { name: 'Expand sidebar' }).click();
 
   await page.goto('/admin/product');
-  await page.getByText('DEMO-2', { exact: true }).filter({ visible: true }).click();
+  await openRecord(page, 'DEMO-2');
   const crumbs = page.getByRole('navigation', { name: 'Breadcrumbs' });
   await expect(crumbs).toContainText('Catalog');
   await expect(crumbs).toContainText('Notebook');
   await crumbs.getByRole('link', { name: 'Catalog' }).click();
   await expect(page).toHaveURL(/\/admin\/g\/catalog$/);
   await expect(page.getByRole('heading', { name: 'Catalog', level: 1 })).toBeVisible();
+});
+
+test('bulk delete reports what it could not delete', async ({ page, isMobile }, testInfo) => {
+  test.skip(isMobile, 'selection lives in the desktop table');
+  const tag = testInfo.project.name.toUpperCase();
+  for (const [name, status] of [['Bulk A', 'draft'], ['Bulk B', 'draft'], ['Bulk C', 'active']] as const) {
+    await page.goto('/admin/product/new');
+    await page.getByLabel('Name').fill(name);
+    await page.getByLabel('Sku').fill(`${name.replace(' ', '-')}-${tag}`);
+    await page.getByLabel('Price').fill('1');
+    await page.getByLabel('Stock', { exact: true }).fill('1');
+    await page.getByLabel('Status').selectOption(status);
+    await page.getByRole('button', { name: 'Save' }).click();
+    await expect(page).toHaveURL(/\/admin\/product$/);
+  }
+  await page.getByLabel('Search').fill('Bulk');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Select all on this page' }).check();
+  await expect(page.getByRole('region', { name: '3 selected' })).toBeVisible();
+  await page.getByRole('button', { name: 'Delete selected' }).click();
+  await page.getByRole('button', { name: 'Delete 3' }).click();
+  const summary = page.getByRole('status');
+  await expect(summary).toContainText('2 deleted · 1 failed');
+  await expect(summary).toContainText('Bulk C: Active products cannot be deleted');
+});
+
+test('the quick view opens from a row with the keyboard and closes with Escape', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'mobile cards open the record directly');
+  await page.goto('/admin/product');
+  const row = page.getByRole('row').filter({ hasText: 'DEMO-2' });
+  await row.focus();
+  await page.keyboard.press('Enter');
+  const sheet = page.getByRole('dialog', { name: 'Quick view: Notebook' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet).toContainText('Stationery');
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(row).toBeFocused();
 });

@@ -1,4 +1,4 @@
-import type { AdminErrorBody, AdminRecord, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminErrorBody, AdminRecord, BulkResult, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '@nest-my-admin/core/contract';
 import { activeLocale, translate as tr } from '@/i18n';
 import { runtimeConfig } from './config';
 import { ApiError } from './api-error';
@@ -56,6 +56,9 @@ export const api = {
     if (query.values) params.set('values', query.values);
     return request<OptionsResponse>(`/resources/${enc(resource)}/fields/${enc(field)}/options${params.size ? `?${params}` : ''}`);
   },
+  /** Deletes each record on its own; `failed` says which could not be deleted and why. */
+  bulkDelete: (resource: string, ids: string[]) =>
+    request<BulkResult>(`/resources/${enc(resource)}/bulk-delete`, { method: 'POST', body: JSON.stringify({ ids }) }),
   restore: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}/restore`, { method: 'POST', body: '{}' }),
   get: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`),
   create: (resource: string, body: Record<string, unknown>) =>

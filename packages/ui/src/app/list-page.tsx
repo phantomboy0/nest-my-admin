@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import type { AdminRecord, FieldSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, BulkResult, FieldSchema } from '@nest-my-admin/core/contract';
 import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
 import { FilterBar } from '@/app/filter-bar';
+import { QuickView } from '@/app/quick-view';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -21,11 +22,10 @@ import { useList, useSchema } from '@/lib/queries';
 export function ListPage() {
   const { resource = '' } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const sortParam = searchParams.get('sort') ?? undefined;
   const schema = useSchema(resource);
-  const list = useList(resource, listQueryFromUrl(searchParams));
+  const list = useList(resource, listQueryFromUrl(searchParams)); // same key as listQuery below
   const queryClient = useQueryClient();
   const t = useT();
   const restore = useMutation({
@@ -34,6 +34,21 @@ export function ListPage() {
   });
   const trash = searchParams.get('trashed') === 'only';
   const prefs = useColumnPrefs(resource);
+  const listQuery = listQueryFromUrl(searchParams);
+  // Selection belongs to the page on screen: a new page, filter or sort starts empty.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  useEffect(() => setSelected(new Set()), [listQuery, resource]);
+  const [quickView, setQuickView] = useState<AdminRecord | undefined>();
+  const [confirmingBulk, setConfirmingBulk] = useState(false);
+  const bulkDelete = useMutation({
+    mutationFn: (ids: string[]) => api.bulkDelete(resource, ids),
+    onSuccess: async () => {
+      setSelected(new Set());
+      setConfirmingBulk(false);
+      await queryClient.invalidateQueries({ queryKey: ['list', resource] });
+    },
+    onError: () => setConfirmingBulk(false),
+  });
   const [trail, setTrail] = useState<string[]>([]);
   const hasAfter = searchParams.has('after');
   useEffect(() => {
@@ -72,6 +87,7 @@ export function ListPage() {
     setTrail(trail.slice(0, -1));
     updateParams({ after: previous || null });
   }
+  const selectable = !trash;
   const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item._id))}`;
 
   function updateParams(changes: ParamChanges) {
@@ -120,10 +136,42 @@ export function ListPage() {
       {restore.isError && <PageMessage tone="error">{describeError(restore.error)}</PageMessage>}
       {trash && <p className="text-sm text-muted-foreground">{t('list.trashNote')}</p>}
 
+      {selectable && selected.size > 0 && (
+        <div role="region" aria-label={t('list.selected', { count: selected.size })} className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+          <span className="font-medium">{t('list.selected', { count: selected.size })}</span>
+          {confirmingBulk ? (
+            <Button variant="destructive" size="sm" disabled={bulkDelete.isPending} onClick={() => bulkDelete.mutate([...selected])}>
+              {t('list.confirmDeleteSelected', { count: selected.size })}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setConfirmingBulk(true)}>
+              <Trash2 />
+              {t('list.deleteSelected')}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            {t('list.clearSelection')}
+          </Button>
+        </div>
+      )}
+      {bulkDelete.data && <BulkSummary result={bulkDelete.data} items={items} />}
+      {bulkDelete.isError && <PageMessage tone="error">{describeError(bulkDelete.error)}</PageMessage>}
+
       <div className="hidden overflow-x-auto rounded-lg border md:block">
         <Table className={cn(prefs.density === 'compact' && '[&_td]:py-1 [&_th]:h-8')}>
           <TableHeader>
             <TableRow>
+              {selectable && (
+                <TableHead className="w-0">
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-primary"
+                    aria-label={t('list.selectPage')}
+                    checked={items.length > 0 && items.every((item) => selected.has(String(item._id)))}
+                    onChange={(event) => setSelected(event.target.checked ? new Set(items.map((item) => String(item._id))) : new Set())}
+                  />
+                </TableHead>
+              )}
               {columns.map((column) => (
                 <TableHead
                   key={column.name}
@@ -150,6 +198,7 @@ export function ListPage() {
             {list.isPending &&
               Array.from({ length: 5 }, (_, row) => (
                 <TableRow key={`skeleton-${row}`} aria-hidden>
+                  {selectable && <TableCell />}
                   {columns.map((column) => (
                     <TableCell key={column.name}>
                       <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
@@ -158,7 +207,38 @@ export function ListPage() {
                 </TableRow>
               ))}
             {items.map((item) => (
-              <TableRow key={String(item._id)} className={trash ? undefined : 'cursor-pointer'} onClick={trash ? undefined : () => navigate(recordPath(item))}>
+              <TableRow
+                key={String(item._id)}
+                className={trash ? undefined : 'cursor-pointer focus-visible:bg-muted/50 focus-visible:outline-none'}
+                tabIndex={trash ? undefined : 0}
+                onClick={trash ? undefined : () => setQuickView(item)}
+                onKeyDown={
+                  trash
+                    ? undefined
+                    : (event) => {
+                        if (event.key !== 'Enter' || event.target !== event.currentTarget) return;
+                        // Without this, the same Enter would activate the sheet's first button (Close) as it opens.
+                        event.preventDefault();
+                        setQuickView(item);
+                      }
+                }
+              >
+                {selectable && (
+                  <TableCell onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      aria-label={t('list.selectRow', { name: String(item._title ?? item._id) })}
+                      checked={selected.has(String(item._id))}
+                      onChange={(event) => {
+                        const next = new Set(selected);
+                        if (event.target.checked) next.add(String(item._id));
+                        else next.delete(String(item._id));
+                        setSelected(next);
+                      }}
+                    />
+                  </TableCell>
+                )}
                 {columns.map((column, index) => (
                   <TableCell key={column.name}>
                     {index === 0 && !trash ? (
@@ -179,7 +259,7 @@ export function ListPage() {
             ))}
             {list.isSuccess && items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={columns.length + (trash ? 1 : 0)} className="text-center text-muted-foreground">
+                <TableCell colSpan={columns.length + (trash || selectable ? 1 : 0)} className="text-center text-muted-foreground">
                   <div className="flex flex-col items-center gap-2 py-6">
                     {t(hasActiveFilters(searchParams) ? 'list.noMatches' : 'list.noRecords')}
                     {!hasActiveFilters(searchParams) && s.creatable && !trash && (
@@ -230,6 +310,7 @@ export function ListPage() {
           </Button>
         </div>
       </div>
+      <QuickView schema={s} item={quickView} onClose={() => setQuickView(undefined)} />
     </div>
   );
 }
@@ -280,5 +361,31 @@ function RestoreButton({ item, pending, onRestore }: { item: AdminRecord; pendin
       <RotateCcw />
       {t('list.restore')}
     </Button>
+  );
+}
+
+/** "2 deleted, 1 failed" with each failure's record and reason. */
+function BulkSummary({ result, items }: { result: BulkResult; items: AdminRecord[] }) {
+  const t = useT();
+  const name = (id: string) => {
+    const item = items.find((candidate) => String(candidate._id) === id);
+    return typeof item?._title === 'string' ? item._title : `#${id}`;
+  };
+  return (
+    <div role="status" className="rounded-lg border px-3 py-2 text-sm">
+      <p>
+        {t('list.bulkDeleted', { count: result.ok.length })}
+        {result.failed.length > 0 && ` · ${t('list.bulkFailed', { count: result.failed.length })}`}
+      </p>
+      {result.failed.length > 0 && (
+        <ul className="mt-1 list-disc ps-5 text-destructive">
+          {result.failed.map((failure) => (
+            <li key={failure.id}>
+              {name(failure.id)}: {failure.message}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
