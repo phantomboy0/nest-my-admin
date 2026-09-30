@@ -21,7 +21,7 @@ describe('ResourceRegistry', () => {
     expect(registry.list().map((entry) => entry.schema.name)).toEqual(['widget']);
     expect(registry.groupList()).toEqual([{ key: 'widgets', label: 'Inventory', icon: 'boxes', order: 100 }]);
     expect(registry.get('widget').schema.group).toBe('widgets');
-    expect(registry.get('widget').columnProperties.get('createdAt')).toBe('createdAt');
+    expect(registry.get('widget').dbNames.columns.get('createdAt')).toBe('createdAt');
   });
 
   test('attaches the repository so the default CRUD methods work', async () => {

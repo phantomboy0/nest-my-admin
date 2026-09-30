@@ -11,6 +11,7 @@ import { AdminNotFoundError } from '../errors.js';
 import { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { buildResourceSchema } from '../schema/build-resource-schema.js';
 import { humanize, kebabCase } from '../schema/humanize.js';
+import { dbNamesFor, type DbNames } from './db-names.js';
 import { hookWarnings } from './hook-warnings.js';
 
 export interface RegisteredResource {
@@ -19,8 +20,8 @@ export interface RegisteredResource {
   className: string;
   entity: Function;
   dataSource: DataSource;
-  /** Database column name → entity property name (for mapping constraint errors to fields). */
-  columnProperties: ReadonlyMap<string, string>;
+  /** Database column and constraint names → entity properties (for mapping constraint errors to fields). */
+  dbNames: DbNames;
 }
 
 export interface RegisteredGroup {
@@ -141,7 +142,7 @@ export class ResourceRegistry implements OnModuleInit {
       className,
       entity: definition.entity,
       dataSource,
-      columnProperties: new Map(metadata.columns.map((column) => [column.databaseName, column.propertyName])),
+      dbNames: dbNamesFor(metadata),
     });
   }
 

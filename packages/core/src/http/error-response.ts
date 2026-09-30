@@ -3,6 +3,7 @@ import { QueryFailedError } from 'typeorm';
 import type { AdminErrorBody, AdminErrorCode } from '../contract.js';
 import { AdminError } from '../errors.js';
 import type { ErrorMapper } from '../options.js';
+import type { DbNames } from '../registry/db-names.js';
 
 export interface ErrorResponse {
   status: number;
@@ -13,14 +14,17 @@ export interface ErrorLogger {
   error(message: string): void;
 }
 
+export interface ErrorContext {
+  /** Database names of the resource the request was for, to put constraint errors on fields. */
+  dbNames?: DbNames;
+  errorMapper?: ErrorMapper;
+  /** The request deletes a record. SQLite's foreign-key error does not say which side failed; this does. */
+  deleting?: boolean;
+}
+
 /** Maps any thrown value to the admin error contract. Never leaks messages of 5xx/unknown errors. */
-export function toErrorResponse(
-  error: unknown,
-  correlationId: string,
-  logger: ErrorLogger,
-  columnProperties?: ReadonlyMap<string, string>,
-  errorMapper?: ErrorMapper,
-): ErrorResponse {
+export function toErrorResponse(error: unknown, correlationId: string, logger: ErrorLogger, context: ErrorContext = {}): ErrorResponse {
+  const { errorMapper } = context;
   if (errorMapper && !(error instanceof AdminError)) {
     try {
       const mapped = errorMapper(error);
@@ -45,7 +49,7 @@ export function toErrorResponse(
     return { status, body: { code: codeForStatus(status), message: httpExceptionMessage(error), correlationId } };
   }
   if (error instanceof QueryFailedError) {
-    const mapped = constraintError(error, columnProperties);
+    const mapped = constraintError(error, context);
     if (mapped) return { status: mapped.status, body: { ...mapped.body, correlationId } };
   }
   logger.error(`[${correlationId}] ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
@@ -71,50 +75,82 @@ function httpExceptionMessage(error: HttpException): string {
   return error.message;
 }
 
-function constraintError(
-  error: QueryFailedError,
-  columnProperties?: ReadonlyMap<string, string>,
-): { status: number; body: Omit<AdminErrorBody, 'correlationId'> } | undefined {
-  const driver = (error.driverError ?? {}) as unknown as { code?: unknown; column?: unknown; detail?: unknown };
-  const code = String(driver.code ?? '');
-  const text = `${error.message} ${typeof driver.detail === 'string' ? driver.detail : ''}`;
-  const column = typeof driver.column === 'string' ? driver.column : columnFromMessage(text);
-  const field = column ? (columnProperties?.get(column) ?? column) : undefined;
+interface DriverError {
+  code?: unknown;
+  column?: unknown;
+  constraint?: unknown;
+  detail?: unknown;
+}
 
-  if (code === '23503' || code === 'ER_ROW_IS_REFERENCED_2' || code === 'ER_NO_REFERENCED_ROW_2' || /FOREIGN KEY constraint failed/i.test(text)) {
-    return {
-      status: 409,
-      body: { code: 'CONFLICT', message: 'The change conflicts with related records' },
-    };
+const MYSQL_FK_MISSING_PARENT = new Set(['ER_NO_REFERENCED_ROW', 'ER_NO_REFERENCED_ROW_2']);
+const MYSQL_FK_REFERENCED = new Set(['ER_ROW_IS_REFERENCED', 'ER_ROW_IS_REFERENCED_2']);
+const MYSQL_NOT_NULL = new Set(['ER_BAD_NULL_ERROR', 'ER_NO_DEFAULT_FOR_FIELD']);
+const MYSQL_INVALID_VALUE = new Set([
+  'ER_WARN_DATA_OUT_OF_RANGE', 'ER_TRUNCATED_WRONG_VALUE', 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD', 'ER_DATA_TOO_LONG',
+]);
+
+function constraintError(error: QueryFailedError, context: ErrorContext): { status: number; body: Omit<AdminErrorBody, 'correlationId'> } | undefined {
+  const driver = (error.driverError ?? {}) as unknown as DriverError;
+  const code = String(driver.code ?? '');
+  const detail = typeof driver.detail === 'string' ? driver.detail : '';
+  const text = `${error.message} ${detail}`;
+  const onFields = (message: string) => fieldErrors(driver, text, context.dbNames, message);
+
+  const sqliteForeignKey = /FOREIGN KEY constraint failed/i.test(text);
+  if (code === '23503' || MYSQL_FK_MISSING_PARENT.has(code) || MYSQL_FK_REFERENCED.has(code) || sqliteForeignKey) {
+    const missingParent =
+      MYSQL_FK_MISSING_PARENT.has(code) || /is not present in table/.test(detail) || (sqliteForeignKey && !context.deleting);
+    if (missingParent) {
+      return { status: 422, body: { code: 'VALIDATION', message: 'A related record does not exist', ...onFields('does not exist') } };
+    }
+    return { status: 409, body: { code: 'CONFLICT', message: 'The change conflicts with related records' } };
   }
   if (code === '23505' || code === 'ER_DUP_ENTRY' || /UNIQUE constraint failed/i.test(text)) {
-    return {
-      status: 409,
-      body: { code: 'CONFLICT', message: 'A record with this value already exists', ...(field ? { fields: { [field]: ['already exists'] } } : {}) },
-    };
+    return { status: 409, body: { code: 'CONFLICT', message: 'A record with this value already exists', ...onFields('already exists') } };
   }
-  if (code === '23502' || code === 'ER_BAD_NULL_ERROR' || /NOT NULL constraint failed/i.test(text)) {
-    return {
-      status: 422,
-      body: { code: 'VALIDATION', message: 'A required value is missing', ...(field ? { fields: { [field]: ['is required'] } } : {}) },
-    };
+  if (code === '23502' || MYSQL_NOT_NULL.has(code) || /NOT NULL constraint failed/i.test(text)) {
+    return { status: 422, body: { code: 'VALIDATION', message: 'A required value is missing', ...onFields('is required') } };
   }
   if (/^22/.test(code) || MYSQL_INVALID_VALUE.has(code)) {
-    return {
-      status: 422,
-      body: { code: 'VALIDATION', message: 'A value is invalid for its column', ...(field ? { fields: { [field]: ['is invalid'] } } : {}) },
-    };
+    return { status: 422, body: { code: 'VALIDATION', message: 'A value is invalid for its column', ...onFields('is invalid') } };
   }
   return undefined;
 }
 
-const MYSQL_INVALID_VALUE = new Set(['ER_WARN_DATA_OUT_OF_RANGE', 'ER_TRUNCATED_WRONG_VALUE', 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD']);
+/** `{ fields }` for the properties behind the constraint or column the driver names; `{}` when it names none. */
+function fieldErrors(driver: DriverError, text: string, names: DbNames | undefined, message: string): { fields?: Record<string, string[]> } {
+  const constraint = typeof driver.constraint === 'string' ? driver.constraint : constraintFromMessage(text);
+  let properties = constraint ? names?.constraints.get(constraint) : undefined;
+  if (!properties?.length) {
+    const columns = typeof driver.column === 'string' ? [driver.column] : columnsFromMessage(text);
+    if (columns.length === 0) return {};
+    properties = columns.map((column) => names?.columns.get(column) ?? column);
+  }
+  return { fields: Object.fromEntries(properties.map((property) => [property, [message]])) };
+}
+
+function constraintFromMessage(text: string): string | undefined {
+  return (
+    /for key '(?:[^'.]+\.)?([^'.]+)'/.exec(text)?.[1] ?? // MySQL unique: Duplicate entry 'A' for key 'product.IDX_…'
+    /CONSTRAINT `([^`]+)`/.exec(text)?.[1] // MySQL foreign key: … CONSTRAINT `FK_…` FOREIGN KEY (`widget_id`) …
+  );
+}
+
+function columnsFromMessage(text: string): string[] {
+  // SQLite: "UNIQUE constraint failed: gadget.batch, gadget.serial" / "NOT NULL constraint failed: widget.name"
+  const sqlite = /constraint failed: ("?\w+"?\."?\w+"?(?:, "?\w+"?\."?\w+"?)*)/i.exec(text)?.[1];
+  if (sqlite) return sqlite.split(', ').map((qualified) => qualified.replace(/"/g, '').split('.')[1]!);
+  const column = columnFromMessage(text);
+  return column ? [column] : [];
+}
 
 function columnFromMessage(text: string): string | undefined {
   return (
-    /constraint failed: [\w"]+\."?(\w+)/i.exec(text)?.[1] ?? // SQLite: UNIQUE constraint failed: product.sku
-    /Key \("?(\w+)"?\)=/.exec(text)?.[1] ?? // Postgres unique: Key (sku)=(A1) already exists.
-    /Column '(\w+)' cannot be null/.exec(text)?.[1] ?? // MySQL not-null
+    /Key \("?(\w+)"?\)=/.exec(text)?.[1] ?? // Postgres: Key (sku)=(A1) already exists. / … is not present in table
+    /FOREIGN KEY \(`(\w+)`\)/.exec(text)?.[1] ?? // MySQL foreign key (single column)
+    /Column '(\w+)' cannot be null/.exec(text)?.[1] ?? // MySQL explicit null
+    /Field '(\w+)' doesn't have a default value/.exec(text)?.[1] ?? // MySQL missing value
+    /for column '(\w+)'/.exec(text)?.[1] ?? // MySQL: Data too long for column 'name' / Out of range value for column 'stock'
     /column "(\w+)"/.exec(text)?.[1] // Postgres not-null message
   );
 }

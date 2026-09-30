@@ -2,11 +2,15 @@ import { describe, expect, mock, test } from 'bun:test';
 import { BadRequestException, ConflictException, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import { AdminError, AdminFieldError, AdminNotFoundError } from '../errors.js';
-import { codeForStatus, toErrorResponse } from './error-response.js';
+import { codeForStatus, toErrorResponse, type ErrorResponse } from './error-response.js';
 
 const logger = () => ({ error: mock((_message: string) => {}) });
 const dbError = (driverError: Record<string, unknown>) =>
   new QueryFailedError('INSERT ...', [], Object.assign(new Error(String(driverError.message)), driverError));
+const dbNames = (columns: Record<string, string>, constraints: Record<string, string[]> = {}) => ({
+  columns: new Map(Object.entries(columns)),
+  constraints: new Map(Object.entries(constraints)),
+});
 
 describe('toErrorResponse', () => {
   test('admin errors keep their code, status and fields', () => {
@@ -41,12 +45,53 @@ describe('toErrorResponse', () => {
     expect(toErrorResponse(new InternalServerErrorException('secret detail'), 'c', logger()).body.message).toBe('Internal error');
   });
 
-  test('foreign-key violations become 409 CONFLICT', () => {
-    expect(toErrorResponse(dbError({ message: 'FOREIGN KEY constraint failed' }), 'c', logger())).toEqual({
-      status: 409,
-      body: { code: 'CONFLICT', message: 'The change conflicts with related records', correlationId: 'c' },
+  test('deleting a record other records still reference is 409 CONFLICT', () => {
+    const conflict: ErrorResponse = { status: 409, body: { code: 'CONFLICT', message: 'The change conflicts with related records', correlationId: 'c' } };
+    expect(toErrorResponse(dbError({ message: 'FOREIGN KEY constraint failed' }), 'c', logger(), { deleting: true })).toEqual(conflict);
+    expect(
+      toErrorResponse(
+        dbError({ code: '23503', constraint: 'FK_1', message: 'update or delete on table "widget" violates foreign key constraint "FK_1" on table "gadget"', detail: 'Key (id)=(1) is still referenced from table "gadget".' }),
+        'c',
+        logger(),
+        { deleting: true },
+      ),
+    ).toEqual(conflict);
+    for (const code of ['ER_ROW_IS_REFERENCED_2', 'ER_ROW_IS_REFERENCED']) {
+      expect(toErrorResponse(dbError({ code, message: 'Cannot delete or update a parent row' }), 'c', logger()).status).toBe(409);
+    }
+  });
+
+  test('a foreign key pointing at a missing record is 422 on that field', () => {
+    const names = dbNames({ widget_id: 'widgetId' }, { FK_8a2f: ['widgetId'] });
+    const expected: ErrorResponse = {
+      status: 422,
+      body: { code: 'VALIDATION', message: 'A related record does not exist', fields: { widgetId: ['does not exist'] }, correlationId: 'c' },
+    };
+    // Postgres names the constraint
+    const postgres = dbError({
+      code: '23503',
+      constraint: 'FK_8a2f',
+      message: 'insert or update on table "gadget" violates foreign key constraint "FK_8a2f"',
+      detail: 'Key (widget_id)=(999) is not present in table "widget".',
     });
-    expect(toErrorResponse(dbError({ code: '23503', message: 'violates foreign key constraint' }), 'c', logger()).status).toBe(409);
+    expect(toErrorResponse(postgres, 'c', logger(), { dbNames: names })).toEqual(expected);
+    // MySQL, with and without the _2 suffix
+    const mysqlMessage =
+      'Cannot add or update a child row: a foreign key constraint fails (`db`.`gadget`, CONSTRAINT `FK_8a2f` FOREIGN KEY (`widget_id`) REFERENCES `widget` (`id`) ON DELETE RESTRICT)';
+    expect(toErrorResponse(dbError({ code: 'ER_NO_REFERENCED_ROW_2', message: mysqlMessage }), 'c', logger(), { dbNames: names })).toEqual(expected);
+    expect(toErrorResponse(dbError({ code: 'ER_NO_REFERENCED_ROW', message: 'Cannot add or update a child row' }), 'c', logger()).status).toBe(422);
+    // SQLite does not say which side failed or which column: a write that is not a delete means a missing parent
+    expect(toErrorResponse(dbError({ message: 'FOREIGN KEY constraint failed' }), 'c', logger(), { dbNames: names })).toEqual({
+      status: 422,
+      body: { code: 'VALIDATION', message: 'A related record does not exist', correlationId: 'c' },
+    });
+  });
+
+  test('without a known constraint name the column in the message is used (Postgres detail, MySQL FOREIGN KEY)', () => {
+    const detailOnly = dbError({ code: '23503', message: 'insert or update on table "gadget"', detail: 'Key (widget_id)=(9) is not present in table "widget".' });
+    expect(toErrorResponse(detailOnly, 'c', logger(), { dbNames: dbNames({ widget_id: 'widgetId' }) }).body.fields).toEqual({ widgetId: ['does not exist'] });
+    const mysql = dbError({ code: 'ER_NO_REFERENCED_ROW_2', message: 'a foreign key constraint fails (`db`.`gadget`, CONSTRAINT `FK_x` FOREIGN KEY (`widget_id`) REFERENCES `widget` (`id`))' });
+    expect(toErrorResponse(mysql, 'c', logger()).body.fields).toEqual({ widget_id: ['does not exist'] });
   });
 
   test('unique violations become 409 CONFLICT on the field (SQLite, Postgres)', () => {
@@ -59,9 +104,22 @@ describe('toErrorResponse', () => {
       dbError({ code: '23505', message: 'duplicate key value violates unique constraint "UQ_1"', detail: 'Key (sku_code)=(A1) already exists.' }),
       'c',
       logger(),
-      new Map([['sku_code', 'skuCode']]),
+      { dbNames: dbNames({ sku_code: 'skuCode' }) },
     );
     expect(postgres.body.fields).toEqual({ skuCode: ['already exists'] });
+  });
+
+  test('unique violations name every column of the constraint (MySQL index names, Postgres constraint names, SQLite column lists)', () => {
+    const names = dbNames({ serial_no: 'serial' }, { UQ_gadget_batch_serial: ['batch', 'serial'], IDX_f3cd: ['sku'] });
+    const both = { batch: ['already exists'], serial: ['already exists'] };
+    const mysql = dbError({ code: 'ER_DUP_ENTRY', message: "Duplicate entry 'a-b' for key 'gadget.UQ_gadget_batch_serial'" });
+    expect(toErrorResponse(mysql, 'c', logger(), { dbNames: names }).body.fields).toEqual(both);
+    const postgres = dbError({ code: '23505', constraint: 'UQ_gadget_batch_serial', message: 'duplicate key', detail: 'Key (batch, serial)=(a, b) already exists.' });
+    expect(toErrorResponse(postgres, 'c', logger(), { dbNames: names }).body.fields).toEqual(both);
+    const sqlite = dbError({ message: 'UNIQUE constraint failed: gadget.batch, gadget.serial_no' });
+    expect(toErrorResponse(sqlite, 'c', logger(), { dbNames: names }).body.fields).toEqual(both);
+    const single = dbError({ code: 'ER_DUP_ENTRY', message: "Duplicate entry 'X' for key 'product.IDX_f3cd'" });
+    expect(toErrorResponse(single, 'c', logger(), { dbNames: names }).body.fields).toEqual({ sku: ['already exists'] });
   });
 
   test('not-null violations become 422 VALIDATION on the field (SQLite, MySQL)', () => {
@@ -72,6 +130,12 @@ describe('toErrorResponse', () => {
     expect(
       toErrorResponse(dbError({ code: 'ER_BAD_NULL_ERROR', message: "Column 'name' cannot be null" }), 'c', logger()).body.fields,
     ).toEqual({ name: ['is required'] });
+    expect(
+      toErrorResponse(dbError({ code: 'ER_NO_DEFAULT_FOR_FIELD', message: "Field 'name' doesn't have a default value" }), 'c', logger()),
+    ).toEqual({
+      status: 422,
+      body: { code: 'VALIDATION', message: 'A required value is missing', fields: { name: ['is required'] }, correlationId: 'c' },
+    });
   });
 
   test('status codes map to contract codes', () => {
@@ -100,6 +164,7 @@ describe('toErrorResponse: invalid values reaching the database', () => {
     [{ code: 'ER_WARN_DATA_OUT_OF_RANGE', message: 'Out of range value' }],
     [{ code: 'ER_TRUNCATED_WRONG_VALUE', message: 'Incorrect datetime value' }],
     [{ code: 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD', message: 'Incorrect integer value' }],
+    [{ code: 'ER_DATA_TOO_LONG', message: 'Data too long' }],
   ])('%p is a 422', (driver) => {
     expect(toErrorResponse(dbError(driver), 'c', logger())).toEqual({
       status: 422,
@@ -113,13 +178,25 @@ describe('toErrorResponse: invalid values reaching the database', () => {
     });
   });
 
+  test('MySQL names the column in the message', () => {
+    const tooLong = dbError({ code: 'ER_DATA_TOO_LONG', message: "Data too long for column 'name' at row 1" });
+    expect(toErrorResponse(tooLong, 'c', logger()).body.fields).toEqual({ name: ['is invalid'] });
+    const range = dbError({ code: 'ER_WARN_DATA_OUT_OF_RANGE', message: "Out of range value for column 'stock' at row 1" });
+    expect(toErrorResponse(range, 'c', logger()).body.fields).toEqual({ stock: ['is invalid'] });
+  });
+
+  test('a numeric driverError.column (mysql2, sql.js report a position) is ignored', () => {
+    const res = toErrorResponse(dbError({ code: '23502', column: 21, message: 'null value' }), 'c', logger());
+    expect(res.body.fields).toBeUndefined();
+  });
+
   test('errorMapper translates host exceptions (Review Focus 4)', () => {
     class OutOfStock extends Error {}
     const mapper = (error: unknown) => (error instanceof OutOfStock ? new AdminFieldError({ stock: 'out of stock' }) : undefined);
-    expect(toErrorResponse(new OutOfStock(), 'c', logger(), undefined, mapper).body).toEqual({
+    expect(toErrorResponse(new OutOfStock(), 'c', logger(), { errorMapper: mapper }).body).toEqual({
       code: 'VALIDATION', message: 'Validation failed', fields: { stock: ['out of stock'] }, correlationId: 'c',
     });
-    expect(toErrorResponse(new Error('other'), 'c', logger(), undefined, mapper).status).toBe(500);
+    expect(toErrorResponse(new Error('other'), 'c', logger(), { errorMapper: mapper }).status).toBe(500);
   });
 
   test('a mapper that throws or returns a non-AdminError is ignored and logged', () => {
@@ -127,17 +204,19 @@ describe('toErrorResponse: invalid values reaching the database', () => {
     const throwing = () => {
       throw new Error('mapper bug');
     };
-    expect(toErrorResponse(new NotFoundException(), 'c', log, undefined, throwing).body.code).toBe('NOT_FOUND');
+    expect(toErrorResponse(new NotFoundException(), 'c', log, { errorMapper: throwing }).body.code).toBe('NOT_FOUND');
     expect(log.error).toHaveBeenCalledTimes(1);
     const bogus = () => ({ code: 'NOT_A_REAL_ERROR' }) as unknown as AdminError;
-    expect(toErrorResponse(new NotFoundException(), 'c', logger(), undefined, bogus).body.code).toBe('NOT_FOUND');
+    expect(toErrorResponse(new NotFoundException(), 'c', logger(), { errorMapper: bogus }).body.code).toBe('NOT_FOUND');
   });
 
   test('AdminErrors are never passed to the mapper', () => {
     let called = false;
-    toErrorResponse(new AdminNotFoundError(), 'c', logger(), undefined, () => {
-      called = true;
-      return undefined;
+    toErrorResponse(new AdminNotFoundError(), 'c', logger(), {
+      errorMapper: () => {
+        called = true;
+        return undefined;
+      },
     });
     expect(called).toBe(false);
   });
@@ -145,7 +224,7 @@ describe('toErrorResponse: invalid values reaching the database', () => {
   test('a mapper result with status >= 500 logs the original error and correlation id', () => {
     const log = logger();
     const original = new Error('boom from domain');
-    const res = toErrorResponse(original, 'c500', log, undefined, () => new AdminError('BUSINESS_RULE', 503, 'Try later'));
+    const res = toErrorResponse(original, 'c500', log, { errorMapper: () => new AdminError('BUSINESS_RULE', 503, 'Try later') });
     expect(res.status).toBe(503);
     expect(log.error).toHaveBeenCalledTimes(1);
     const message = log.error.mock.calls[0]![0];
@@ -155,7 +234,7 @@ describe('toErrorResponse: invalid values reaching the database', () => {
 
   test('a mapper result with a 4xx status is not logged', () => {
     const log = logger();
-    toErrorResponse(new Error('x'), 'c', log, undefined, () => new AdminError('BUSINESS_RULE', 402, 'Pay'));
+    toErrorResponse(new Error('x'), 'c', log, { errorMapper: () => new AdminError('BUSINESS_RULE', 402, 'Pay') });
     expect(log.error).not.toHaveBeenCalled();
   });
 });
