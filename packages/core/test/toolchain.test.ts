@@ -27,7 +27,7 @@ describe('toolchain', () => {
     expect(Reflect.getMetadata('design:paramtypes', ProbeService)).toEqual([DataSource]);
   });
 
-  test('boots Nest 12 + TypeORM 1 on sql.js', async () => {
+  test('boots Nest + TypeORM on sql.js', async () => {
     const moduleRef = await Test.createTestingModule({ imports: [ProbeModule] }).compile();
     const service = moduleRef.get(ProbeService);
     expect(service.dataSource).toBe(moduleRef.get(getDataSourceToken()));

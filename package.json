@@ -12,7 +12,8 @@
     "db:up": "docker compose -f docker-compose.test.yml up -d --wait",
     "db:down": "docker compose -f docker-compose.test.yml down",
     "test:postgres": "NMA_TEST_DB=postgres bun run test",
-    "test:mysql": "NMA_TEST_DB=mysql bun run test"
+    "test:mysql": "NMA_TEST_DB=mysql bun run test",
+    "compat": "bun scripts/compat.ts"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",
