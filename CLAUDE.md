@@ -15,7 +15,7 @@ bun run typecheck                               # every workspace package
 bun run test                                    # all bun tests (unit next to src, integration in packages/core/test, examples/demo-api/test)
 bun test packages/core/test/crud.test.ts        # one file
 bun test -t "rejects unknown fields"            # tests matching a name
-PW_CHANNEL=chrome bun run e2e                   # build + Playwright on examples/demo-api (desktop + mobile); needs `bunx playwright install chromium` once
+bun run e2e                                     # build + Playwright on examples/demo-api (desktop + mobile); needs `bunx playwright install chromium` once (or, if that download is blocked, `PW_CHANNEL=chrome bun run e2e` to use installed Chrome)
 bun run pack:smoke                              # pack core+ui, npm-install into a temp app, boot on node and bun
 cd examples/demo-api && bun src/main.ts         # demo at http://localhost:3000/admin
 cd packages/ui && bun run dev                   # UI dev server :5173, proxies /admin/api to :3000
