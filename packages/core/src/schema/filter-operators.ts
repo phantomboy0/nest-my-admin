@@ -15,6 +15,7 @@ const OPERATORS_BY_TYPE: Record<FieldType, FilterOperator[]> = {
   datetime: RANGE, // exact equality on timestamps is never what a person means
   boolean: ['eq', 'ne'],
   json: [],
+  other: [],
 };
 
 /** Column types that `?search=` can match with a case-insensitive LIKE. */

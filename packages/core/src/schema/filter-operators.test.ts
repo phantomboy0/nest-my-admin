@@ -20,5 +20,6 @@ describe('operatorsFor', () => {
   test('nullable columns also get isNull; json columns get nothing', () => {
     expect(operatorsFor(field('text', true))).toEqual(['contains', 'startsWith', 'isNull']);
     expect(operatorsFor(field('json', true))).toEqual([]);
+    expect(operatorsFor(field('other', true))).toEqual([]);
   });
 });

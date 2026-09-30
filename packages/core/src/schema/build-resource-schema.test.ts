@@ -31,6 +31,13 @@ class Tool {
   @Column({ type: 'simple-json', nullable: true }) extra: Record<string, unknown> | null;
 }
 
+@Entity()
+class Shift {
+  @PrimaryGeneratedColumn() id: number;
+  @Column() title: string;
+  @Column({ type: 'time' }) startsAt: string;
+}
+
 class CreateGadgetDto {
   @IsString() @Length(1, 60) name: string;
   @IsString() price: string;
@@ -44,7 +51,7 @@ class StampedGadgetDto {
 
 let dataSource: DataSource;
 beforeAll(async () => {
-  dataSource = await new DataSource({ type: 'sqljs', entities: [Gadget, Pair, Tool], synchronize: true }).initialize();
+  dataSource = await new DataSource({ type: 'sqljs', entities: [Gadget, Pair, Tool, Shift], synchronize: true }).initialize();
 });
 afterAll(async () => {
   await dataSource.destroy();
@@ -181,6 +188,20 @@ describe('buildResourceSchema', () => {
     const schema = schemaFor(new PlainToolAdmin(), Tool);
     expect(schema.list.filters.map((f) => f.field)).toEqual(['active']);
     expect(schema.list.search).toEqual(['title']);
+  });
+
+  test('columns of an unknown type are neither searched by default nor searchable', () => {
+    @AdminResource(Shift)
+    class ShiftAdmin extends AdminResourceBase<Shift> {}
+    const schema = schemaFor(new ShiftAdmin(), Shift);
+    expect(schema.fields.find((f) => f.name === 'startsAt')?.type).toBe('other');
+    expect(schema.list.search).toEqual(['title']);
+
+    @AdminResource(Shift)
+    class ShiftSearchAdmin extends AdminResourceBase<Shift> {
+      list: ListConfig<Shift> = { search: ['startsAt'] };
+    }
+    expect(() => schemaFor(new ShiftSearchAdmin(), Shift)).toThrow('list.search: column "startsAt" (other) is not a text column');
   });
 
   test('rejects filters and search fields that cannot work', () => {

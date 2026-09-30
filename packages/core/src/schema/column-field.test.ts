@@ -22,13 +22,18 @@ describe('fieldTypeOf', () => {
     ['int', 'number'], ['double precision', 'number'], ['bigint', 'bigint'], ['int8', 'bigint'],
     ['decimal', 'decimal'], ['numeric', 'decimal'], ['bool', 'boolean'], ['date', 'date'],
     ['timestamptz', 'datetime'], ['datetime', 'datetime'], ['jsonb', 'json'], ['simple-json', 'json'],
-    ['uuid', 'uuid'], ['VARCHAR', 'string'], ['something-else', 'string'],
+    ['uuid', 'uuid'], ['VARCHAR', 'string'], ['something-else', 'other'], ['time', 'other'], ['inet', 'other'], ['bytea', 'other'],
   ] as const)('%p → %s', (input, expected) => {
     expect(fieldTypeOf(input)).toBe(expected);
   });
 });
 
 describe('columnToField', () => {
+  test('array columns are json, whatever their element type', () => {
+    expect(columnToField(column({ type: 'varchar', isArray: true })).type).toBe('json');
+    expect(columnToField(column({ type: 'int', isArray: true })).integer).toBeUndefined();
+  });
+
   test('maps a plain column', () => {
     expect(columnToField(column({ propertyName: 'releasedOn', type: 'date', isNullable: true }))).toEqual({
       name: 'releasedOn', label: 'Released on', type: 'date', nullable: true, primary: false, readonly: false, persisted: true,
@@ -63,7 +68,7 @@ describe('isSupportedColumn', () => {
 });
 
 describe('columnToField integer flag', () => {
-  test.each([['int', true], ['smallint', true], ['int4', true], ['float', undefined], [Number, undefined], ['bigint', undefined]] as const)(
+  test.each([['int', true], ['smallint', true], ['int4', true], ['float', undefined], [Number, true], ['bigint', undefined]] as const)(
     '%p → integer %p',
     (type, expected) => {
       expect(columnToField(column({ type })).integer).toBe(expected);

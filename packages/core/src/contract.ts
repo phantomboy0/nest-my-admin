@@ -6,7 +6,9 @@
 
 export type FieldType =
   | 'string' | 'text' | 'number' | 'bigint' | 'decimal' | 'boolean'
-  | 'date' | 'datetime' | 'enum' | 'json' | 'uuid';
+  | 'date' | 'datetime' | 'enum' | 'json' | 'uuid'
+  /** A column type the admin can display and edit as text but not filter or search (time, inet, bytea, ...). */
+  | 'other';
 
 export interface FieldSchema {
   name: string;

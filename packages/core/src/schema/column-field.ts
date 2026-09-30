@@ -13,6 +13,7 @@ export interface ColumnLike {
   isDeleteDate: boolean;
   isVersion: boolean;
   isSelect: boolean;
+  isArray?: boolean;
   enum?: (string | number)[];
   scale?: number;
   default?: unknown;
@@ -46,7 +47,7 @@ export function fieldTypeOf(type: unknown): FieldType {
   if (type === Boolean) return 'boolean';
   if (type === Date) return 'datetime';
   if (type === Object || type === Array) return 'json';
-  if (typeof type === 'string') return TYPE_BY_NAME[type.toLowerCase()] ?? 'string';
+  if (typeof type === 'string') return TYPE_BY_NAME[type.toLowerCase()] ?? 'other';
   return 'string';
 }
 
@@ -56,7 +57,7 @@ export function isSupportedColumn(column: ColumnLike): boolean {
 }
 
 export function columnToField(column: ColumnLike): FieldSchema {
-  let type = fieldTypeOf(column.type);
+  let type: FieldType = column.isArray ? 'json' : fieldTypeOf(column.type);
   if (column.enum && column.enum.length > 0) type = 'enum';
   else if (type === 'enum') type = 'string';
 
@@ -71,6 +72,8 @@ export function columnToField(column: ColumnLike): FieldSchema {
   };
   if (type === 'enum') field.enumValues = column.enum!.map(String);
   if (type === 'decimal' && typeof column.scale === 'number') field.scale = column.scale;
-  if (type === 'number' && typeof column.type === 'string' && INTEGER_TYPES.has(column.type.toLowerCase())) field.integer = true;
+  if (type === 'number' && (column.type === Number || (typeof column.type === 'string' && INTEGER_TYPES.has(column.type.toLowerCase())))) {
+    field.integer = true;
+  }
   return field;
 }
