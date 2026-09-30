@@ -11,6 +11,7 @@ import { AdminNotFoundError } from '../errors.js';
 import { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { buildResourceSchema } from '../schema/build-resource-schema.js';
 import { humanize, kebabCase } from '../schema/humanize.js';
+import { hookWarnings } from './hook-warnings.js';
 
 export interface RegisteredResource {
   schema: ResourceSchema;
@@ -66,6 +67,7 @@ export class ResourceRegistry implements OnModuleInit {
         throw new Error(`${metatype.name} is decorated with @AdminResource but does not extend AdminResourceBase`);
       }
       const moduleGroup = this.registerModuleGroup(wrapper.host?.metatype);
+      for (const warning of hookWarnings(instance, metatype.name)) this.logger.warn(warning);
       this.register(metatype.name, definition, instance, moduleGroup);
     }
     if (this.options.autoRegister) this.registerAutoResources();
