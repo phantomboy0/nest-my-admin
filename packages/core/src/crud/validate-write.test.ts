@@ -10,6 +10,11 @@ class ItemDto {
   @IsOptional() @IsInt() @Min(0) qty?: number;
 }
 
+class DefaultsDto {
+  @IsString() name: string;
+  @IsOptional() active: boolean = true;
+}
+
 class AddressDto {
   @IsString() city: string;
 }
@@ -65,5 +70,10 @@ describe('validateWrite', () => {
 
   test('without a DTO returns a plain copy of the allowed keys', async () => {
     expect(await validateWrite({ name: 'x' }, { allowed: ['name'] })).toEqual({ name: 'x' });
+  });
+
+  test('only carries keys the client sent, not DTO initializer defaults', async () => {
+    const result = await validateWrite({ name: 'x' }, { allowed: ['name', 'active'], dto: DefaultsDto, partial: true });
+    expect(Object.keys(result)).toEqual(['name']);
   });
 });

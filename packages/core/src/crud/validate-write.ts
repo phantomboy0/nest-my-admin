@@ -29,6 +29,10 @@ export async function validateWrite(body: unknown, rules: WriteRules): Promise<o
   let errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true });
   if (rules.partial) errors = errors.filter((error) => Object.hasOwn(input, error.property));
   if (errors.length > 0) throw new AdminValidationError(flattenValidationErrors(errors));
+  // Constructor initializers add keys the client never sent; they would overwrite stored values on update.
+  for (const key of Object.keys(instance)) {
+    if (!Object.hasOwn(input, key)) delete (instance as Record<string, unknown>)[key];
+  }
   return instance;
 }
 
