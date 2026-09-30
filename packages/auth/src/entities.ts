@@ -15,6 +15,14 @@ export class NmaUser {
   @Column({ type: 'int', default: 0 }) failedLogins: number;
   @Column({ type: Date, nullable: true }) lockedUntil: Date | null;
   @Column({ type: Date, nullable: true }) lastLoginAt: Date | null;
+  /** The TOTP key while two-factor sign-in is on (sealed with `secretKey` when one is set). */
+  @Column({ type: 'varchar', length: 255, nullable: true }) totpSecret: string | null;
+  /** A key being set up, until it is confirmed with a code. */
+  @Column({ type: 'varchar', length: 255, nullable: true }) totpPending: string | null;
+  /** The last 30-second step a code was accepted for: codes are never accepted twice. */
+  @Column({ type: 'int', nullable: true }) totpLastStep: number | null;
+  /** SHA-256 hashes of the unused recovery codes (JSON array). */
+  @Column({ type: 'text', nullable: true }) recoveryCodes: string | null;
   @CreateDateColumn() createdAt: Date;
 }
 

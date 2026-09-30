@@ -10,7 +10,7 @@ import type { DataSource } from 'typeorm';
 import { AdminModule } from '@nest-my-admin/core';
 import { AdminAuthService } from '../../core/dist/auth/auth.service.js';
 import { TEST_DB, testDatabase } from '../../core/test/helpers/test-db.js';
-import { ADMIN_AUTH_ENTITIES, BuiltinAuthAdapter, NmaSession, NmaUser, builtinAuth, createAdminUser, type BuiltinAuthOptions } from '../src/index.js';
+import { ADMIN_AUTH_ENTITIES, BuiltinAuthAdapter, NmaSession, NmaUser, builtinAuth, createAdminUser, totpCode, type BuiltinAuthOptions } from '../src/index.js';
 
 const UI = fileURLToPath(new URL('../../core/test/fixtures/ui-dist', import.meta.url));
 const FAST = { N: 1024, r: 8, p: 1, keylen: 64 };
@@ -247,5 +247,116 @@ describe(`built-in auth: the Users page methods (${TEST_DB})`, () => {
     await adapter().setPassword(String(hal.id), 'hal-password-2');
     expect((await http().get('/admin/api/meta').set('Cookie', second.cookie)).status).toBe(401);
     expect((await login('hal', 'hal-password-2')).res.status).toBe(200);
+  });
+});
+
+describe(`built-in auth: two-factor sign-in (${TEST_DB}, Review Focus 3)`, () => {
+  let twoFa: INestApplication;
+  const key = Buffer.alloc(32, 7).toString('base64');
+  const post = (path: string, session: { cookie: string; csrf: string }, body: object = {}) =>
+    request(twoFa.getHttpServer()).post(`/admin/api${path}`).set('Cookie', session.cookie).set('X-CSRF-Token', session.csrf).send(body);
+  const signIn = async (body: object) => {
+    tick(1); // stay under the per-minute attempts
+    const res = await request(twoFa.getHttpServer()).post('/admin/api/session').send({ username: 'cy', password: 'cy-password-1', ...body });
+    return { res, cookie: res.status === 200 ? cookieOf(res) : '', csrf: res.body.csrfToken as string };
+  };
+  let secret = '';
+  let recovery: string[] = [];
+
+  beforeAll(async () => {
+    clock = START;
+    twoFa = await authApp({ secretKey: key, issuer: 'Demo Admin' });
+    await createAdminUser(twoFa.get(getDataSourceToken()), { username: 'cy', password: 'cy-password-1' }, { scrypt: FAST });
+  });
+  afterAll(async () => {
+    await twoFa.close();
+  });
+
+  test('setup: a key to scan, confirmed with a code; recovery codes once; the key is sealed at rest', async () => {
+    const first = await signIn({});
+    const other = await signIn({});
+    expect((await request(twoFa.getHttpServer()).get('/admin/api/session').set('Cookie', first.cookie)).body.auth.twoFactor).toBe(true);
+    const setup = await post('/account/2fa/setup', first);
+    expect(setup.status).toBe(200);
+    secret = setup.body.secret;
+    expect(secret).toMatch(/^[A-Z2-7]{32}$/);
+    expect(setup.body.otpauthUrl).toBe(`otpauth://totp/Demo%20Admin:cy?secret=${secret}&issuer=Demo+Admin&algorithm=SHA1&digits=6&period=30`);
+    expect((await post('/account/2fa/confirm', first, { code: '000000' })).body.fields).toEqual({ code: ['is wrong'] });
+    const confirmed = await post('/account/2fa/confirm', first, { code: totpCode(secret, clock) });
+    expect(confirmed.status).toBe(200);
+    recovery = confirmed.body.recoveryCodes;
+    expect(recovery).toHaveLength(10);
+    expect(recovery[0]).toMatch(/^[a-z2-7]{5}-[a-z2-7]{5}$/);
+    const row = await twoFa.get(getDataSourceToken()).getRepository(NmaUser).findOneByOrFail({ username: 'cy' });
+    expect(row.totpSecret).toStartWith('v1:');
+    expect(row.totpSecret).not.toContain(secret);
+    expect(row.recoveryCodes).not.toContain(recovery[0]!);
+    // Other sessions signed in without the second factor: they end.
+    expect((await request(twoFa.getHttpServer()).get('/admin/api/session').set('Cookie', other.cookie)).status).toBe(401);
+    expect((await request(twoFa.getHttpServer()).get('/admin/api/account/2fa').set('Cookie', first.cookie)).body).toEqual({ enabled: true, recoveryCodesLeft: 10 });
+    expect((await post('/account/2fa/setup', first)).status).toBe(422); // already on
+  });
+
+  test('no session without the second factor; a code works once', async () => {
+    const missing = await signIn({});
+    expect(missing.res.status).toBe(401);
+    expect(missing.res.body.code).toBe('TWO_FACTOR_REQUIRED');
+    expect(missing.res.headers['set-cookie']).toBeUndefined();
+    tick(60); // a new step: the setup code's step is used
+    const code = totpCode(secret, clock);
+    const ok = await signIn({ otp: code });
+    expect(ok.res.status).toBe(200);
+    const replay = await signIn({ otp: code });
+    expect(replay.res.status).toBe(401);
+    expect(replay.res.body).toMatchObject({ code: 'TWO_FACTOR_REQUIRED', message: 'The code is wrong or was already used' });
+    // The password still has to be right: a code does not replace it.
+    tick(30);
+    expect((await signIn({ password: 'wrong-password', otp: totpCode(secret, clock) })).res.body.code).toBe('UNAUTHENTICATED');
+  });
+
+  test('recovery codes work once each, in any case and spacing', async () => {
+    const used = recovery[0]!;
+    expect((await signIn({ otp: used.toUpperCase().replace('-', ' ') })).res.status).toBe(200);
+    expect((await signIn({ otp: used })).res.status).toBe(401);
+    const session = await signIn({ otp: recovery[1]! });
+    expect((await request(twoFa.getHttpServer()).get('/admin/api/account/2fa').set('Cookie', session.cookie)).body.recoveryCodesLeft).toBe(8);
+    expect((await post('/account/2fa/recovery-codes', session, { password: 'nope' })).status).toBe(422);
+    const fresh = await post('/account/2fa/recovery-codes', session, { password: 'cy-password-1' });
+    expect(fresh.body.recoveryCodes).toHaveLength(10);
+    expect((await signIn({ otp: recovery[2]! })).res.status).toBe(401); // the old ones are gone
+    recovery = fresh.body.recoveryCodes;
+  });
+
+  test('wrong codes count toward the lockout', async () => {
+    tick(20 * 60); // clear the earlier lockout window and failures
+    await signIn({ otp: recovery[3]! }); // a success resets the counter
+    for (let i = 0; i < 5; i++) expect((await signIn({ otp: '123456' })).res.status).toBe(401);
+    tick(30);
+    const locked = await signIn({ otp: totpCode(secret, clock) });
+    expect(locked.res.body).toMatchObject({ code: 'UNAUTHENTICATED', message: 'Wrong username or password' });
+    tick(16 * 60);
+    expect((await signIn({ otp: totpCode(secret, clock) })).res.status).toBe(200);
+  });
+
+  test('disabling needs the password; then the password alone signs in', async () => {
+    tick(60);
+    const session = await signIn({ otp: totpCode(secret, clock) });
+    expect((await post('/account/2fa/disable', session, { password: 'wrong' })).body.fields).toEqual({ password: ['is wrong'] });
+    expect((await post('/account/2fa/disable', session, { password: 'cy-password-1' })).status).toBe(204);
+    expect((await signIn({})).res.status).toBe(200);
+    const row = await twoFa.get(getDataSourceToken()).getRepository(NmaUser).findOneByOrFail({ username: 'cy' });
+    expect(row).toMatchObject({ totpSecret: null, totpPending: null, recoveryCodes: null });
+  });
+
+  test('an admin can reset a lost second factor; that ends the sessions', async () => {
+    const adapter = twoFa.get(AdminAuthService).adapter as BuiltinAuthAdapter;
+    const session = await signIn({});
+    const setup = await post('/account/2fa/setup', session);
+    await post('/account/2fa/confirm', session, { code: totpCode(setup.body.secret, clock) });
+    const row = await twoFa.get(getDataSourceToken()).getRepository(NmaUser).findOneByOrFail({ username: 'cy' });
+    expect((await adapter.getUser(String(row.id)))!.twoFactor).toBe(true);
+    await adapter.resetTwoFactor(String(row.id));
+    expect((await request(twoFa.getHttpServer()).get('/admin/api/session').set('Cookie', session.cookie)).status).toBe(401);
+    expect((await signIn({})).res.status).toBe(200);
   });
 });

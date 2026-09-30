@@ -55,6 +55,9 @@ class MemoryAuth implements AdminAuthAdapter {
   async setPassword(id: string, password: string) {
     users.get(id)!.password = password;
   }
+  async resetTwoFactor(id: string) {
+    users.get(id)!.twoFactor = false;
+  }
 }
 
 @Module({ providers: [MemoryAuth] })
@@ -135,7 +138,7 @@ describe(`RBAC API (${TEST_DB})`, () => {
     const group = (await boss.post('/groups', { name: 'editors', roles: ['widget-editor'], members: ['u1'] })).body;
     expect(group).toMatchObject({ name: 'editors', roles: ['widget-editor'], members: ['u1'] });
     const list = (await boss.get('/users?search=u1')).body;
-    expect(list).toMatchObject({ total: 1, capabilities: { list: true, create: true, update: true, password: true } });
+    expect(list).toMatchObject({ total: 1, capabilities: { list: true, create: true, update: true, password: true, resetTwoFactor: true } });
     expect(list.items[0]).toMatchObject({ id: 'u1', groups: [group.id], roles: [] });
     expect((await boss.patch('/users/kim', { displayName: 'Kim K.', groups: [group.id] })).body).toMatchObject({ displayName: 'Kim K.', groups: [group.id] });
     expect((await boss.post('/users/kim/password', { password: 'another-pass-1' })).status).toBe(204);
@@ -183,6 +186,9 @@ describe(`anti-escalation over the API (${TEST_DB}, Review Focus 1)`, () => {
     expect((await helper.patch('/users/u1', { isSuperuser: true })).status).toBe(403);
     expect((await helper.post('/users', { username: 'evil', displayName: 'Evil', password: 'evil-password-1', isSuperuser: true })).status).toBe(403);
     expect(users.has('evil')).toBe(false);
+    users.get('root')!.twoFactor = true;
+    expect((await helper.post('/users/root/2fa/reset', {})).status).toBe(403);
+    expect(users.get('root')!.twoFactor).toBe(true);
   });
 
   test('cannot build a group that gives more, nor join one', async () => {
@@ -193,6 +199,14 @@ describe(`anti-escalation over the API (${TEST_DB}, Review Focus 1)`, () => {
     const own = (await helper.post('/groups', { name: 'viewers', roles: ['h-view'] })).body;
     expect((await helper.patch(`/groups/${own.id}`, { members: ['helper'] })).status).toBe(403);
     expect((await helper.patch(`/groups/${own.id}`, { members: ['u1'] })).status).toBe(200);
+  });
+
+  test('resetting a second factor needs rbac.manage', async () => {
+    users.get('u1')!.twoFactor = true;
+    expect((await as('reader').post('/users/u1/2fa/reset', {})).status).toBe(403);
+    expect((await as('helper').post('/users/u1/2fa/reset', {})).status).toBe(204);
+    expect(users.get('u1')!.twoFactor).toBe(false);
+    expect((await as('boss').get('/users/u1')).body.twoFactor).toBe(false);
   });
 
   test('superusers may do all of it', async () => {

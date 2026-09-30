@@ -65,6 +65,13 @@ export class AdminRateLimitError extends AdminError {
   }
 }
 
+/** 401 at sign-in: the password was right, now the second factor is needed (or the code was wrong). */
+export class AdminTwoFactorRequiredError extends AdminError {
+  constructor(message = 'Enter the code from your authenticator app') {
+    super('TWO_FACTOR_REQUIRED', 401, message);
+  }
+}
+
 export class AdminBadRequestError extends AdminError {
   constructor(message: string) {
     super('BAD_REQUEST', 400, message);

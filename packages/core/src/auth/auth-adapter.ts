@@ -34,6 +34,15 @@ export interface AuthIO {
 export interface LoginInput {
   username: string;
   password: string;
+  /** The second factor, when the user has one: a code from the authenticator app or a recovery code. */
+  otp?: string;
+}
+
+/** Two-factor sign-in on the account page. */
+export interface TwoFactorStatus {
+  enabled: boolean;
+  /** Unused recovery codes. */
+  recoveryCodesLeft: number;
 }
 
 /** One signed-in device, for the account page. */
@@ -63,6 +72,19 @@ export interface AdminAuthAdapter {
   /** "Log out everywhere else": ends every session of the user except this one. */
   revokeOtherSessions?(principal: AdminPrincipal): Promise<void>;
   changePassword?(principal: AdminPrincipal, input: { current: string; next: string }, io: AuthIO): Promise<void>;
+  /**
+   * Two-factor sign-in (all or none). `beginTwoFactor` stores a pending secret and returns it (the only time it
+   * leaves the server); `confirmTwoFactor` turns it on with a code and returns recovery codes (shown once);
+   * `disableTwoFactor` and `newRecoveryCodes` need the password. `login` answers `AdminTwoFactorRequiredError` until
+   * the input carries a valid `otp`.
+   */
+  twoFactorStatus?(principal: AdminPrincipal): Promise<TwoFactorStatus>;
+  beginTwoFactor?(principal: AdminPrincipal): Promise<{ secret: string; otpauthUrl: string }>;
+  confirmTwoFactor?(principal: AdminPrincipal, code: string, io: AuthIO): Promise<{ recoveryCodes: string[] }>;
+  disableTwoFactor?(principal: AdminPrincipal, password: string): Promise<void>;
+  newRecoveryCodes?(principal: AdminPrincipal, password: string): Promise<{ recoveryCodes: string[] }>;
+  /** The Users page: turns off a user's second factor (they lost the device). */
+  resetTwoFactor?(id: string): Promise<void>;
   /** Admin role names of this user (your own roles mapped to the admin's, spec §6.6). */
   resolveRoles?(user: AdminUser): string[] | Promise<string[]>;
   /** The Users page (with `rbac`): list, read, create and change users; set a password (which ends their sessions). */
@@ -78,6 +100,8 @@ export interface AdminUserRecord extends AdminUser {
   isActive?: boolean;
   lastLoginAt?: Date | null;
   createdAt?: Date;
+  /** Two-factor sign-in is on. */
+  twoFactor?: boolean;
 }
 
 export interface NewAdminUser {

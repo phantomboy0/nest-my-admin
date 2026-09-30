@@ -2,7 +2,7 @@ import { HttpException, Inject, Injectable, Logger, type OnModuleInit } from '@n
 import { HttpAdapterHost } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
-import type { AdminErrorCode, AdminRuntimeConfig, SessionResponse } from '../contract.js';
+import type { AdminErrorCode, AdminRuntimeConfig, SessionResponse, TwoFactorSetupResponse, TwoFactorStatusResponse } from '../contract.js';
 import { toSessionUser } from './session-user.js';
 import { pickLocale, resolveText } from '../i18n/localized-text.js';
 import {
@@ -15,7 +15,7 @@ import {
   AdminUnsupportedMediaTypeError,
   AdminValidationError,
 } from '../errors.js';
-import type { AdminPrincipal, AdminUser } from '../auth/auth-adapter.js';
+import type { AdminAuthAdapter, AdminPrincipal } from '../auth/auth-adapter.js';
 import { AdminAuthService } from '../auth/auth.service.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
 import { addRbacRoutes } from '../rbac/rbac-routes.js';
@@ -90,12 +90,14 @@ export class AdminHttpServer implements OnModuleInit {
         const login = this.auth.adapter?.login;
         if (!login) throw new AdminNotFoundError('This admin has no username/password sign-in');
         const body = await readJsonBody(req);
-        const { username, password } = (body ?? {}) as { username?: unknown; password?: unknown };
+        const { username, password, otp } = (body ?? {}) as { username?: unknown; password?: unknown; otp?: unknown };
         const fields: Record<string, string[]> = {};
         if (typeof username !== 'string' || username.trim() === '' || username.length > 200) fields.username = ['is required'];
         if (typeof password !== 'string' || password === '' || password.length > 1000) fields.password = ['is required'];
+        if (otp !== undefined && (typeof otp !== 'string' || otp.length > 40)) fields.otp = ['must be a code'];
         if (Object.keys(fields).length > 0) throw new AdminValidationError(fields);
-        const principal = await login.call(this.auth.adapter, { username: (username as string).trim(), password: password as string }, { req, res });
+        const input = { username: (username as string).trim(), password: password as string, ...(typeof otp === 'string' && otp.trim() !== '' ? { otp: otp.trim() } : {}) };
+        const principal = await login.call(this.auth.adapter, input, { req, res });
         sendJson(res, 200, await this.sessionResponse(principal));
       })
       .add('DELETE', '/api/session', async ({ req, res, principal }) => {
@@ -147,6 +149,31 @@ export class AdminHttpServer implements OnModuleInit {
         res.statusCode = 204;
         res.end();
       })
+      .add('GET', '/api/account/2fa', async ({ res, principal }) => {
+        const status: TwoFactorStatusResponse = await this.twoFactor('twoFactorStatus').call(this.auth.adapter, principal!);
+        sendJson(res, 200, { enabled: status.enabled, recoveryCodesLeft: status.recoveryCodesLeft });
+      })
+      .add('POST', '/api/account/2fa/setup', async ({ res, principal }) => {
+        const setup: TwoFactorSetupResponse = await this.twoFactor('beginTwoFactor').call(this.auth.adapter, principal!);
+        sendJson(res, 200, { secret: setup.secret, otpauthUrl: setup.otpauthUrl });
+      })
+      .add('POST', '/api/account/2fa/confirm', async ({ req, res, principal }) => {
+        const { code } = ((await readJsonBody(req)) ?? {}) as { code?: unknown };
+        if (typeof code !== 'string' || code.trim() === '' || code.length > 40) throw new AdminValidationError({ code: ['is required'] });
+        const { recoveryCodes } = await this.twoFactor('confirmTwoFactor').call(this.auth.adapter, principal!, code.trim(), { req, res });
+        sendJson(res, 200, { recoveryCodes });
+      })
+      .add('POST', '/api/account/2fa/disable', async ({ req, res, principal }) => {
+        await this.twoFactor('disableTwoFactor').call(this.auth.adapter, principal!, await passwordOf(req));
+        res.statusCode = 204;
+        res.end();
+      })
+      .add('POST', '/api/account/2fa/recovery-codes', async ({ req, res, principal }) => {
+        const adapter = this.auth.adapter;
+        if (!adapter?.newRecoveryCodes) throw new AdminNotFoundError('This admin cannot issue recovery codes');
+        const { recoveryCodes } = await adapter.newRecoveryCodes(principal!, await passwordOf(req));
+        sendJson(res, 200, { recoveryCodes });
+      })
       .add('GET', '/api/meta', ({ res, ctx }) => sendJson(res, 200, this.api.meta(ctx.locale, ctx)))
       .add('GET', '/api/meta/resources/:resource', ({ res, ctx }, p) => sendJson(res, 200, this.api.schema(p.resource, ctx.locale, ctx)))
       .add('GET', '/api/search', async ({ res, url, ctx }) => sendJson(res, 200, await this.api.search(url.searchParams, ctx)))
@@ -180,6 +207,13 @@ export class AdminHttpServer implements OnModuleInit {
         res.end();
       });
     addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry });
+  }
+
+  /** An adapter's two-factor method, or 404 when it has none. */
+  private twoFactor<K extends 'twoFactorStatus' | 'beginTwoFactor' | 'confirmTwoFactor' | 'disableTwoFactor'>(name: K): NonNullable<AdminAuthAdapter[K]> {
+    const method = this.auth.adapter?.[name];
+    if (!this.auth.capabilities.twoFactor || !method) throw new AdminNotFoundError('This admin has no two-factor sign-in');
+    return method as NonNullable<AdminAuthAdapter[K]>;
   }
 
   /**
@@ -321,6 +355,13 @@ export class AdminHttpServer implements OnModuleInit {
       sendJson(res, status, body);
     }
   }
+}
+
+/** `{ password }` of a request that must confirm the user's password. */
+async function passwordOf(req: AdminRequest): Promise<string> {
+  const { password } = ((await readJsonBody(req)) ?? {}) as { password?: unknown };
+  if (typeof password !== 'string' || password === '' || password.length > 1000) throw new AdminValidationError({ password: ['is required'] });
+  return password;
 }
 
 /** The version in `If-Match: "3"` (or `3`, or a weak `W/"3"`); undefined without the header. */

@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { Logger } from '@nestjs/common';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ModuleRef } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
@@ -6,6 +7,7 @@ import { LessThan, Not, type DataSource, type Repository } from 'typeorm';
 import {
   AdminAuth,
   AdminRateLimitError,
+  AdminTwoFactorRequiredError,
   AdminUnauthenticatedError,
   AdminValidationError,
   appendSetCookie,
@@ -22,10 +24,13 @@ import {
   type NewAdminUser,
   type AuthIO,
   type LoginInput,
+  type TwoFactorStatus,
 } from '@nest-my-admin/core';
 import { NmaSession, NmaUser } from './entities.js';
 import { SCRYPT, hashPassword, passwordProblems, verifyPassword, type PasswordPolicy } from './password.js';
 import { RateLimiter } from './rate-limit.js';
+import { SecretBox } from './secret-box.js';
+import { base32Decode, base32Encode, newTotpSecret, otpauthUrl, verifyTotp } from './totp.js';
 
 export interface BuiltinAuthOptions {
   /** The TypeORM DataSource holding `ADMIN_AUTH_ENTITIES` (its name; default the default DataSource). */
@@ -45,13 +50,17 @@ export interface BuiltinAuthOptions {
   password?: PasswordPolicy;
   /** Creates this superuser at boot when there are no admin users yet. */
   bootstrapSuperuser?: { username: string; password: string; displayName?: string; email?: string };
+  /** Encrypts two-factor keys at rest (AES-256-GCM): 32 bytes, base64 (`openssl rand -base64 32`). Keep it out of the repository. */
+  secretKey?: string;
+  /** The name authenticator apps show next to the code. Default `nest-my-admin`. */
+  issuer?: string;
   /** @internal Tests: the clock and a cheaper hash. */
   now?: () => Date;
   /** @internal */
   scrypt?: typeof SCRYPT;
 }
 
-type Resolved = Required<Omit<BuiltinAuthOptions, 'dataSource' | 'bootstrapSuperuser' | 'lockout' | 'password' | 'now' | 'scrypt'>> & {
+type Resolved = Required<Omit<BuiltinAuthOptions, 'dataSource' | 'bootstrapSuperuser' | 'lockout' | 'password' | 'now' | 'scrypt' | 'secretKey'>> & {
   lockoutAttempts: number;
   lockoutMs: number;
   password: PasswordPolicy;
@@ -60,6 +69,8 @@ type Resolved = Required<Omit<BuiltinAuthOptions, 'dataSource' | 'bootstrapSuper
 };
 
 const WRONG = 'Wrong username or password';
+const WRONG_CODE = 'The code is wrong or was already used';
+const RECOVERY_CODES = 10;
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 /** The admin's mount path, from the request (Express sets `baseUrl` for the handler mounted at `path`). */
@@ -78,6 +89,8 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
   private readonly sessions: Repository<NmaSession>;
   private readonly options: Resolved;
   private readonly limiter: RateLimiter;
+  private readonly box: SecretBox;
+  private readonly logger = new Logger('NestMyAdmin');
   /** Checked for unknown usernames, so they cost as much time as a wrong password. */
   private dummyHash?: Promise<string>;
 
@@ -103,7 +116,9 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
       password: options.password ?? {},
       now: options.now ?? (() => new Date()),
       scrypt: options.scrypt ?? SCRYPT,
+      issuer: options.issuer ?? 'nest-my-admin',
     };
+    this.box = new SecretBox(options.secretKey);
     this.limiter = new RateLimiter(this.options.loginAttemptsPerMinute, 60_000);
   }
 
@@ -143,18 +158,27 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
     const locked = user?.lockedUntil !== null && user?.lockedUntil !== undefined && user.lockedUntil.getTime() > now.getTime();
 
     if (!user || !user.isActive || locked || !matches) {
-      if (user && !locked && !matches) {
-        user.failedLogins += 1;
-        if (user.failedLogins >= this.options.lockoutAttempts) {
-          user.failedLogins = 0;
-          user.lockedUntil = new Date(now.getTime() + this.options.lockoutMs);
-        }
-        await this.users.update({ id: user.id }, { failedLogins: user.failedLogins, lockedUntil: user.lockedUntil });
-      }
+      if (user && !locked && !matches) await this.failed(user, now);
       throw new AdminUnauthenticatedError(WRONG);
     }
 
-    await this.users.update({ id: user.id }, { failedLogins: 0, lockedUntil: null, lastLoginAt: now });
+    // The second factor: no session without it. A wrong code counts toward the lockout like a wrong password.
+    const second: Partial<NmaUser> = {};
+    if (user.totpSecret) {
+      if (input.otp === undefined) throw new AdminTwoFactorRequiredError();
+      const step = verifyTotp(this.secretOf(user.totpSecret), input.otp, now.getTime(), { after: user.totpLastStep });
+      if (step !== null) second.totpLastStep = step;
+      else {
+        const remaining = this.useRecoveryCode(user, input.otp);
+        if (!remaining) {
+          await this.failed(user, now);
+          throw new AdminTwoFactorRequiredError(WRONG_CODE);
+        }
+        second.recoveryCodes = remaining;
+      }
+    }
+
+    await this.users.update({ id: user.id }, { failedLogins: 0, lockedUntil: null, lastLoginAt: now, ...second });
     // A sign-in clears the user's expired sessions.
     await this.sessions.delete({ userId: user.id, expiresAt: LessThan(now) });
     const token = randomBytes(32).toString('base64url');
@@ -172,6 +196,27 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
     await this.sessions.insert(session);
     this.setCookie(io, token, this.options.absoluteTimeout);
     return { user: toAdminUser(user), csrfToken: session.csrfToken, sessionId: session.id };
+  }
+
+  private async failed(user: NmaUser, now: Date): Promise<void> {
+    user.failedLogins += 1;
+    if (user.failedLogins >= this.options.lockoutAttempts) {
+      user.failedLogins = 0;
+      user.lockedUntil = new Date(now.getTime() + this.options.lockoutMs);
+    }
+    await this.users.update({ id: user.id }, { failedLogins: user.failedLogins, lockedUntil: user.lockedUntil });
+  }
+
+  private secretOf(stored: string): Buffer {
+    return base32Decode(this.box.open(stored));
+  }
+
+  /** The stored hashes without the one `code` matches, or undefined when it matches none. */
+  private useRecoveryCode(user: NmaUser, code: string): string | undefined {
+    const hashes = parseHashes(user.recoveryCodes);
+    const hash = sha256(normalizeRecoveryCode(code));
+    if (!hashes.includes(hash)) return undefined;
+    return JSON.stringify(hashes.filter((candidate) => candidate !== hash));
   }
 
   async logout(principal: AdminPrincipal, io: AuthIO): Promise<void> {
@@ -213,6 +258,75 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
     await this.users.update({ id: user.id }, { passwordHash: await hashPassword(input.next, this.options.scrypt) });
     // Someone who knew the old password is signed out everywhere else.
     await this.revokeOtherSessions(principal);
+  }
+
+  // ---- two-factor sign-in (spec §7) ------------------------------------------------------------------------------
+
+  private async userOf(principal: AdminPrincipal): Promise<NmaUser> {
+    const user = await this.users.findOne({ where: { id: Number(principal.user.id) } });
+    if (!user) throw new AdminUnauthenticatedError();
+    return user;
+  }
+
+  private async checkPassword(user: NmaUser, password: string): Promise<void> {
+    if (!(await verifyPassword(password, user.passwordHash))) throw new AdminValidationError({ password: ['is wrong'] }, 'The password is wrong');
+  }
+
+  async twoFactorStatus(principal: AdminPrincipal): Promise<TwoFactorStatus> {
+    const user = await this.userOf(principal);
+    return { enabled: user.totpSecret !== null, recoveryCodesLeft: user.totpSecret ? parseHashes(user.recoveryCodes).length : 0 };
+  }
+
+  async beginTwoFactor(principal: AdminPrincipal): Promise<{ secret: string; otpauthUrl: string }> {
+    const user = await this.userOf(principal);
+    if (user.totpSecret) throw new AdminValidationError({ code: ['two-factor sign-in is already on'] }, 'Two-factor sign-in is already on');
+    if (!this.box.encrypts) this.warnOnce('two-factor keys are stored unencrypted; set builtinAuth({ secretKey }) to encrypt them');
+    const secret = newTotpSecret();
+    await this.users.update({ id: user.id }, { totpPending: this.box.seal(base32Encode(secret)) });
+    return { secret: base32Encode(secret), otpauthUrl: otpauthUrl(this.options.issuer, user.username, secret) };
+  }
+
+  async confirmTwoFactor(principal: AdminPrincipal, code: string): Promise<{ recoveryCodes: string[] }> {
+    const user = await this.userOf(principal);
+    if (user.totpSecret) throw new AdminValidationError({ code: ['two-factor sign-in is already on'] }, 'Two-factor sign-in is already on');
+    if (!user.totpPending) throw new AdminValidationError({ code: ['start the setup first'] }, 'Start the setup first');
+    const step = verifyTotp(this.secretOf(user.totpPending), code, this.options.now().getTime());
+    if (step === null) throw new AdminValidationError({ code: ['is wrong'] }, 'The code is wrong');
+    const codes = newRecoveryCodes();
+    await this.users.update({ id: user.id }, { totpSecret: user.totpPending, totpPending: null, totpLastStep: step, recoveryCodes: JSON.stringify(codes.map((item) => sha256(normalizeRecoveryCode(item)))) });
+    // Whoever is signed in elsewhere signed in without the second factor.
+    await this.revokeOtherSessions(principal);
+    return { recoveryCodes: codes };
+  }
+
+  async disableTwoFactor(principal: AdminPrincipal, password: string): Promise<void> {
+    const user = await this.userOf(principal);
+    await this.checkPassword(user, password);
+    await this.users.update({ id: user.id }, TWO_FACTOR_OFF);
+  }
+
+  async newRecoveryCodes(principal: AdminPrincipal, password: string): Promise<{ recoveryCodes: string[] }> {
+    const user = await this.userOf(principal);
+    await this.checkPassword(user, password);
+    if (!user.totpSecret) throw new AdminValidationError({ password: ['two-factor sign-in is off'] }, 'Two-factor sign-in is off');
+    const codes = newRecoveryCodes();
+    await this.users.update({ id: user.id }, { recoveryCodes: JSON.stringify(codes.map((item) => sha256(normalizeRecoveryCode(item)))) });
+    return { recoveryCodes: codes };
+  }
+
+  /** Turns off a user's second factor (the Users page) and ends their sessions. */
+  async resetTwoFactor(id: string): Promise<void> {
+    const numeric = Number(id);
+    if (!Number.isSafeInteger(numeric)) return;
+    await this.users.update({ id: numeric }, TWO_FACTOR_OFF);
+    await this.sessions.delete({ userId: numeric });
+  }
+
+  private readonly warned = new Set<string>();
+  private warnOnce(message: string): void {
+    if (this.warned.has(message)) return;
+    this.warned.add(message);
+    this.logger.warn(`@nest-my-admin/auth: ${message}`);
   }
 
   // ---- the Users page (spec §6.7) ------------------------------------------------------------------------------
@@ -295,7 +409,32 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
 const USERNAME = /^[\p{L}\p{N}._@+-]{1,150}$/u;
 
 function toUserRecord(user: NmaUser): AdminUserRecord {
-  return { ...toAdminUser(user), isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt };
+  return { ...toAdminUser(user), isActive: user.isActive, lastLoginAt: user.lastLoginAt, createdAt: user.createdAt, twoFactor: user.totpSecret !== null };
+}
+
+const TWO_FACTOR_OFF: Partial<NmaUser> = { totpSecret: null, totpPending: null, totpLastStep: null, recoveryCodes: null };
+
+function parseHashes(stored: string | null): string[] {
+  if (!stored) return [];
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Recovery codes are compared without case, spaces and dashes. */
+function normalizeRecoveryCode(code: string): string {
+  return code.toLowerCase().replace(/[\s-]/g, '');
+}
+
+/** Ten codes like `k7f3q-m2x9d` (50 random bits each). */
+function newRecoveryCodes(): string[] {
+  return Array.from({ length: RECOVERY_CODES }, () => {
+    const text = base32Encode(randomBytes(7)).slice(0, 10).toLowerCase();
+    return `${text.slice(0, 5)}-${text.slice(5)}`;
+  });
 }
 
 export function toAdminUser(user: NmaUser): AdminUser {

@@ -57,6 +57,7 @@ export function addRbacRoutes<S extends State>(
     ...(user.isActive !== undefined ? { isActive: user.isActive } : {}),
     ...(user.lastLoginAt !== undefined ? { lastLoginAt: user.lastLoginAt ? user.lastLoginAt.toISOString() : null } : {}),
     ...(user.createdAt ? { createdAt: user.createdAt.toISOString() } : {}),
+    ...(user.twoFactor !== undefined ? { twoFactor: user.twoFactor } : {}),
     ...(await rbac.userAssignments(String(user.id))),
   });
   const findUser = async (id: string): Promise<AdminUserRecord> => {
@@ -171,7 +172,7 @@ export function addRbacRoutes<S extends State>(
         total: listed.total,
         page,
         pageSize,
-        capabilities: { list: Boolean(adapter?.listUsers), create: Boolean(adapter?.createUser), update: Boolean(adapter?.updateUser), password: Boolean(adapter?.setPassword) },
+        capabilities: { list: Boolean(adapter?.listUsers), create: Boolean(adapter?.createUser), update: Boolean(adapter?.updateUser), password: Boolean(adapter?.setPassword), resetTwoFactor: Boolean(adapter?.resetTwoFactor) },
       };
       sendJson(res, 200, body);
     })
@@ -220,6 +221,15 @@ export function addRbacRoutes<S extends State>(
         await rbac.setUserAssignments(String(target.id), { roles: body.roles, groups: body.groups }, who, { isSuperuser: target.isSuperuser });
       }
       sendJson(res, 200, await toUser(await findUser(p.id!)));
+    })
+    .add('POST', '/api/rbac/users/:id/2fa/reset', async ({ res, ctx }, p) => {
+      const who = writer(ctx);
+      const target = await findUser(p.id!);
+      guardSuperuser(who, target);
+      const adapter = auth.adapter;
+      if (!adapter?.resetTwoFactor) throw new AdminNotFoundError('This admin cannot reset two-factor sign-in');
+      await adapter.resetTwoFactor(String(target.id));
+      noContent(res);
     })
     .add('POST', '/api/rbac/users/:id/password', async ({ req, res, ctx }, p) => {
       const who = writer(ctx);

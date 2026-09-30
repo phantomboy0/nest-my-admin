@@ -34,6 +34,7 @@ export {
   AdminForbiddenFieldsError,
   AdminNotFoundError,
   AdminRateLimitError,
+  AdminTwoFactorRequiredError,
   AdminUnauthenticatedError,
   AdminValidationError,
 } from './errors.js';
@@ -49,6 +50,7 @@ export {
   type NewAdminUser,
   type AuthIO,
   type LoginInput,
+  type TwoFactorStatus,
 } from './auth/auth-adapter.js';
 export { appendSetCookie, isSecureRequest, parseCookies, serializeCookie, type CookieOptions } from './http/cookies.js';
 export { AfterSave, BeforeDelete, BeforeSave, type DeleteMode, type HookKind, type SaveMode } from './decorators/hooks.js';

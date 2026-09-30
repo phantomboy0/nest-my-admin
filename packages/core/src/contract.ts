@@ -263,6 +263,20 @@ export interface AuthCapabilities {
   /** "Log out everywhere else". */
   revokeOthers: boolean;
   password: boolean;
+  /** Two-factor sign-in can be set up on the account page. */
+  twoFactor: boolean;
+}
+
+/** `GET /api/account/2fa`. */
+export interface TwoFactorStatusResponse {
+  enabled: boolean;
+  recoveryCodesLeft: number;
+}
+
+/** `POST /api/account/2fa/setup`: shown once, to scan or type into the authenticator app. */
+export interface TwoFactorSetupResponse {
+  secret: string;
+  otpauthUrl: string;
 }
 
 export interface SessionUser {
@@ -320,6 +334,7 @@ export interface RbacUser {
   isActive?: boolean;
   lastLoginAt?: string | null;
   createdAt?: string;
+  twoFactor?: boolean;
   roles: string[];
   groups: number[];
 }
@@ -330,7 +345,7 @@ export interface RbacUsersResponse {
   page: number;
   pageSize: number;
   /** What the auth adapter supports on this page. */
-  capabilities: { list: boolean; create: boolean; update: boolean; password: boolean };
+  capabilities: { list: boolean; create: boolean; update: boolean; password: boolean; resetTwoFactor: boolean };
 }
 
 /** What roles can name, for the matrix editor. */
@@ -407,7 +422,7 @@ export interface AccountSession {
 }
 
 export type AdminErrorCode =
-  | 'BAD_REQUEST' | 'VALIDATION' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'FORBIDDEN_FIELDS' | 'NOT_FOUND' | 'CONFLICT' | 'RATE_LIMITED' | 'BUSINESS_RULE' | 'INTERNAL';
+  | 'BAD_REQUEST' | 'VALIDATION' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'FORBIDDEN_FIELDS' | 'NOT_FOUND' | 'CONFLICT' | 'RATE_LIMITED' | 'TWO_FACTOR_REQUIRED' | 'BUSINESS_RULE' | 'INTERNAL';
 
 export interface AdminErrorBody {
   code: AdminErrorCode;

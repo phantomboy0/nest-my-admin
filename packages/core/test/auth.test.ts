@@ -137,7 +137,7 @@ describe(`authentication (${TEST_DB})`, () => {
       user: { id: 'ada', displayName: 'ADA', username: 'ada', isSuperuser: true },
       csrfToken: csrf,
       open: false,
-      auth: { login: true, logout: true, sessions: true, revokeOthers: false, password: false },
+      auth: { login: true, logout: true, sessions: true, revokeOthers: false, password: false, twoFactor: false },
       rbac: { enabled: false, view: false, manage: false },
       permissionsVersion: expect.any(Number),
     });

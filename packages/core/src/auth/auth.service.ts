@@ -60,6 +60,7 @@ export class AdminAuthService implements OnModuleInit {
       sessions: typeof adapter?.listSessions === 'function' && typeof adapter?.revokeSession === 'function',
       revokeOthers: typeof adapter?.revokeOtherSessions === 'function',
       password: typeof adapter?.changePassword === 'function',
+      twoFactor: ['twoFactorStatus', 'beginTwoFactor', 'confirmTwoFactor', 'disableTwoFactor'].every((name) => typeof (adapter as unknown as Record<string, unknown> | undefined)?.[name] === 'function'),
     };
   }
 
