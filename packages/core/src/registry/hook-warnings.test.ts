@@ -15,8 +15,8 @@ describe('hookWarnings', () => {
       async delete() {}
     }
     expect(hookWarnings(new OverridingAdmin(), 'OverridingAdmin')).toEqual([
-      "OverridingAdmin: @BeforeSave/@AfterSave hooks do not run because create() is overridden; call this.runHooks('beforeSave' | 'afterSave', …) in your override",
-      "OverridingAdmin: @BeforeDelete hooks do not run because delete() is overridden; call this.runHooks('beforeDelete', …) in your override",
+      "OverridingAdmin: create() is overridden: @BeforeSave/@AfterSave hooks run only if your create() override calls super.create() or this.runHooks('beforeSave' | 'afterSave', …)",
+      "OverridingAdmin: delete() is overridden: @BeforeDelete hooks run only if your delete() override calls super.delete() or this.runHooks('beforeDelete', …)",
     ]);
   });
 
