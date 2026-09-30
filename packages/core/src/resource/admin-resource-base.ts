@@ -44,7 +44,7 @@ export interface ListConfig<T> {
 
 export interface FormConfig {
   create?: DtoClass;
-  /** Defaults to `create`, validated as a partial update. */
+  /** Defaults to `create`. Update bodies are always validated as partial: only the fields sent are checked. */
   update?: DtoClass;
 }
 

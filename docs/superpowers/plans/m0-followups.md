@@ -36,4 +36,5 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - -> M2: datetime "To" filter uses lte at minute precision.
 - -> M2: free-text numeric filter inputs.
 - -> M2: duplicate list.filters entries (reject at boot).
-- Hooks are skipped when create/update/delete is overridden (by design): consider a boot warning.
+- (from M1b) Nested DTOs (`@ValidateNested` + `@Type`) → sub-forms and arrays of sub-forms: do with embedded columns in M1c.
+- (from M1b) Client constraints do not cover `@IsDecimal` digit limits or `@IsPositive`; the server still enforces them.

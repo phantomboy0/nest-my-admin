@@ -101,3 +101,17 @@ test('table rows can be opened with the keyboard', async ({ page, isMobile }) =>
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/admin\/product\/\d+$/);
 });
+
+test('client-side validation stops a bad form before it reaches the server', async ({ page }) => {
+  const posts: string[] = [];
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && req.url().includes('/admin/api/resources/product')) posts.push(req.url());
+  });
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Sku').fill('bad sku!');
+  await page.getByLabel('Price').fill('5');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('#field-name-error')).toContainText('is required');
+  await expect(page.locator('#field-sku-error')).toContainText('sku must be 2-40 letters, digits or dashes');
+  expect(posts).toHaveLength(0);
+});

@@ -18,15 +18,15 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   };
   form: FormConfig = { create: CreateProductDto, update: UpdateProductDto };
 
-  create(dto: CreateProductDto, _ctx: AdminContext) {
-    return this.products.create(dto);
+  create(dto: CreateProductDto, ctx: AdminContext) {
+    return this.products.create(dto, ctx.manager);
   }
 
-  update(id: RecordId, dto: UpdateProductDto, _ctx: AdminContext) {
-    return this.products.update(Number(id), dto);
+  update(id: RecordId, dto: UpdateProductDto, ctx: AdminContext) {
+    return this.products.update(Number(id), dto, ctx.manager);
   }
 
-  delete(id: RecordId, _ctx: AdminContext) {
-    return this.products.remove(Number(id));
+  delete(id: RecordId, ctx: AdminContext) {
+    return this.products.remove(Number(id), ctx.manager);
   }
 }

@@ -50,6 +50,35 @@ async findMany(params: ListParams) {
 findOne(id: RecordId) { return this.repository.findOne({ where: { id, archived: false } }); }
 ```
 
+## Transactions, context and errors
+
+Every create, update and delete runs in one database transaction. Pass `ctx.manager` to your services so their writes
+join it — a hook or service that throws afterwards rolls everything back:
+
+```ts
+create(dto: CreateProductDto, ctx: AdminContext) {
+  return this.products.create(dto, ctx.manager); // service: manager ? manager.getRepository(Product) : this.products
+}
+```
+
+Services that keep using their own injected repository still work, but on Postgres/MySQL they write outside the
+transaction, on a separate pooled connection, and can block on the admin transaction's locks (for example inserting a
+row with a foreign key to the just-created record hangs). Pass `ctx.manager`. `AdminContext.current()` returns the admin
+request being handled (or `undefined` in your own controllers), so deep code can find it without a `ctx` parameter.
+Turn transactions off with `forRoot({ transactions: false })`.
+
+On SQLite-family drivers admin writes are serialized per DataSource (one connection); admin reads and other code on that
+connection can see an open write's uncommitted rows. On Postgres, serialization or deadlock failures at COMMIT
+(40001/40P01) surface as a 500 `INTERNAL` with no retry.
+
+Translate your own exceptions with `forRoot({ errorMapper: (e) => e instanceof OutOfStock ? new AdminFieldError({ stock: 'out of stock' }) : undefined })`.
+The mapper runs after the request's context has ended (`AdminContext.current()` is `undefined` inside it) and is not
+applied to body-parser errors.
+
+Forms check your DTO rules (`@Length`, `@Min`/`@Max`, `@IsInt`, `@Matches`, `@IsEmail`, `@IsUrl`, `@IsUUID`, `@IsIn`) in the
+browser before saving; the server still validates everything. PATCH bodies are always validated as partial (only the
+sent fields), including dedicated update DTOs.
+
 ## Security (pre-alpha)
 
 M0 has **no authentication**. Anyone who can reach the port can read every column of the registered entities that is not `select: false`, and create, update or delete records (the default delete uses `repository.remove`; override `delete` to call your service instead). Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers).
