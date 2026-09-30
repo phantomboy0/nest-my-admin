@@ -5,6 +5,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { testDatabase, type TestDatabase } from '../../../packages/core/test/helpers/test-db.js';
 import { AppModule } from '../src/app.module.js';
+import { ProductsService } from '../src/catalog/products.service.js';
 
 let app: INestApplication;
 let db: TestDatabase;
@@ -39,8 +40,8 @@ describe('product admin (service-first)', () => {
   test('the form comes from the DTOs', async () => {
     const res = await request(app.getHttpServer()).get('/admin/api/meta/resources/product');
     expect(res.body.form).toMatchObject({
-      create: ['name', 'sku', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
-      update: ['name', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
+      create: ['name', 'slug', 'sku', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
+      update: ['name', 'slug', 'price', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
       requiredOnCreate: ['name', 'sku', 'price'],
     });
     expect(res.body.form.constraints.create.name).toEqual({ required: true, minLength: 1, maxLength: 120 });
@@ -92,12 +93,23 @@ describe('product admin (service-first)', () => {
     expect(sku.status).toBe(422);
   });
 
-  test('service exceptions keep their meaning (archived → CONFLICT)', async () => {
+  test('archived products are locked except their status (readonlyIf)', async () => {
     const { body } = await post({ name: 'Old', sku: 'old-1', price: '2' });
-    await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ status: 'archived' });
-    const res = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ name: 'Renamed' });
-    expect(res.status).toBe(409);
-    expect(res.body).toMatchObject({ code: 'CONFLICT', message: 'Archived products are read-only' });
+    const archived = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ status: 'archived' });
+    expect(archived.body._readonly).toEqual(['name', 'slug', 'price', 'stock', 'releasedOn', 'categoryId', 'tags']);
+    const res = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ name: 'Renamed', price: '1' });
+    expect(res.status).toBe(422);
+    expect(res.body).toMatchObject({ code: 'VALIDATION', fields: { name: ['is read-only'], price: ['is read-only'] } });
+    const back = await request(app.getHttpServer()).patch(`${base}/${body.id}`).send({ status: 'draft' });
+    expect(back.status).toBe(200);
+    expect(back.body._readonly).toBeUndefined();
+  });
+
+  test('service exceptions keep their meaning (archived → CONFLICT)', async () => {
+    // Called directly, the service still refuses: the admin lock above is on top of it, not instead of it.
+    const { body } = await post({ name: 'Older', sku: 'old-2', price: '2', status: 'archived' });
+    const service = app.get(ProductsService);
+    await expect(service.update(body.id, { name: 'Renamed' })).rejects.toThrow('Archived products are read-only');
   });
 
   test('filters and search narrow the list', async () => {

@@ -9,6 +9,8 @@ export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
 export class Product {
   @PrimaryGeneratedColumn() id: number;
   @Column({ length: 120 }) name: string;
+  /** Filled from the name by the slug widget until someone edits it. */
+  @Column({ length: 140, default: '' }) slug: string;
   @Column({ length: 40, unique: true }) sku: string;
   @Column({ type: 'decimal', precision: 12, scale: 2 }) price: string;
   @Column({ type: 'int', default: 0 }) stock: number;

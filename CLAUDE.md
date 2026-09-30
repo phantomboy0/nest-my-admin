@@ -59,6 +59,19 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - `AdminApiService.bulkDelete` loops `remove()` per id.
 - Hooks (`@BeforeSave/@AfterSave/@BeforeDelete`) run only in `AdminResourceBase`'s default create/update/delete; resources that override those methods call their own services instead.
 - Writes run inside `AdminApiService.write()`: one `dataSource.transaction()`, `ctx.manager` set, and `AdminContext.run()` re-entered so `AdminContext.current()` sees the transactional context. `AdminResourceBase` defaults use `repositoryFor(ctx)`. Reads get no manager. On Postgres/MySQL a service that ignores `ctx.manager` writes on another pooled connection (outside the transaction, can block on its locks); SQLite-family writes are serialized per DataSource.
+- Field config (M2-3):
+  - Merging: `mergeFieldConfig` (`schema/field-config.ts`) merges `@AdminField` (entity, create DTO, update DTO) with the resource's `fields`.
+  - Boot checks: `checkFieldConfig`/`checkLayout` run there.
+  - Texts: the registry keeps the raw `LocalizedText`, and `AdminApiService.schema(name, locale)` applies it per request through `applyFieldConfig`/`localizeLayout`.
+  - `readonly: true` fields leave `form.update` and are listed in `form.readonly`.
+  - `readonlyIf` stays on the server:
+    - `records()` adds `_readonly` (a throw locks the field) and `_links` (http(s)/relative only);
+    - `update()` refuses locked fields with 422 before the resource method.
+  - The UI side:
+    - `lib/widgets.ts` `widgetOf` picks inputs;
+    - `lib/show-if.ts` hides fields, which are then left out of the payload and the constraints;
+    - `app/form-layout.tsx` renders sections and tabs.
+  - `FieldSchema.unique` (single-column unique constraint or index) drives Duplicate.
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.
 - `packages/core/src/contract.ts` is the JSON contract with the UI. It is types only; the UI imports it from source through a tsconfig path.
 - `packages/ui` is a Vite + React + shadcn SPA published as static `dist/` only (all its deps are devDependencies). The shadcn primitives and theme tokens were copied from crm-next (`radix-nova`, neutral).

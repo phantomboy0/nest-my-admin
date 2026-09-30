@@ -30,7 +30,8 @@ export class ProductsService {
   async update(id: number, dto: UpdateProductDto, manager?: EntityManager): Promise<Product> {
     const products = this.repo(manager);
     const product = await products.findOneByOrFail({ id });
-    if (product.status === 'archived') throw new ConflictException('Archived products are read-only');
+    // An archived product can only be brought back (a status change on its own).
+    if (product.status === 'archived' && Object.keys(dto).some((key) => key !== 'status')) throw new ConflictException('Archived products are read-only');
     products.merge(product, withTags(dto));
     this.assertSellable(product);
     return products.save(product);

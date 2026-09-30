@@ -36,7 +36,7 @@ test('creates a product through the service and edits it', async ({ page }, test
   await page.getByLabel('Name').fill('Playwright lamp');
   await page.getByLabel('Sku').fill(sku.toLowerCase());
   await page.getByLabel('Price').fill('19.9');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
 
   await expect(page).toHaveURL(/\/admin\/product$/);
   const created = page.getByText(sku, { exact: true }).filter({ visible: true }); // upper-cased by ProductsService
@@ -46,7 +46,7 @@ test('creates a product through the service and edits it', async ({ page }, test
   await expect(page).toHaveURL(/\/admin\/product\/\d+$/);
   const editUrl = page.url();
   await page.getByLabel('Stock', { exact: true }).fill('3');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
 
   await page.goto(editUrl);
@@ -60,16 +60,16 @@ test('deep link refresh works and errors are shown where they belong', async ({ 
   await page.getByLabel('Name').fill('Bad price');
   await page.getByLabel('Sku').fill('bad-price');
   await page.getByLabel('Price').fill('abc');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('#field-price-error')).toContainText('must be a number');
 
   await page.getByLabel('Price').fill('1.234'); // valid number, but the DTO allows 2 decimals
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('#field-price-error')).toContainText('decimal');
 
   await page.getByLabel('Price').fill('10');
   await page.getByLabel('Status').selectOption('active');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Active products need stock');
   await expect(page).toHaveURL(/\/admin\/product\/new$/);
 });
@@ -81,7 +81,7 @@ test('filters and search narrow the list', async ({ page, isMobile }) => {
   await page.getByRole('checkbox', { name: 'draft' }).click();
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(/filter%5Bstatus%5D%5Bin%5D=draft/);
-  await expect(page.getByRole('list', { name: 'Active filters' })).toContainText('Status:draft');
+  await expect(page.getByRole('list', { name: 'Active filters' })).toContainText('Status:Draft');
   await expect(page.getByText('DEMO-3', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 
@@ -98,7 +98,7 @@ test('moves a draft product to the trash and refuses to delete an active one', a
   await page.getByLabel('Name').fill('Short-lived');
   await page.getByLabel('Sku').fill(sku);
   await page.getByLabel('Price').fill('1');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
 
   await openRecord(page, sku);
@@ -130,7 +130,7 @@ test('client-side validation stops a bad form before it reaches the server', asy
   await page.goto('/admin/product/new');
   await page.getByLabel('Sku').fill('bad sku!');
   await page.getByLabel('Price').fill('5');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('#field-name-error')).toContainText('is required');
   await expect(page.locator('#field-sku-error')).toContainText('sku must be 2-40 letters, digits or dashes');
   expect(posts).toHaveLength(0);
@@ -142,6 +142,8 @@ test('picks a category and tags, filters by category, and refuses to delete a ca
   await page.getByLabel('Name').fill('Reading lamp');
   await page.getByLabel('Sku').fill(sku);
   await page.getByLabel('Price').fill('30');
+  await expect(page.getByRole('combobox', { name: 'Category' })).toBeHidden(); // on the Catalog tab
+  await page.getByRole('tab', { name: 'Catalog' }).click();
   await page.getByRole('combobox', { name: 'Category' }).fill('ligh');
   await page.getByRole('option', { name: 'Lighting' }).click();
   await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue('Lighting');
@@ -152,7 +154,7 @@ test('picks a category and tags, filters by category, and refuses to delete a ca
   await expect(page.getByRole('option', { name: 'Bestseller' })).toBeVisible();
   await tags.press('Enter'); // keyboard works too: the first option is active
   await expect(page.getByRole('button', { name: 'Remove Bestseller' })).toBeVisible();
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
 
   const row = isMobile ? page.getByRole('listitem').filter({ hasText: sku }) : page.getByRole('row').filter({ hasText: sku });
@@ -183,19 +185,19 @@ test('a second editor gets a conflict notice and can keep their changes', async 
   await page.getByLabel('Name').fill('Shared lamp');
   await page.getByLabel('Sku').fill(sku);
   await page.getByLabel('Price').fill('10');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await openRecord(page, sku);
   const editUrl = page.url();
 
   const other = await page.context().newPage();
   await other.goto(editUrl);
   await other.getByLabel('Stock', { exact: true }).fill('7');
-  await other.getByRole('button', { name: 'Save' }).click();
+  await other.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(other).toHaveURL(/\/admin\/product$/);
   await other.close();
 
   await page.getByLabel('Name').fill('My lamp');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   const notice = page.getByRole('alertdialog');
   await expect(notice).toContainText('Someone else saved this record');
   await expect(notice).toContainText('Stock');
@@ -213,7 +215,7 @@ test('a product in the trash can be restored', async ({ page }, testInfo) => {
   await page.getByLabel('Name').fill('Binned');
   await page.getByLabel('Sku').fill(sku);
   await page.getByLabel('Price').fill('2');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await openRecord(page, sku);
   await page.getByRole('button', { name: 'Move to trash', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm move to trash' }).click();
@@ -234,7 +236,7 @@ test('an embedded contact is edited as a group of fields', async ({ page }, test
   const contact = page.getByRole('group', { name: 'Contact' });
   await contact.getByLabel('Email').fill('orders@example.test');
   await contact.getByLabel('Phone').fill('+98 21 1234');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/supplier$/);
   await openRecord(page, name);
   await expect(page.getByRole('group', { name: 'Contact' }).getByLabel('Email')).toHaveValue('orders@example.test');
@@ -318,7 +320,7 @@ test('bulk delete reports what it could not delete', async ({ page, isMobile }, 
     await page.getByLabel('Price').fill('1');
     await page.getByLabel('Stock', { exact: true }).fill('1');
     await page.getByLabel('Status').selectOption(status);
-    await page.getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page).toHaveURL(/\/admin\/product$/);
   }
   await page.getByLabel('Search').fill('Bulk');
@@ -353,7 +355,7 @@ test('cells are edited in place; a refused change shows why and keeps the value 
   await page.getByLabel('Name').fill('Inline lamp');
   await page.getByLabel('Sku').fill(sku);
   await page.getByLabel('Price').fill('5');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
 
   const row = page.getByRole('row').filter({ hasText: sku });
@@ -389,4 +391,114 @@ test('hidden columns survive a reload; a chip removes one filter (Review Focus 3
   await chips.getByRole('button', { name: 'Remove filter Status' }).click();
   await expect(page).toHaveURL(/search=lamp/);
   await expect(page).not.toHaveURL(/status/);
+});
+
+/** A product made through the API, for tests that change it; returns its edit URL. */
+async function makeProduct(page: Page, data: Record<string, unknown>): Promise<string> {
+  const res = await page.request.post('/admin/api/resources/product', { data });
+  expect(res.status()).toBe(201);
+  return `/admin/product/${encodeURIComponent(String((await res.json())._id))}`;
+}
+
+test('labels, help and enum labels follow the language; statuses are badges (M2-3 Review Focus 2)', async ({ page, isMobile }) => {
+  await page.goto('/admin/product');
+  const row = (isMobile ? page.getByRole('listitem') : page.getByRole('row')).filter({ hasText: 'DEMO-4' });
+  await expect(row.locator('[data-color="gray"]')).toHaveText('Archived');
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Language').selectOption('fa');
+  await expect(page.getByRole('textbox', { name: 'نام', exact: true })).toBeVisible();
+  await expect(page.getByText('نشانی محصول در فروشگاه.')).toBeVisible();
+  const status = page.getByLabel('وضعیت');
+  await expect(status.getByRole('option', { name: 'پیش‌نویس' })).toHaveAttribute('value', 'draft');
+  await expect(page.getByRole('tab', { name: 'کاتالوگ' })).toBeVisible();
+});
+
+test('money is grouped, the slug follows the name, and showIf hides a field that is then not sent (M2-3 Review Focus 3)', async ({ page }, testInfo) => {
+  const sku = `SHOW-${testInfo.project.name.toUpperCase()}`;
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Name').fill('Glass Vase — Large');
+  await expect(page.getByLabel('Slug')).toHaveValue('glass-vase-large');
+  await expect(page.getByLabel('Slug')).toHaveAccessibleDescription('The product’s address in the shop.');
+  await page.getByLabel('Sku').fill(sku);
+  await page.getByLabel('Price').fill('1234.5');
+  await page.getByLabel('Price').blur();
+  await expect(page.getByLabel('Price')).toHaveValue('1,234.50');
+
+  await expect(page.getByLabel('Released on')).toHaveCount(0);
+  await page.getByLabel('Status').selectOption('active');
+  await page.getByLabel('Released on').fill('2024-05-01');
+  await page.getByLabel('Status').selectOption('draft');
+  await expect(page.getByLabel('Released on')).toHaveCount(0);
+  await page.getByLabel('Status').selectOption('active');
+  await expect(page.getByLabel('Released on')).toHaveValue('2024-05-01'); // back with its value
+  await page.getByLabel('Status').selectOption('draft');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+
+  const found = await (await page.request.get(`/admin/api/resources/product?search=${sku}`)).json();
+  expect(found.items[0]).toMatchObject({ slug: 'glass-vase-large', price: '1234.50', status: 'draft', releasedOn: null });
+});
+
+test('an archived product is read-only except its status; the header shows its badge and shop link (M2-3 Review Focus 1)', async ({ page }) => {
+  await page.goto('/admin/product');
+  await openRecord(page, 'DEMO-4');
+  await expect(page.getByRole('heading', { name: 'Product: Brass lamp' })).toBeVisible();
+  await expect(page.locator('main [data-color="gray"]').first()).toHaveText('Archived');
+  const link = page.getByRole('link', { name: 'View in shop (opens in a new tab)' });
+  await expect(link).toHaveAttribute('href', 'https://shop.example.test/p/brass-lamp');
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+
+  await expect(page.getByLabel('Price')).toHaveCount(0);
+  await expect(page.locator('[data-readonly="price"]')).toContainText('1,299.00 USD');
+  await expect(page.getByLabel('Status')).toBeEnabled();
+
+  const id = decodeURIComponent(new URL(page.url()).pathname.split('/').pop()!);
+  const res = await page.request.patch(`/admin/api/resources/product/${encodeURIComponent(id)}`, { data: { price: '1.00' } });
+  expect(res.status()).toBe(422);
+  expect((await res.json()).fields).toEqual({ price: ['is read-only'] });
+});
+
+test('leaving with unsaved changes asks first; Ctrl+S saves in place (M2-3 Review Focus 4)', async ({ page }, testInfo) => {
+  const url = await makeProduct(page, { name: 'Guarded lamp', sku: `GUARD-${testInfo.project.name.toUpperCase()}`, price: '8' });
+  await page.goto(url);
+  await page.getByLabel('Stock', { exact: true }).fill('41');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  const bar = page.getByRole('alertdialog', { name: 'Leave without saving? Your changes will be lost.' });
+  await expect(bar).toBeVisible();
+  await bar.getByRole('button', { name: 'Stay' }).click();
+  await expect(bar).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`${url}$`));
+  await expect(page.getByLabel('Stock', { exact: true })).toHaveValue('41');
+
+  await page.keyboard.press('Control+s');
+  await expect(page.getByRole('status').filter({ hasText: 'saved' })).toContainText('“Guarded lamp” saved.');
+  await expect(page).toHaveURL(new RegExp(`${url}$`));
+  await page.getByRole('button', { name: 'Cancel' }).click(); // saved: nothing to ask about
+  await expect(page).toHaveURL(/\/admin\/product$/);
+  await page.goto(url);
+  await expect(page.getByLabel('Stock', { exact: true })).toHaveValue('41');
+
+  await page.getByLabel('Stock', { exact: true }).fill('42');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await bar.getByRole('button', { name: 'Leave' }).click();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+});
+
+test('Duplicate prefills a copy without its SKU; Save & new opens an empty form', async ({ page }, testInfo) => {
+  const tag = testInfo.project.name.toUpperCase();
+  const url = await makeProduct(page, { name: 'Twin lamp', sku: `TWIN-${tag}`, price: '15', stock: 4 });
+  await page.goto(url);
+  await page.getByRole('link', { name: 'Duplicate' }).click();
+  await expect(page).toHaveURL(/\/admin\/product\/new\?from=/);
+  await expect(page.getByLabel('Name')).toHaveValue('Twin lamp');
+  await expect(page.getByLabel('Stock', { exact: true })).toHaveValue('4');
+  await expect(page.getByLabel('Sku')).toHaveValue('');
+  await page.getByLabel('Sku').fill(`TWIN2-${tag}`);
+  await page.getByRole('button', { name: 'Save & new' }).click();
+
+  await expect(page).toHaveURL(/\/admin\/product\/new$/);
+  await expect(page.getByRole('status').filter({ hasText: 'saved' })).toContainText('“Twin lamp” saved.');
+  await expect(page.getByLabel('Name')).toHaveValue('');
+  const copy = await (await page.request.get(`/admin/api/resources/product?search=TWIN2-${tag}`)).json();
+  expect(copy.items[0]).toMatchObject({ name: 'Twin lamp', stock: 4, price: '15.00' });
 });

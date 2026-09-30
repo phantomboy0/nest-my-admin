@@ -81,3 +81,11 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - Row click opens the quick view on desktop; E2E and people who expect "row → edit page" use the first-column link or the sheet's Edit.
 - Inline editing covers text, number, decimal, bigint, boolean, enum and date; relations and datetimes are edited in the form.
 - The table is not virtualized (pages hold at most 100 rows).
+
+## M2-3 follow-ups
+- -> M4: rich text (Tiptap plus server-side sanitizing) and file/image widgets, with uploads.
+- -> M2-4: Jalali date pickers; money grouping uses Latin digits and commas in both languages.
+- -> M3: `readonlyIf` is per record, not per user; per-user read-only fields come with permissions (`_perm`).
+- `showIf` supports top-level fields only (not inside object groups) and equality only (no ranges or functions).
+- Duplicate copies what the create form holds; to-many relations are copied as ids, and the slug is copied unless the column is unique.
+- ⌘S on a create form saves and opens the new record; a save that the server refuses keeps the form dirty.

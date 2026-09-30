@@ -176,7 +176,7 @@ AdminModule.forRoot({
   - The UI sends it as `Accept-Language`. Labels given per language answer in it, falling back to the default
     locale.
   - Resources and hooks see it as `ctx.locale`.
-  - Field labels are English until M2-3 adds per-language field labels.
+  - Field labels, help, placeholders and enum value labels take the same `{ en, fa }` form (see Fields and forms).
 - **Branding.**
   - `primaryColor` may be hex, `rgb()`, `hsl()` or `oklch()`, and `radius` a length. Text on the primary colour is
     chosen from its lightness.
@@ -184,6 +184,68 @@ AdminModule.forRoot({
   - Anything else fails at boot, so no value can inject CSS.
 - **Theme.** Light, dark or system, from the header. It is applied before the page renders, so nothing flashes.
 - **Icons** for groups and resources: bell, book, box, boxes, briefcase, building, calendar, cart, chart, clock, credit-card, database, dollar, file, file-text, folder, globe, heart, history, home, image, inbox, key, layers, link, list, lock, mail, map, map-pin, message, package, phone, printer, receipt, server, settings, shield, shopping-bag, shopping-cart, star, store, tag, tags, ticket, truck, user, users, video, wallet, wrench, zap.
+
+### Fields and forms
+
+```ts
+@AdminResource(Product)
+export class ProductAdmin extends AdminResourceBase<Product> {
+  fields: FieldsConfig<Product> = {
+    price: { widget: 'money', currency: 'USD', readonlyIf: (p) => p.status === 'archived' },
+    status: {
+      widget: 'badge',
+      colors: { draft: 'amber', active: 'green', archived: 'gray' },
+      enumLabels: { draft: { en: 'Draft', fa: 'پیش‌نویس' }, active: 'Active', archived: 'Archived' },
+    },
+    slug: { widget: 'slug', slugFrom: 'name', help: { en: 'The address in the shop.', fa: 'نشانی در فروشگاه.' } },
+    releasedOn: { showIf: { status: ['active', 'archived'] } },
+    sku: { readonly: true },
+  };
+  form: FormConfig = {
+    create: CreateProductDto,
+    update: UpdateProductDto,
+    layout: [
+      { tab: 'General', sections: [{ section: 'Details', fields: ['name', 'slug', 'status', 'releasedOn'], columns: 2 }] },
+      { tab: 'Catalog', sections: [{ fields: ['categoryId', 'tags'] }] },
+    ],
+  };
+  links(product: Product) {
+    return [{ label: { en: 'View in shop', fa: 'در فروشگاه' }, href: `https://shop.example/p/${product.slug}` }];
+  }
+}
+```
+
+- **Where options come from.** Options merge in this order, later ones winning option by option:
+  1. `@AdminField({ … })` on the entity property;
+  2. `@AdminField` on the create DTO, then on the update DTO;
+  3. the resource's `fields`.
+- **Options.**
+  - Texts: `label`, `help` (shown under the input, and linked to it for screen readers), `placeholder`, `enumLabels`. The values sent stay the raw enum values.
+  - `widget`: text, textarea, number, money, switch, checkbox, select, radio, date, datetime, json, color, badge, slug, password, email or url.
+    - Without one, the widget follows the type and format.
+    - A widget that does not fit the type (`money` on a boolean) fails at boot.
+  - `colors` for badges: gray, red, amber, green, blue, purple or pink.
+  - `currency` for money: display only. Money is grouped as you leave the input, and the commas are dropped when saving.
+- **Validation at boot.** Unknown fields, widgets and colours fail at boot with a did-you-mean hint, and so do `showIf`/`slugFrom` names and enum labels for values the column does not have.
+- **Read-only fields.**
+  - `readonly: true` shows the field on edit forms as text with a lock and removes it from `form.update`.
+  - `readonlyIf(record)` runs on the server for every record. Records carry `_readonly` (the fields it locks), and a PATCH that sends a locked field is a 422 `{ field: ['is read-only'] }` before your `update` runs. That covers inline cell edits too.
+  - A `readonlyIf` that throws locks its field and is logged once.
+  - Create ignores it.
+- **`showIf`** hides a field while other fields do not hold the given value (or one of the values), evaluated live in the browser. A hidden field is not sent and not checked. It is presentation, not a permission: the server keeps the stored value.
+- **`slugFrom`** makes the slug widget fill itself from another field. It keeps the letters of every script and stops once someone types in it, or when it already holds a value.
+- **Layout.**
+  - `form.layout` has sections (a title, and 1–3 columns on wide screens, one on phones) and tabs.
+  - Every name must be on a form and listed once. Fields left out go into a last section.
+  - A tab with a field error is marked, and a refused save switches to it.
+- **Detail header.**
+  - The edit page title shows badge fields and `links(record)` (records carry them as `_links`).
+  - Only http(s) and relative URLs are kept. They open in a new tab with `rel="noopener noreferrer"`.
+- **Form keys.**
+  - Leaving a form with unsaved changes asks first: an inline bar for in-app navigation, the browser's prompt for closing the tab.
+  - ⌘S / Ctrl+S saves and stays on the record.
+  - **Save & new** saves and opens an empty form.
+  - **Duplicate** opens `/:resource/new?from=<id>`, prefilled without primary keys, unique columns and read-only fields.
 
 ## Transactions, context and errors
 
