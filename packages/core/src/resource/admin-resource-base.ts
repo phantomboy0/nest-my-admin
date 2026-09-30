@@ -1,4 +1,5 @@
-import type { DeepPartial, FindOptionsOrder, FindOptionsWhere, ObjectLiteral, Repository } from 'typeorm';
+import type { DeepPartial, FindOptionsWhere, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
+import { applyListParams } from '../crud/list-query-builder.js';
 import type { FilterOperator, SortDirection } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
@@ -72,12 +73,16 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return this.repository.metadata.primaryColumns[0]!.propertyName;
   }
 
+  /**
+   * The list query with filters, search, sort and paging applied. Override findMany and extend this to add
+   * joins or restrictions: `this.buildListQuery(params).andWhere('entity.ownerId = :id', { id })`.
+   */
+  protected buildListQuery(params: ListParams, alias = 'entity'): SelectQueryBuilder<T> {
+    return applyListParams(this.repository.createQueryBuilder(alias), params, this.primaryKey);
+  }
+
   async findMany(params: ListParams, _ctx: AdminContext): Promise<FindManyResult<T>> {
-    const [items, total] = await this.repository.findAndCount({
-      order: { [params.sort.field]: params.sort.direction.toUpperCase() } as FindOptionsOrder<T>,
-      skip: (params.page - 1) * params.pageSize,
-      take: params.pageSize,
-    });
+    const [items, total] = await this.buildListQuery(params).getManyAndCount();
     return { items, total };
   }
 
