@@ -1,12 +1,14 @@
 import 'reflect-metadata';
 import { Injectable } from '@nestjs/common';
 import { ADMIN_RESOURCE_METADATA } from '../constants.js';
+import type { LocalizedText } from '../i18n/localized-text.js';
 import type { TitleDefinition } from '../schema/titles.js';
 
 export interface AdminResourceOptions {
   /** URL segment and permission prefix. Defaults to kebab-case of the entity class name. */
   name?: string;
-  label?: string;
+  /** `'Orders'` or `{ en: 'Orders', fa: 'سفارش‌ها' }`. Defaults to the humanized entity name. */
+  label?: LocalizedText;
   /** Sidebar group key. Defaults to the group of the Nest module that provides the resource. */
   group?: string;
   icon?: string;

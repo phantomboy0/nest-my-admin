@@ -19,6 +19,8 @@ describe('meta API', () => {
     expect(res.body).toEqual({
       schemaVersion: 1,
       title: 'Test shop',
+      locale: 'en',
+      locales: ['en'],
       groups: [{ key: 'widgets', label: 'Inventory', icon: 'boxes', resources: [{ name: 'widget', label: 'Widget' }] }],
     });
   });

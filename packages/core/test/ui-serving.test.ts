@@ -15,7 +15,7 @@ describe('UI serving', () => {
       expect(res.headers['content-type']).toContain('text/html');
       expect(res.headers['cache-control']).toBe('no-cache');
       expect(res.text).toContain('<base href="/admin/">');
-      expect(res.text).toContain('<script type="application/json" id="nma-config">{"basePath":"/admin","apiBase":"/admin/api","title":"Shop"}</script>');
+      expect(res.text).toContain('<script type="application/json" id="nma-config">{"basePath":"/admin","apiBase":"/admin/api","title":"Shop","locale":"en","locales":["en"],"branding":{}}</script>');
     }
   });
 

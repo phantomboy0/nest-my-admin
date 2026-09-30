@@ -13,6 +13,7 @@ import { buildResourceSchema } from '../schema/build-resource-schema.js';
 import { operatorsFor } from '../schema/filter-operators.js';
 import { relationFields, type RelationLike } from '../schema/relation-fields.js';
 import { compileTitle, type TitleFn } from '../schema/titles.js';
+import type { LocalizedText } from '../i18n/localized-text.js';
 import { humanize, kebabCase } from '../schema/humanize.js';
 import { dbNamesFor, type DbNames } from './db-names.js';
 import { hookWarnings } from './hook-warnings.js';
@@ -32,6 +33,10 @@ export interface RegisteredResource {
   title: TitleFn;
   /** Relation fields sortable by their target's title column: field → path (`customer` → `customer.name`). */
   sortPaths: Map<string, string>;
+  /** The resource label as configured, in every language it was given in. */
+  label: LocalizedText;
+  /** For each `schema.related` entry: the field's label when it is shown as "Resource (Field)". */
+  relatedFieldLabels: Array<string | undefined>;
 }
 
 /** TypeORM's RelationMetadata as the admin reads it (TypeORM does not export the class from its root). */
@@ -39,7 +44,7 @@ export type RelationMetadataLike = RelationLike & { inverseEntityMetadata: Entit
 
 export interface RegisteredGroup {
   key: string;
-  label: string;
+  label: LocalizedText;
   icon?: string;
   order: number;
 }
@@ -189,6 +194,8 @@ export class ResourceRegistry implements OnModuleInit {
       relations,
       title,
       sortPaths: new Map(),
+      label: definition.label ?? schema.label,
+      relatedFieldLabels: [],
     });
   }
 
@@ -211,6 +218,7 @@ export class ResourceRegistry implements OnModuleInit {
           const operator = field.relation.kind === 'to-one' ? 'eq' : 'in';
           const several = [...entry.relations.values()].filter((other) => other.inverseEntityMetadata === targetMetadata).length > 1;
           target.schema.related.push({ label: several ? `${schema.label} (${field.label})` : schema.label, resource: schema.name, field: name, operator });
+          target.relatedFieldLabels.push(several ? field.label : undefined);
           if (!schema.list.filters.some((filter) => filter.field === name)) schema.list.filters.push({ field: name, operators: operatorsFor(field) });
         }
         const titleColumn = this.titleFor(targetMetadata, entry.dataSource).column;

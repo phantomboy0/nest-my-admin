@@ -254,7 +254,8 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
 
   return {
     name: definition.name ?? kebabCase(entityName),
-    label: definition.label ?? humanize(entityName),
+    // The registry localizes labels per request; the schema keeps the plain (or first) one.
+    label: typeof definition.label === 'string' ? definition.label : (Object.values(definition.label ?? {})[0] ?? humanize(entityName)),
     group: definition.group ?? moduleGroup,
     ...(definition.icon ? { icon: definition.icon } : {}),
     primaryKeys,

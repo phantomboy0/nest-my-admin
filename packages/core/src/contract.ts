@@ -102,6 +102,10 @@ export interface MetaGroup {
 export interface MetaResponse {
   schemaVersion: 1;
   title: string;
+  /** The language of this response's labels (from `Accept-Language`). */
+  locale: string;
+  /** Languages people can switch between. */
+  locales: string[];
   groups: MetaGroup[];
 }
 
@@ -194,9 +198,26 @@ export interface AdminErrorBody {
   correlationId: string;
 }
 
+/** A label in one language, or per language (`{ en: 'Orders', fa: 'سفارش‌ها' }`). */
+export type LocalizedLabel = string | Record<string, string>;
+
+/** Host branding (spec §9.5). Colours and lengths are validated by core before they reach the page. */
+export interface BrandingConfig {
+  name?: LocalizedLabel;
+  logo?: string;
+  primaryColor?: string;
+  primaryForeground?: string;
+  radius?: string;
+}
+
 /** Injected into index.html as `<script type="application/json" id="nma-config">`. */
 export interface AdminRuntimeConfig {
   basePath: string;
   apiBase: string;
+  /** The title in the default locale (the tab title before meta loads). */
   title: string;
+  /** Default language. */
+  locale: string;
+  locales: string[];
+  branding: BrandingConfig;
 }

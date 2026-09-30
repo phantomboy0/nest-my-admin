@@ -18,6 +18,8 @@ export interface AdminContext {
    * foreign-key conflict on Postgres). On SQLite it silently joins the admin transaction.
    */
   manager?: EntityManager;
+  /** The request's language (from `Accept-Language`, one of the admin's `locales`). */
+  locale?: string;
 }
 
 /** The box is deactivated when the request ends, so timers and clients created inside it see no context. */

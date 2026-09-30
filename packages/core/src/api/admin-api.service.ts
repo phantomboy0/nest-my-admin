@@ -11,6 +11,7 @@ import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
 import { AdminBadRequestError, AdminConflictError, AdminNotFoundError, AdminValidationError } from '../errors.js';
+import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
@@ -32,30 +33,41 @@ export class AdminApiService {
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {}
 
-  meta(): MetaResponse {
+  /** Sidebar data with labels in `locale` (the default locale when omitted). */
+  meta(locale = this.options.locale): MetaResponse {
+    const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
     const resources = this.registry.list();
     const groups = this.registry
       .groupList()
       .map((group) => ({
         group,
+        label: text(group.label),
         resources: resources
           .filter((entry) => entry.schema.group === group.key)
-          .map(({ schema }) => ({ name: schema.name, label: schema.label, ...(schema.icon ? { icon: schema.icon } : {}) }))
-          .sort((a, b) => a.label.localeCompare(b.label)),
+          .map(({ schema, label }) => ({ name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}) }))
+          .sort((a, b) => a.label.localeCompare(b.label, locale)),
       }))
       .filter((entry) => entry.resources.length > 0)
-      .sort((a, b) => a.group.order - b.group.order || a.group.label.localeCompare(b.group.label))
-      .map(({ group, resources: items }) => ({
+      .sort((a, b) => a.group.order - b.group.order || a.label.localeCompare(b.label, locale))
+      .map(({ group, label, resources: items }) => ({
         key: group.key,
-        label: group.label,
+        label,
         ...(group.icon ? { icon: group.icon } : {}),
         resources: items,
       }));
-    return { schemaVersion: 1, title: this.options.title, groups };
+    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups };
   }
 
-  schema(name: string): ResourceSchema {
-    return this.registry.get(name).schema;
+  /** A resource's schema with its labels in `locale`. */
+  schema(name: string, locale = this.options.locale): ResourceSchema {
+    const entry = this.registry.get(name);
+    const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
+    const related = entry.schema.related.map((item, index) => {
+      const base = text(this.registry.get(item.resource).label);
+      const fieldLabel = entry.relatedFieldLabels[index];
+      return { ...item, label: fieldLabel ? `${base} (${fieldLabel})` : base };
+    });
+    return { ...entry.schema, label: text(entry.label), related };
   }
 
   async list(name: string, query: URLSearchParams, ctx: AdminContext): Promise<ListResponse> {

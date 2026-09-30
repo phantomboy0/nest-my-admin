@@ -7,13 +7,13 @@ import { tmpdir } from 'node:os';
 import { injectRuntime, resolveStaticFile, UiAssets } from './ui-assets.js';
 
 const root = fileURLToPath(new URL('../../test/fixtures/ui-dist', import.meta.url));
-const runtime = { basePath: '/admin', apiBase: '/admin/api', title: 'Shop' };
+const runtime = { basePath: '/admin', apiBase: '/admin/api', title: 'Shop', locale: 'en', locales: ['en'], branding: {} };
 
 describe('injectRuntime', () => {
   test('adds <base> and the JSON config right after <head>', () => {
     const html = injectRuntime('<html><head lang="x"><title>t</title></head></html>', runtime);
     expect(html).toBe(
-      '<html><head lang="x"><base href="/admin/"><script type="application/json" id="nma-config">{"basePath":"/admin","apiBase":"/admin/api","title":"Shop"}</script><title>t</title></head></html>',
+      '<html><head lang="x"><base href="/admin/"><script type="application/json" id="nma-config">{"basePath":"/admin","apiBase":"/admin/api","title":"Shop","locale":"en","locales":["en"],"branding":{}}</script><title>t</title></head></html>',
     );
   });
 

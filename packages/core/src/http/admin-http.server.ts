@@ -2,7 +2,8 @@ import { HttpException, Inject, Injectable, Logger, type OnModuleInit } from '@n
 import { HttpAdapterHost } from '@nestjs/core';
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
-import type { AdminErrorCode } from '../contract.js';
+import type { AdminErrorCode, AdminRuntimeConfig } from '../contract.js';
+import { pickLocale, resolveText } from '../i18n/localized-text.js';
 import { AdminBadRequestError, AdminError, AdminNotFoundError, AdminUnsupportedMediaTypeError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
@@ -57,8 +58,8 @@ export class AdminHttpServer implements OnModuleInit {
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {
     this.router
-      .add('GET', '/api/meta', ({ res }) => sendJson(res, 200, this.api.meta()))
-      .add('GET', '/api/meta/resources/:resource', ({ res }, p) => sendJson(res, 200, this.api.schema(p.resource)))
+      .add('GET', '/api/meta', ({ res, ctx }) => sendJson(res, 200, this.api.meta(ctx.locale)))
+      .add('GET', '/api/meta/resources/:resource', ({ res, ctx }, p) => sendJson(res, 200, this.api.schema(p.resource, ctx.locale)))
       .add('GET', '/api/resources/:resource', async ({ res, url, ctx }, p) =>
         sendJson(res, 200, await this.api.list(p.resource, url.searchParams, ctx)),
       )
@@ -97,7 +98,10 @@ export class AdminHttpServer implements OnModuleInit {
     this.ui = new UiAssets(this.options.uiDistPath ?? resolveUiDist(), {
       basePath: this.options.path,
       apiBase: `${this.options.path}/api`,
-      title: this.options.title,
+      title: resolveText(this.options.title, this.options.locale, this.options.locale),
+      locale: this.options.locale,
+      locales: this.options.locales,
+      branding: this.options.branding as AdminRuntimeConfig['branding'],
     });
     adapter.use(this.options.path, (req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void) => {
       this.handle(req, res, next).catch((error: unknown) => {
@@ -148,6 +152,10 @@ export class AdminHttpServer implements OnModuleInit {
           throw new AdminUnsupportedMediaTypeError('Content-Type must be application/json');
         }
         resourceName = match.params.resource;
+        // Labels follow Accept-Language; caches must keep the languages apart.
+        ctx.locale = pickLocale(req.headers['accept-language'], this.options.locales, this.options.locale);
+        res.setHeader('Content-Language', ctx.locale);
+        res.setHeader('Vary', 'Accept-Language');
         const requestCtx = ctx; // narrows the `let` ctx for the closure below
         await runInAdminContext(requestCtx, () => match.handler({ req, res, url, ctx: requestCtx }, match.params));
         return;
