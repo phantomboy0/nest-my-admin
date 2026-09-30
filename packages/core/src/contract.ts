@@ -75,7 +75,7 @@ export interface ListResponse {
 }
 
 export type AdminErrorCode =
-  | 'BAD_REQUEST' | 'VALIDATION' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'BUSINESS_RULE' | 'INTERNAL';
+  | 'BAD_REQUEST' | 'VALIDATION' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'BUSINESS_RULE' | 'INTERNAL';
 
 export interface AdminErrorBody {
   code: AdminErrorCode;

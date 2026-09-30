@@ -1,19 +1,8 @@
 import type { AdminErrorBody, AdminRecord, ListResponse, MetaResponse, ResourceSchema } from '@nest-my-admin/core/contract';
 import { runtimeConfig } from './config';
+import { ApiError } from './api-error';
 
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly body: AdminErrorBody,
-  ) {
-    super(body.message);
-    this.name = 'ApiError';
-  }
-
-  get fields(): Record<string, string[]> {
-    return this.body.fields ?? {};
-  }
-}
+export { ApiError, describeError } from './api-error';
 
 function isErrorBody(value: unknown): value is AdminErrorBody {
   return typeof value === 'object' && value !== null && 'code' in value && 'message' in value;

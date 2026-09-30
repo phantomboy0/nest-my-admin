@@ -37,10 +37,12 @@ export function toErrorResponse(
   return { status: 500, body: { code: 'INTERNAL', message: 'Internal error', correlationId } };
 }
 
-function codeForStatus(status: number): AdminErrorCode {
-  if (status === 401 || status === 403) return 'FORBIDDEN';
+export function codeForStatus(status: number): AdminErrorCode {
+  if (status === 401) return 'UNAUTHENTICATED';
+  if (status === 403) return 'FORBIDDEN';
   if (status === 404) return 'NOT_FOUND';
   if (status === 409) return 'CONFLICT';
+  if (status === 413 || status === 415) return 'BAD_REQUEST';
   if (status === 422) return 'VALIDATION';
   return 'BUSINESS_RULE';
 }

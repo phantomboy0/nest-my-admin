@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from 'bun:test';
-import { BadRequestException, ConflictException, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import { AdminFieldError, AdminNotFoundError } from '../errors.js';
-import { toErrorResponse } from './error-response.js';
+import { codeForStatus, toErrorResponse } from './error-response.js';
 
 const logger = () => ({ error: mock((_message: string) => {}) });
 const dbError = (driverError: Record<string, unknown>) =>
@@ -64,5 +64,22 @@ describe('toErrorResponse', () => {
     expect(
       toErrorResponse(dbError({ code: 'ER_BAD_NULL_ERROR', message: "Column 'name' cannot be null" }), 'c', logger()).body.fields,
     ).toEqual({ name: ['is required'] });
+  });
+
+  test('status codes map to contract codes', () => {
+    expect(codeForStatus(401)).toBe('UNAUTHENTICATED');
+    expect(codeForStatus(403)).toBe('FORBIDDEN');
+    expect(codeForStatus(404)).toBe('NOT_FOUND');
+    expect(codeForStatus(409)).toBe('CONFLICT');
+    expect(codeForStatus(413)).toBe('BAD_REQUEST');
+    expect(codeForStatus(415)).toBe('BAD_REQUEST');
+    expect(codeForStatus(422)).toBe('VALIDATION');
+    expect(codeForStatus(400)).toBe('BUSINESS_RULE');
+  });
+
+  test('an UnauthorizedException from host code is UNAUTHENTICATED', () => {
+    expect(toErrorResponse(new UnauthorizedException('Log in first'), 'c', logger()).body).toEqual({
+      code: 'UNAUTHENTICATED', message: 'Log in first', correlationId: 'c',
+    });
   });
 });

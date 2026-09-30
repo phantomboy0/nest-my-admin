@@ -1,16 +1,18 @@
-import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
+import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
-import { AdminApiService } from '../api/admin-api.service.js';
-import { ADMIN_OPTIONS } from '../constants.js';
-import { AdminNotFoundError, AdminUnsupportedMediaTypeError } from '../errors.js';
+import type { AdminErrorCode } from '../contract.js';
+import { AdminError, AdminNotFoundError, AdminUnsupportedMediaTypeError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import { createAdminContext, type AdminContext } from '../resource/admin-context.js';
-import { toErrorResponse } from './error-response.js';
+import { codeForStatus, toErrorResponse } from './error-response.js';
 import { readJsonBody, sendJson, type AdminRequest } from './http-io.js';
 import { Router } from './router.js';
 import { UiAssets, resolveUiDist } from './ui-assets.js';
+import { AdminApiService } from '../api/admin-api.service.js';
+import { ADMIN_OPTIONS } from '../constants.js';
 
 interface RequestState {
   req: AdminRequest;
@@ -25,13 +27,13 @@ function isJsonContentType(header: string | undefined): boolean {
   return header?.split(';')[0]?.trim().toLowerCase() === 'application/json';
 }
 
-/** Maps an error raised by the host's body parser (which runs before this handler) to the admin contract. */
-function bodyParserError(error: unknown): { status: number; message: string } | undefined {
+/** Maps an error passed to next() before this handler ran (body parser, host middleware) to the admin contract. */
+function earlyError(error: unknown): { status: number; code: AdminErrorCode; message: string } | undefined {
   const { type, status } = (error ?? {}) as { type?: unknown; status?: unknown };
-  if (type === 'entity.parse.failed') return { status: 400, message: 'Request body is not valid JSON' };
-  if (type === 'entity.too.large') return { status: 413, message: 'Request body is too large' };
+  if (type === 'entity.parse.failed') return { status: 400, code: 'BAD_REQUEST', message: 'Request body is not valid JSON' };
+  if (type === 'entity.too.large') return { status: 413, code: 'BAD_REQUEST', message: 'Request body is too large' };
   if (typeof status === 'number' && status >= 400 && status < 500) {
-    return { status, message: error instanceof Error ? error.message : 'Bad request' };
+    return { status, code: codeForStatus(status), message: error instanceof Error ? error.message : 'Bad request' };
   }
   return undefined;
 }
@@ -84,21 +86,29 @@ export class AdminHttpServer implements OnModuleInit {
     });
     adapter.use(this.options.path, (req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void) => {
       this.handle(req, res, next).catch((error: unknown) => {
-        this.logger.error(`unhandled admin error: ${String(error)}`);
-        if (!res.headersSent) res.statusCode = 500;
-        res.end();
+        const correlationId = randomUUID();
+        this.logger.error(`[${correlationId}] unhandled admin error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+        if (res.headersSent) {
+          res.end();
+          return;
+        }
+        sendJson(res, 500, { code: 'INTERNAL', message: 'Internal error', correlationId });
       });
     });
-    // Body-parser failures happen before the handler above runs; answer them with the same error contract.
     adapter.use(this.options.path, (error: unknown, req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void) => {
       if (res.headersSent) {
         next(error);
         return;
       }
       const correlationId = createAdminContext(req).correlationId;
-      const parserError = bodyParserError(error);
-      if (parserError) {
-        sendJson(res, parserError.status, { code: 'BAD_REQUEST', message: parserError.message, correlationId });
+      if (error instanceof AdminError || error instanceof HttpException) {
+        const { status, body } = toErrorResponse(error, correlationId, this.logger);
+        sendJson(res, status, body);
+        return;
+      }
+      const early = earlyError(error);
+      if (early) {
+        sendJson(res, early.status, { code: early.code, message: early.message, correlationId });
         return;
       }
       const { status, body } = toErrorResponse(error, correlationId, this.logger);
