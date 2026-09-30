@@ -12,6 +12,12 @@ import { validatePayload } from '@/lib/validate';
 
 type Mode = 'create' | 'edit';
 
+/** "Customer: Ada Lovelace", or "Customer #3" for records titled by their id. */
+function recordHeading(label: string, record: AdminRecord | undefined, id: string | undefined): string {
+  const title = typeof record?._title === 'string' ? record._title : `#${id}`;
+  return title.startsWith('#') ? `${label} ${title}` : `${label}: ${title}`;
+}
+
 export function FormPage({ mode }: { mode: Mode }) {
   const { resource = '', id } = useParams();
   const schema = useSchema(resource);
@@ -90,7 +96,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
 
   return (
     <form onSubmit={submit} noValidate className="flex max-w-2xl flex-col gap-5">
-      <h1 className="text-xl font-semibold">{mode === 'create' ? `New ${schema.label.toLowerCase()}` : `${schema.label} #${id}`}</h1>
+      <h1 className="text-xl font-semibold">{mode === 'create' ? `New ${schema.label.toLowerCase()}` : recordHeading(schema.label, record, id)}</h1>
       {formError && (
         <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {formError}
@@ -99,6 +105,7 @@ function RecordForm({ schema, mode, id, record }: RecordFormProps) {
       {fields.map((field) => (
         <FieldInput
           key={field.name}
+          resource={schema.name}
           field={field}
           value={values[field.name]}
           required={mode === 'create' && schema.form.requiredOnCreate.includes(field.name)}

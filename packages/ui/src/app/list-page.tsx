@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { describeError } from '@/lib/api';
 import { formatCell } from '@/lib/format';
+import { isRef } from '@/lib/form-values';
 import { hasActiveFilters, listQueryFromUrl, withChanges, type ParamChanges } from '@/lib/list-state';
 import { useList, useSchema } from '@/lib/queries';
 
@@ -27,8 +28,7 @@ export function ListPage() {
   const columns = s.list.columns
     .map((name) => s.fields.find((field) => field.name === name))
     .filter((field): field is FieldSchema => field !== undefined);
-  const titleColumn = columns.find((column) => column.name !== s.primaryKey) ?? columns[0];
-  const detailColumns = columns.filter((column) => column !== titleColumn);
+  const detailColumns = columns.filter((column) => column.name !== s.primaryKey);
   const sort = sortParam
     ? { field: sortParam.replace(/^-/, ''), direction: sortParam.startsWith('-') ? 'desc' : 'asc' }
     : s.list.defaultSort;
@@ -66,12 +66,16 @@ export function ListPage() {
           <TableHeader>
             <TableRow>
               {columns.map((column) => (
-                <TableHead key={column.name}>
-                  <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(column.name)}>
-                    {column.label}
-                    {sort.field === column.name &&
-                      (sort.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />)}
-                  </button>
+                <TableHead key={column.name} aria-sort={sort.field === column.name ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}>
+                  {s.list.sortable.includes(column.name) ? (
+                    <button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort(column.name)}>
+                      {column.label}
+                      {sort.field === column.name &&
+                        (sort.direction === 'asc' ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />)}
+                    </button>
+                  ) : (
+                    column.label
+                  )}
                 </TableHead>
               ))}
             </TableRow>
@@ -86,7 +90,7 @@ export function ListPage() {
                         {formatCell(item[column.name], column)}
                       </Link>
                     ) : (
-                      formatCell(item[column.name], column)
+                      <CellValue value={item[column.name]} field={column} />
                     )}
                   </TableCell>
                 ))}
@@ -107,16 +111,16 @@ export function ListPage() {
         {items.map((item) => (
           <li key={String(item[s.primaryKey])}>
             <Link to={recordPath(item)} className="block rounded-lg border p-3 active:bg-muted">
-              <div className="font-medium">
-                {titleColumn ? formatCell(item[titleColumn.name], titleColumn) : String(item[s.primaryKey])}
-              </div>
+              <div className="font-medium">{typeof item._title === 'string' ? item._title : String(item[s.primaryKey])}</div>
               <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
-                {detailColumns.map((column) => (
+                {detailColumns
+                  .filter((column) => formatCell(item[column.name], column) !== item._title) // the title is shown above
+                  .map((column) => (
                   <Fragment key={column.name}>
                     <dt className="text-muted-foreground">{column.label}</dt>
                     <dd className="truncate">{formatCell(item[column.name], column)}</dd>
                   </Fragment>
-                ))}
+                  ))}
               </dl>
             </Link>
           </li>
@@ -139,5 +143,25 @@ export function ListPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** A cell; a related record links to its own page when its resource is registered. */
+function CellValue({ value, field }: { value: unknown; field: FieldSchema }) {
+  const target = field.relation?.resource;
+  if (!target || value === null || value === undefined) return <>{formatCell(value, field)}</>;
+  const refs = (Array.isArray(value) ? value : [value]).filter(isRef);
+  if (refs.length === 0) return <>{formatCell(value, field)}</>;
+  return (
+    <>
+      {refs.map((ref, index) => (
+        <Fragment key={String(ref.id)}>
+          {index > 0 && ', '}
+          <Link to={`/${target}/${encodeURIComponent(String(ref.id))}`} className="hover:underline" onClick={(event) => event.stopPropagation()}>
+            {ref.title}
+          </Link>
+        </Fragment>
+      ))}
+    </>
   );
 }

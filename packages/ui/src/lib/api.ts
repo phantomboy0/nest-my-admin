@@ -1,4 +1,4 @@
-import type { AdminErrorBody, AdminRecord, ListResponse, MetaResponse, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminErrorBody, AdminRecord, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '@nest-my-admin/core/contract';
 import { runtimeConfig } from './config';
 import { ApiError } from './api-error';
 
@@ -37,6 +37,13 @@ export const api = {
   schema: (resource: string) => request<ResourceSchema>(`/meta/resources/${enc(resource)}`),
   list: (resource: string, query: URLSearchParams) => request<ListResponse>(`/resources/${enc(resource)}?${query}`),
   remove: (resource: string, id: string) => request<void>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'DELETE' }),
+  /** Picker options of a relation field: matching `search`, or the records with these `ids`. */
+  options: (resource: string, field: string, query: { search?: string; ids?: Array<string | number> }) => {
+    const params = new URLSearchParams();
+    if (query.ids) params.set('ids', query.ids.join(','));
+    else if (query.search) params.set('search', query.search);
+    return request<OptionsResponse>(`/resources/${enc(resource)}/fields/${enc(field)}/options${params.size ? `?${params}` : ''}`);
+  },
   get: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`),
   create: (resource: string, body: Record<string, unknown>) =>
     request<AdminRecord>(`/resources/${enc(resource)}`, { method: 'POST', body: JSON.stringify(body) }),

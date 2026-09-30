@@ -16,3 +16,12 @@ describe('formatCell', () => {
     expect(formatCell(7, field('number'))).toBe('7');
   });
 });
+
+describe('formatCell for relations', () => {
+  test('shows titles', () => {
+    expect(formatCell({ id: 1, title: 'Ada' }, field('relation'))).toBe('Ada');
+    expect(formatCell([{ id: 'a', title: 'red' }, { id: 'b', title: 'blue' }], field('relation'))).toBe('red, blue');
+    expect(formatCell([], field('relation'))).toBe('—');
+    expect(formatCell(null, field('relation'))).toBe('—');
+  });
+});

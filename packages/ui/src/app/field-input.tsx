@@ -1,23 +1,27 @@
 import type { ReactNode } from 'react';
 import type { FieldConstraints, FieldSchema } from '@nest-my-admin/core/contract';
+import { RelationInput, type RelationValue } from '@/app/relation-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import type { FormValue } from '@/lib/form-values';
 import { cn } from '@/lib/utils';
 
 interface FieldInputProps {
+  /** The resource being edited (relation pickers load their options through it). */
+  resource: string;
   field: FieldSchema;
   constraints?: FieldConstraints;
-  value: string | boolean | undefined;
+  value: FormValue | undefined;
   required: boolean;
   errors?: string[];
-  onChange: (value: string | boolean) => void;
+  onChange: (value: FormValue) => void;
 }
 
 const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive';
 
-export function FieldInput({ field, value, required, errors, constraints, onChange }: FieldInputProps) {
+export function FieldInput({ resource, field, value, required, errors, constraints, onChange }: FieldInputProps) {
   const id = `field-${field.name}`;
   const errorId = `${id}-error`;
   const invalid = (errors?.length ?? 0) > 0;
@@ -48,7 +52,20 @@ export function FieldInput({ field, value, required, errors, constraints, onChan
   }
 
   let control: ReactNode;
-  if (field.type === 'enum') {
+  if (field.type === 'relation') {
+    control = (
+      <RelationInput
+        id={id}
+        resource={resource}
+        field={field}
+        value={(value ?? null) as RelationValue}
+        onChange={onChange}
+        clearable={field.nullable}
+        invalid={invalid}
+        describedBy={invalid ? errorId : undefined}
+      />
+    );
+  } else if (field.type === 'enum') {
     control = (
       <select id={id} className={selectClass} value={text} onChange={(e) => onChange(e.target.value)} {...aria}>
         <option value="">—</option>

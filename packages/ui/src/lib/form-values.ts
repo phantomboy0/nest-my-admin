@@ -1,6 +1,17 @@
-import type { AdminRecord, FieldSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
 
-export type FormValues = Record<string, string | boolean>;
+/** What an input edits: text, a checkbox, a picked record (to-one relation) or picked records (to-many). */
+export type FormValue = string | boolean | RelationRef | null | RelationRef[];
+export type FormValues = Record<string, FormValue>;
+
+export function isRef(value: unknown): value is RelationRef {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && 'id' in value && 'title' in value;
+}
+
+const sameIds = (a: RelationRef[], b: RelationRef[]) => {
+  const ids = new Set(a.map((ref) => String(ref.id)));
+  return a.length === b.length && b.every((ref) => ids.has(String(ref.id)));
+};
 
 export interface PayloadResult {
   payload: Record<string, unknown>;
@@ -21,7 +32,9 @@ export function toFormValues(fields: FieldSchema[], record?: AdminRecord): FormV
   const values: FormValues = {};
   for (const field of fields) {
     const value = record?.[field.name];
-    if (field.type === 'boolean') values[field.name] = value === true;
+    if (field.relation?.kind === 'to-many') values[field.name] = Array.isArray(value) ? value.filter(isRef) : [];
+    else if (field.type === 'relation') values[field.name] = isRef(value) ? value : null;
+    else if (field.type === 'boolean') values[field.name] = value === true;
     else if (value === null || value === undefined) values[field.name] = '';
     else if (field.type === 'json') values[field.name] = JSON.stringify(value, null, 2);
     else if (field.type === 'datetime') values[field.name] = toDatetimeLocal(String(value));
@@ -51,6 +64,20 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
   for (const field of fields) {
     const raw = values[field.name];
     if (initial && raw === initial[field.name]) continue;
+    if (field.relation?.kind === 'to-many') {
+      const refs = Array.isArray(raw) ? raw : [];
+      const before = initial?.[field.name];
+      if (initial ? !sameIds(refs, Array.isArray(before) ? before : []) : refs.length > 0) payload[field.name] = refs.map((ref) => ref.id);
+      continue;
+    }
+    if (field.type === 'relation') {
+      const ref = isRef(raw) ? raw : null;
+      const before = initial?.[field.name];
+      if (initial && String(ref?.id) === String(isRef(before) ? before.id : undefined)) continue;
+      if (ref) payload[field.name] = ref.id;
+      else if (field.nullable || initial) payload[field.name] = null;
+      continue;
+    }
     if (field.type === 'boolean') {
       payload[field.name] = raw === true;
       continue;

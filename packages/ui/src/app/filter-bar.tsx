@@ -3,7 +3,9 @@ import type { FieldSchema, FilterOperator, ResourceSchema } from '@nest-my-admin
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { RelationInput } from '@/app/relation-input';
 import { toDatetimeLocal } from '@/lib/form-values';
+import { useRelationRefs } from '@/lib/queries';
 import { clearFilters, filterKey, hasActiveFilters, type ParamChanges } from '@/lib/list-state';
 import { cn } from '@/lib/utils';
 
@@ -59,7 +61,7 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
       {filters.length > 0 && (
         <div className={cn('gap-3 sm:grid-cols-2 lg:grid-cols-4', open ? 'grid' : 'hidden md:grid')}>
           {filters.map(({ field, operators }) => (
-            <FilterControl key={field.name} field={field} operators={operators} params={params} onChange={onChange} />
+            <FilterControl key={field.name} resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} />
           ))}
         </div>
       )}
@@ -75,14 +77,21 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
 }
 
 interface FilterControlProps {
+  resource: string;
   field: FieldSchema;
   operators: FilterOperator[];
   params: URLSearchParams;
   onChange: (changes: ParamChanges) => void;
 }
 
-function FilterControl({ field, operators, params, onChange }: FilterControlProps) {
+function FilterControl({ resource, field, operators, params, onChange }: FilterControlProps) {
   const id = `filter-${field.name}`;
+
+  if (field.type === 'relation') {
+    const operator: FilterOperator = field.relation?.kind === 'to-many' ? 'in' : 'eq';
+    if (!operators.includes(operator)) return null;
+    return <RelationFilter id={id} resource={resource} field={field} operator={operator} params={params} onChange={onChange} />;
+  }
 
   if ((field.type === 'enum' || field.type === 'boolean') && operators.includes('eq')) {
     const key = filterKey(field.name, 'eq');
@@ -141,6 +150,40 @@ function FilterControl({ field, operators, params, onChange }: FilterControlProp
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id}>{operator === 'contains' ? `${field.label} contains` : field.label}</Label>
       <CommitInput id={id} value={params.get(key) ?? ''} onCommit={(value) => onChange({ [key]: value.trim() || null })} />
+    </div>
+  );
+}
+
+interface RelationFilterProps {
+  id: string;
+  resource: string;
+  field: FieldSchema;
+  operator: FilterOperator;
+  params: URLSearchParams;
+  onChange: (changes: ParamChanges) => void;
+}
+
+/** Picks related records; the URL keeps only their ids, so titles are looked up when the page is opened from a link. */
+function RelationFilter({ id, resource, field, operator, params, onChange }: RelationFilterProps) {
+  const key = filterKey(field.name, operator);
+  const ids = (params.get(key) ?? '').split(',').filter(Boolean);
+  const refs = useRelationRefs(resource, field.name, ids);
+  const known = new Map((refs.data?.items ?? []).map((ref) => [String(ref.id), ref]));
+  const value = ids.map((knownId) => known.get(knownId) ?? { id: knownId, title: `#${knownId}` });
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id}>{field.label}</Label>
+      <RelationInput
+        id={id}
+        resource={resource}
+        field={field}
+        clearable
+        value={operator === 'in' ? value : (value[0] ?? null)}
+        onChange={(next) => {
+          const picked = Array.isArray(next) ? next : next ? [next] : [];
+          onChange({ [key]: picked.length > 0 ? picked.map((ref) => ref.id).join(',') : null });
+        }}
+      />
     </div>
   );
 }

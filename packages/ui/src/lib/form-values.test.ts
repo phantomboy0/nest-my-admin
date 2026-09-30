@@ -66,3 +66,31 @@ describe('toPayload', () => {
     expect(toPayload(big, { n: '9,007,199,254,740,993' }).payload.n).toBe('9007199254740993');
   });
 });
+
+describe('relation values', () => {
+  const customer = field('customer', 'relation', { relation: { kind: 'to-one', idType: 'number' } });
+  const seller = field('seller', 'relation', { nullable: true, relation: { kind: 'to-one', idType: 'number' } });
+  const tags = field('tags', 'relation', { nullable: true, relation: { kind: 'to-many', idType: 'uuid' } });
+  const relationFields = [customer, seller, tags];
+  const ada = { id: 1, title: 'Ada' };
+  const bob = { id: 2, title: 'Bob' };
+  const red = { id: 'r', title: 'red' };
+  const blue = { id: 'b', title: 'blue' };
+
+  test('records become refs; missing values become null and []', () => {
+    expect(toFormValues(relationFields, { customer: ada, seller: null, tags: [red] })).toEqual({ customer: ada, seller: null, tags: [red] });
+    expect(toFormValues(relationFields)).toEqual({ customer: null, seller: null, tags: [] });
+  });
+
+  test('create sends ids; an empty non-nullable relation is left out so the server says it is required', () => {
+    expect(toPayload(relationFields, { customer: ada, seller: bob, tags: [red, blue] }).payload).toEqual({ customer: 1, seller: 2, tags: ['r', 'b'] });
+    expect(toPayload(relationFields, { customer: null, seller: null, tags: [] }).payload).toEqual({ seller: null });
+  });
+
+  test('edit sends only changed relations, comparing ids (many-to-many in any order)', () => {
+    const initial = { customer: ada, seller: bob, tags: [red, blue] };
+    expect(toPayload(relationFields, { customer: { ...ada }, seller: bob, tags: [blue, red] }, initial).payload).toEqual({});
+    expect(toPayload(relationFields, { customer: bob, seller: null, tags: [red] }, initial).payload).toEqual({ customer: 2, seller: null, tags: ['r'] });
+    expect(toPayload(relationFields, { customer: ada, seller: bob, tags: [] }, initial).payload).toEqual({ tags: [] });
+  });
+});
