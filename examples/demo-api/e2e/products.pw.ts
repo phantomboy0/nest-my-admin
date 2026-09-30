@@ -66,8 +66,11 @@ test('deep link refresh works and errors are shown where they belong', async ({ 
 test('filters and search narrow the list', async ({ page, isMobile }) => {
   await page.goto('/admin/product');
   if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
-  await page.getByLabel('Status').selectOption('draft');
-  await expect(page).toHaveURL(/filter%5Bstatus%5D%5Beq%5D=draft/);
+  await page.getByLabel('Status', { exact: true }).click();
+  await page.getByRole('checkbox', { name: 'draft' }).click();
+  await page.keyboard.press('Escape');
+  await expect(page).toHaveURL(/filter%5Bstatus%5D%5Bin%5D=draft/);
+  await expect(page.getByRole('list', { name: 'Active filters' })).toContainText('Status:draft');
   await expect(page.getByText('DEMO-3', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 
