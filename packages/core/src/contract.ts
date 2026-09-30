@@ -126,6 +126,10 @@ export interface MetaResourceSummary {
   name: string;
   label: string;
   icon?: string;
+  /** Records can be created (the command palette offers "New …"). */
+  creatable: boolean;
+  /** Has `list.search`: global search (`/api/search`) covers it. */
+  searchable: boolean;
 }
 
 export interface MetaGroup {

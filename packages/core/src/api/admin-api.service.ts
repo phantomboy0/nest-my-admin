@@ -51,7 +51,7 @@ export class AdminApiService {
         label: text(group.label),
         resources: resources
           .filter((entry) => entry.schema.group === group.key)
-          .map(({ schema, label }) => ({ name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}) }))
+          .map(({ schema, label }) => ({ name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}), creatable: schema.creatable, searchable: schema.list.search.length > 0 }))
           .sort((a, b) => a.label.localeCompare(b.label, locale)),
       }))
       .filter((entry) => entry.resources.length > 0)

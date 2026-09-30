@@ -145,6 +145,16 @@ export const en = {
   'form.externalLink': '{name} (opens in a new tab)',
   'form.colorCode': '{name} colour code',
 
+  'palette.open': 'Search and go to',
+  'palette.placeholder': 'Go to, create, or find records…',
+  'palette.results': 'Results',
+  'palette.goTo': 'Go to',
+  'palette.create': 'Create',
+  'palette.records': 'Records',
+  'palette.new': 'New {name}',
+  'palette.searching': 'Searching…',
+  'palette.noResults': 'Nothing found',
+
   'picker.typeToSearch': 'Type to search…',
   'picker.typeToAdd': 'Type to add…',
   'picker.searching': 'Searching…',

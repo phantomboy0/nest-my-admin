@@ -21,7 +21,7 @@ describe('meta API', () => {
       title: 'Test shop',
       locale: 'en',
       locales: ['en'],
-      groups: [{ key: 'widgets', label: 'Inventory', icon: 'boxes', resources: [{ name: 'widget', label: 'Widget' }] }],
+      groups: [{ key: 'widgets', label: 'Inventory', icon: 'boxes', resources: [{ name: 'widget', label: 'Widget', creatable: true, searchable: true }] }],
     });
   });
 

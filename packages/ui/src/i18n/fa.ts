@@ -147,6 +147,16 @@ export const fa: Messages = {
   'form.externalLink': '{name} (در زبانه‌ی جدید باز می‌شود)',
   'form.colorCode': 'کد رنگ {name}',
 
+  'palette.open': 'جست‌وجو و رفتن به',
+  'palette.placeholder': 'رفتن به، ساختن، یا یافتن رکورد…',
+  'palette.results': 'نتایج',
+  'palette.goTo': 'رفتن به',
+  'palette.create': 'ساختن',
+  'palette.records': 'رکوردها',
+  'palette.new': '{name} جدید',
+  'palette.searching': 'در حال جست‌وجو…',
+  'palette.noResults': 'چیزی پیدا نشد',
+
   'picker.typeToSearch': 'برای جست‌وجو تایپ کنید…',
   'picker.typeToAdd': 'برای افزودن تایپ کنید…',
   'picker.searching': 'در حال جست‌وجو…',

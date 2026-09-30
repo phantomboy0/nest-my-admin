@@ -1,4 +1,4 @@
-import type { AdminErrorBody, AdminRecord, BulkResult, ListResponse, MetaResponse, OptionsResponse, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminErrorBody, AdminRecord, BulkResult, ListResponse, MetaResponse, OptionsResponse, ResourceSchema, SearchResponse } from '@nest-my-admin/core/contract';
 import { activeLocale, translate as tr } from '@/i18n';
 import { runtimeConfig } from './config';
 import { ApiError } from './api-error';
@@ -43,6 +43,7 @@ const ifMatch = (version: unknown): Record<string, string> =>
 
 export const api = {
   meta: () => request<MetaResponse>('/meta'),
+  search: (q: string) => request<SearchResponse>(`/search?${new URLSearchParams({ q })}`),
   schema: (resource: string) => request<ResourceSchema>(`/meta/resources/${enc(resource)}`),
   list: (resource: string, query: URLSearchParams) => request<ListResponse>(`/resources/${enc(resource)}?${query}`),
   /** `version` (the record's @VersionColumn value) makes the server refuse with 409 if the record changed since. */

@@ -87,7 +87,7 @@ test('filters and search narrow the list', async ({ page, isMobile }) => {
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Clear filters' }).click();
-  await page.getByLabel('Search').fill('notebook');
+  await page.getByLabel('Search', { exact: true }).fill('notebook');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.getByText('DEMO-2', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
@@ -339,7 +339,7 @@ test('bulk delete reports what it could not delete', async ({ page, isMobile }, 
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page).toHaveURL(/\/admin\/product$/);
   }
-  await page.getByLabel('Search').fill('Bulk');
+  await page.getByLabel('Search', { exact: true }).fill('Bulk');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Select all on this page' }).check();
   await expect(page.getByRole('region', { name: '3 selected' })).toBeVisible();
@@ -594,4 +594,48 @@ test('phones: list.mobile cards, infinite scroll, sort in the drawer and select 
   await page.getByRole('button', { name: 'Delete selected' }).click();
   await page.getByRole('button', { name: 'Delete 2' }).click();
   await expect(page.getByText('No records match.')).toBeVisible();
+});
+
+test('command palette: go to, create and find records with the keyboard (M2-4 Review Focus 2, 4)', async ({ page }) => {
+  await page.goto('/admin');
+  const trigger = page.getByRole('button', { name: 'Search and go to' });
+  const palette = page.getByRole('dialog', { name: 'Search and go to' });
+  const input = palette.getByRole('combobox');
+
+  await page.keyboard.press('Control+k');
+  await expect(input).toBeFocused();
+  await input.fill('catalog');
+  await expect(palette.getByRole('status')).not.toHaveText('Searching…');
+  await expect(palette.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
+  // Category, Product, Stock move, … (one group, so no group entry)
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowUp');
+  await expect(palette.getByRole('option', { name: /^Product/ })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/admin\/product$/);
+
+  await page.keyboard.press('Control+k');
+  await input.fill('new prod');
+  await expect(palette.getByRole('option', { name: 'New Product' })).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/admin\/product\/new$/);
+
+  await page.keyboard.press('Control+k');
+  await input.fill('notebook');
+  await expect(palette.getByRole('option', { name: /^Notebook/ })).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Product: Notebook' })).toBeVisible();
+
+  // Persian letters find the row typed with Arabic ones.
+  await trigger.click();
+  await input.fill('دفتر یادداشت کوچک');
+  await expect(palette.getByRole('option', { name: /دفتر يادداشت كوچك/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(palette).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await page.goto(`/admin/product?search=${encodeURIComponent('کوچک')}`);
+  await expect(page.getByText('DEMO-5', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });
