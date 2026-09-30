@@ -16,13 +16,15 @@ class Stamp {
 @AdminResource(Widget, { name: 'context-widget' })
 class ContextWidgetAdmin extends AdminResourceBase<Widget> {
   mismatches = 0;
+  lateContext: Array<AdminContext | undefined | 'unset'> = [];
   constructor(private readonly stamp: Stamp) {
     super();
   }
 
-  async create(dto: object, ctx: AdminContext) {
+  async create(dto: { name?: string }, ctx: AdminContext) {
     await Bun.sleep(Math.floor(Math.random() * 20));
     if (AdminContext.current() !== ctx) this.mismatches++;
+    if (dto.name === 'timer') setTimeout(() => this.lateContext.push(AdminContext.current()), 30);
     this.stamp.note(); // a service with no ctx parameter can still find the request
     return super.create(dto, ctx);
   }
@@ -65,6 +67,14 @@ describe('AdminContext.current()', () => {
     const http = app.getHttpServer();
     await request(http).post('/admin/api/resources/context-widget').send({ name: 'before' });
     expect((await request(http).get('/whoami')).body).toEqual({ inAdmin: false });
-    expect(AdminContext.current()).toBeUndefined();
+  });
+
+  test('a timer started during a request does not see its context afterwards', async () => {
+    const http = app.getHttpServer();
+    const admin = app.get(ContextWidgetAdmin);
+    const res = await request(http).post('/admin/api/resources/context-widget').send({ name: 'timer' });
+    expect(res.status).toBe(201);
+    await Bun.sleep(80);
+    expect(admin.lateContext).toEqual([undefined]);
   });
 });

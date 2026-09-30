@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { DataSource } from 'typeorm';
 import type { AdminRecord, ListResponse, MetaResponse, ResourceSchema } from '../contract.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
@@ -10,8 +11,14 @@ import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext } from '../resource/admin-context.js';
 
+/** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
+const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native']);
+
 @Injectable()
 export class AdminApiService {
+  /** Tail of the write queue per single-connection DataSource, so admin transactions never interleave. */
+  private readonly writeQueues = new WeakMap<DataSource, Promise<unknown>>();
+
   constructor(
     private readonly registry: ResourceRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
@@ -60,10 +67,18 @@ export class AdminApiService {
   /** Runs a write in one transaction (unless disabled) with ctx.manager set and AdminContext.current() pointing at it. */
   private async write<T>(entry: RegisteredResource, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
     if (!this.options.transactions) return work(ctx);
-    return entry.dataSource.transaction(async (manager) => {
-      const transactional: AdminContext = { ...ctx, manager };
-      return AdminContext.run(transactional, () => work(transactional));
-    });
+    const { dataSource } = entry;
+    const run = () =>
+      dataSource.transaction(async (manager) => {
+        const transactional: AdminContext = { ...ctx, manager };
+        return AdminContext.run(transactional, () => work(transactional));
+      });
+    if (!SINGLE_CONNECTION_DRIVERS.has(dataSource.options.type)) return run();
+    // One shared query runner: a second BEGIN would nest into (and roll back with) the first, so queue writes.
+    const previous = this.writeQueues.get(dataSource) ?? Promise.resolve();
+    const result = previous.then(run);
+    this.writeQueues.set(dataSource, result.catch(() => undefined));
+    return result;
   }
 
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {

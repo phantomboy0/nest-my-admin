@@ -139,7 +139,7 @@ export class AdminHttpServer implements OnModuleInit {
           throw new AdminUnsupportedMediaTypeError('Content-Type must be application/json');
         }
         resourceName = match.params.resource;
-        const requestCtx = ctx;
+        const requestCtx = ctx; // narrows the `let` ctx for the closure below
         await AdminContext.run(requestCtx, () => match.handler({ req, res, url, ctx: requestCtx }, match.params));
         return;
       }

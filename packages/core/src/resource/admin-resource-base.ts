@@ -83,18 +83,20 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * The list query with filters, search, sort and paging applied. Override findMany and extend this to add
    * joins or restrictions: `this.buildListQuery(params).andWhere('entity.ownerId = :id', { id })`.
    * A restriction added here applies to the list only: apply the same restriction in `findOne`, which
-   * GET, PATCH and DELETE by id use.
+   * GET, PATCH and DELETE by id use. A restricted `findOne` override should read through
+   * `this.repositoryFor(ctx)` (or `this.buildListQuery(params, alias, ctx)`) so it reads inside the transaction.
    */
-  protected buildListQuery(params: ListParams, alias = 'entity'): SelectQueryBuilder<T> {
-    return applyListParams(this.repository.createQueryBuilder(alias), params, this.primaryKey);
+  protected buildListQuery(params: ListParams, alias = 'entity', ctx?: AdminContext): SelectQueryBuilder<T> {
+    const repository = ctx ? this.repositoryFor(ctx) : this.repository;
+    return applyListParams(repository.createQueryBuilder(alias), params, this.primaryKey);
   }
 
   /**
    * Overrides must honour `params.filters` and `params.search` (easiest: start from `this.buildListQuery(params)`),
    * otherwise the UI shows filters and search that do nothing.
    */
-  async findMany(params: ListParams, _ctx: AdminContext): Promise<FindManyResult<T>> {
-    const [items, total] = await this.buildListQuery(params).getManyAndCount();
+  async findMany(params: ListParams, ctx: AdminContext): Promise<FindManyResult<T>> {
+    const [items, total] = await this.buildListQuery(params, 'entity', ctx).getManyAndCount();
     return { items, total };
   }
 

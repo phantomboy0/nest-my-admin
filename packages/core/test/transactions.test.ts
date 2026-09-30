@@ -9,7 +9,8 @@ import { createTestApp } from './helpers/create-app.js';
 @AdminResource(Widget, { name: 'strict-widget' })
 class StrictWidgetAdmin extends AdminResourceBase<Widget> {
   @AfterSave()
-  refuse(entity: Widget) {
+  async refuse(entity: Widget) {
+    await Bun.sleep(10); // keeps the transaction open so concurrent requests overlap
     if (entity.name === 'explode') throw new AdminFieldError({ name: 'rejected after saving' });
   }
 }
@@ -104,5 +105,32 @@ describe('transactions', () => {
     const http = app.getHttpServer();
     expect((await request(http).post('/admin/api/resources/strict-widget').send({ name: 'explode' })).status).toBe(422);
     expect(await count(http)).toBe(1); // saved before the hook threw, nothing rolled it back
+  });
+
+  test('concurrent writes do not interleave transactions (single-connection drivers)', async () => {
+    app = await createTestApp({ imports: [TxModule] });
+    const http = app.getHttpServer();
+    const post = (name: string) => request(http).post('/admin/api/resources/strict-widget').send({ name });
+    const [bad, good] = await Promise.all([post('explode'), post('fine')]);
+    expect(bad.status).toBe(422);
+    expect(good.status).toBe(201);
+    const list = (await request(http).get('/admin/api/resources/widget')).body;
+    expect(list.total).toBe(1);
+    expect(list.items[0].name).toBe('fine');
+  });
+
+  test('a burst of mixed concurrent writes persists exactly the successful ones', async () => {
+    app = await createTestApp({ imports: [TxModule] });
+    const http = app.getHttpServer();
+    (http as import('node:http').Server).setMaxListeners(30); // supertest attaches listeners per concurrent request
+    const responses = await Promise.all(
+      Array.from({ length: 9 }, (_, i) =>
+        request(http).post('/admin/api/resources/strict-widget').send({ name: i % 3 === 0 ? 'explode' : `ok${i}` }),
+      ),
+    );
+    const created = responses.filter((res) => res.status === 201).length;
+    expect(responses.every((res) => res.status === 201 || res.status === 422)).toBe(true);
+    expect(created).toBe(6);
+    expect(await count(http)).toBe(created);
   });
 });
