@@ -1,4 +1,5 @@
 import type { ServerResponse } from 'node:http';
+import { pipeline } from 'node:stream/promises';
 import { AdminBadRequestError, AdminNotFoundError } from '../errors.js';
 import { sendJson, type AdminRequest } from '../http/http-io.js';
 import type { Router } from '../http/router.js';
@@ -29,4 +30,22 @@ export function addFileRoutes<S extends State>(router: Router<S>, services: { fi
       throw error;
     }
   });
+
+  router.add('GET', '/api/files/*key', async ({ res, ctx }, params) => {
+    const file = await files.download(params.key!, ctx);
+    // Images and PDFs may be shown in place; everything else is saved. Nothing served here may run as a page.
+    const inline = file.contentType.startsWith('image/') || file.contentType === 'application/pdf';
+    res.statusCode = 200;
+    res.setHeader('Content-Type', file.contentType === 'text/plain' ? 'text/plain; charset=utf-8' : file.contentType);
+    res.setHeader('Content-Length', file.size);
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeRfc5987(file.name)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', 'sandbox');
+    res.setHeader('Cache-Control', 'private, no-store');
+    // The headers are out once the body starts, so a storage error mid-way can only cut the response short.
+    await pipeline(file.body, res).catch(() => res.destroy());
+  });
 }
+
+/** RFC 5987 `ext-value`: percent-encoding of everything outside attr-char. */
+const encodeRfc5987 = (name: string): string => encodeURIComponent(name).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);

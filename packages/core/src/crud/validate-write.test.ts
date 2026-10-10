@@ -77,3 +77,38 @@ describe('validateWrite', () => {
     expect(Object.keys(result)).toEqual(['name']);
   });
 });
+
+describe('file fields', () => {
+  class MediaDto {
+    @IsString() name: string;
+    @IsString() logo: string;
+    @IsOptional() @IsString({ each: true }) gallery?: string[];
+  }
+  const field = (name: string, many: boolean) => ({ name, type: many ? 'json' : 'string', file: { accept: ['*/*'], maxBytes: 10, many } }) as never;
+  const rules = { allowed: ['name', 'logo', 'gallery'], dto: MediaDto, fields: [field('logo', false), field('gallery', true)] };
+  const failure = (body: unknown, extra = {}) => validateWrite(body, { ...rules, ...extra }).then(() => undefined, (error: AdminValidationError) => error.fields);
+
+  test('a sent file satisfies the DTO rule of its column and reaches the resource as sent', async () => {
+    const dto = (await validateWrite({ name: 'A', logo: { token: 't1' }, gallery: [{ key: 'a/b.png' }, { token: 't2' }] }, rules)) as Record<string, unknown>;
+    expect(dto).toBeInstanceOf(MediaDto);
+    expect(dto.logo).toEqual({ token: 't1' });
+    expect(dto.gallery).toEqual([{ key: 'a/b.png' }, { token: 't2' }]);
+  });
+
+  test('a missing or null file still answers to the DTO, and the rest is validated as usual', async () => {
+    expect(await failure({ name: 'A' })).toEqual({ logo: ['logo must be a string'] });
+    expect(await failure({ name: 'A', logo: null })).toEqual({ logo: ['logo must be a string'] });
+    expect(await failure({ name: 5, logo: { token: 't1' } })).toEqual({ name: ['name must be a string'] });
+    expect(await failure({ gallery: null }, { partial: true })).toBeUndefined();
+  });
+
+  test('other shapes are refused, with or without a DTO', async () => {
+    for (const extra of [{}, { dto: undefined }]) {
+      expect(await failure({ name: 'A', logo: 'a/b.png' }, extra)).toEqual({ logo: ['must be an uploaded file'] });
+      expect(await failure({ name: 'A', logo: { token: 't', extra: 1 } }, extra)).toEqual({ logo: ['must be an uploaded file'] });
+      expect(await failure({ name: 'A', logo: { token: 'x'.repeat(37) } }, extra)).toEqual({ logo: ['must be an uploaded file'] });
+      expect(await failure({ name: 'A', logo: { token: 't' }, gallery: [{ key: '' }] }, extra)).toEqual({ gallery: ['must be a list of uploaded files'] });
+      expect(await failure({ name: 'A', logo: { token: 't' }, gallery: Array.from({ length: 101 }, () => ({ token: 't' })) }, extra)).toEqual({ gallery: ['must be a list of uploaded files'] });
+    }
+  });
+});

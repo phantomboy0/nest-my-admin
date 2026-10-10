@@ -1,20 +1,22 @@
-import { Inject, Injectable, type OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
-import type { DataSource } from 'typeorm';
-import type { UploadResponse } from '../contract.js';
+import { In, LessThan, type DataSource, type EntityManager } from 'typeorm';
+import type { AdminFileRef, UploadResponse } from '../contract.js';
+import { parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { AdminBadRequestError, AdminForbiddenError, AdminNotFoundError, AdminPayloadTooLargeError, AdminUnsupportedMediaTypeError, AdminValidationError } from '../errors.js';
 import type { AdminRequest } from '../http/http-io.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
-import { ResourceRegistry } from '../registry/resource-registry.js';
+import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
+import { markAdminFile, type AdminFile } from './admin-file.js';
 import { NmaFile } from './entities.js';
 import { accepts, extensionOf, sniff } from './sniff.js';
-import type { AdminStorage } from './storage.js';
+import { encodeKey, type AdminStorage } from './storage.js';
 
 /** Bytes read before the type is decided; enough for every magic number and the first entries of a zip. */
 const HEAD_BYTES = 8192;
@@ -22,10 +24,35 @@ const HEAD_BYTES = 8192;
 /** Types a foreign page can send without a CORS preflight: refused, so an upload cannot be forged cross-site. */
 const SIMPLE_TYPES = new Set(['text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded']);
 
-/** Uploads to file and image fields (spec §8.2). Task-2 additions (tokens, attach, cleanup) build on `db` and `storage`. */
+/** How long an upload waits for a record: older tokens are refused, and the hourly sweep deletes them. */
+const TEMP_TTL_MS = 24 * 3_600_000;
+const SWEEP_EVERY_MS = 3_600_000;
+const SWEEP_BATCH = 200;
+
+/** What one write does to a record's files; `resolve` starts it, `attach` and `afterCommit` finish it. */
+export interface FileChanges {
+  /** Each resolved field with the keys the record held there before the write. */
+  before: Map<string, string[]>;
+  /** The uploads (`temp` rows) the write takes, by field. */
+  fresh: Array<{ id: string; field: string }>;
+  /** Set by `attach`: the record, and the keys it let go of. */
+  recordId?: string;
+  removed: string[];
+  /** Keys whose rows are gone: their objects are deleted after commit. */
+  objects: string[];
+  /** `nma_file` lives on another DataSource than the record: the rows change after the record commits. */
+  deferred: boolean;
+}
+
+const INVALID_UPLOAD = 'is not a valid upload';
+const NOT_FOUND = 'File not found';
+
+/** Uploads, the files of records, downloads and cleanup (spec §8.2). */
 @Injectable()
-export class FilesService implements OnApplicationBootstrap {
+export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
+  private readonly logger = new Logger('NestMyAdmin');
   private dataSource?: DataSource;
+  private timer?: ReturnType<typeof setInterval>;
 
   constructor(
     private readonly moduleRef: ModuleRef,
@@ -60,6 +87,209 @@ export class FilesService implements OnApplicationBootstrap {
     }
     if (!this.dataSource.hasMetadata(NmaFile)) {
       throw new Error(`nest-my-admin: files: add ADMIN_FILE_ENTITIES to the entities of the DataSource "${name ?? 'default'}" (NmaFile is missing)`);
+    }
+    // Never keeps the process (or a test run) alive; tests call sweep() themselves.
+    this.timer = setInterval(() => void this.sweep().catch((error: unknown) => this.logger.warn(`files: cleanup failed (${message(error)})`)), SWEEP_EVERY_MS);
+    this.timer.unref();
+  }
+
+  onModuleDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  /** The record's transaction when `nma_file` shares its DataSource, else the files' own connection. */
+  private manager(entry: RegisteredResource, ctx: AdminContext): EntityManager {
+    return ctx.manager && entry.dataSource === this.db ? ctx.manager : this.db.manager;
+  }
+
+  private url(row: Pick<NmaFile, 'key' | 'visibility'>): string {
+    return (row.visibility === 'public' ? this.storage.publicUrl(row.key) : undefined) ?? `${this.options.path}/api/files/${encodeKey(row.key)}`;
+  }
+
+  /**
+   * Replaces what the form sent for each file field of `dto` (`{ token }`, `{ key }`, null, or a list) by `AdminFile`s,
+   * before the resource method runs. A token must be this user's own unsaved upload to this resource and field, less
+   * than 24 hours old; a key must be one the record already holds in that field. Anything else is a 422 on the field.
+   */
+  async resolve(entry: RegisteredResource, dto: object, existing: object | undefined, ctx: AdminContext): Promise<FileChanges | undefined> {
+    const values = dto as Record<string, unknown>;
+    const names = fileFieldsOf(entry).filter((name) => Object.hasOwn(values, name));
+    if (names.length === 0) return undefined;
+    if (!this.enabled) {
+      const sent = names.filter((name) => values[name] !== null);
+      if (sent.length > 0) throw new AdminValidationError(Object.fromEntries(sent.map((name) => [name, ['file uploads are not enabled in this admin']])));
+      return undefined;
+    }
+    const items = (name: string) => (values[name] === null ? [] : Array.isArray(values[name]) ? values[name] : [values[name]]) as Array<{ token?: string; key?: string }>;
+    const manager = this.manager(entry, ctx);
+    const tokens = names.flatMap((name) => items(name).flatMap((item) => (item.token !== undefined ? [item.token] : [])));
+    const keys = names.flatMap((name) => items(name).flatMap((item) => (item.key !== undefined ? [item.key] : [])));
+    const repo = manager.getRepository(NmaFile);
+    const byToken = new Map((tokens.length > 0 ? await repo.findBy({ id: In(tokens) }) : []).map((row) => [row.id, row]));
+    const byKey = new Map((keys.length > 0 ? await repo.findBy({ key: In(keys) }) : []).map((row) => [row.key, row]));
+
+    const changes: FileChanges = { before: new Map(), fresh: [], removed: [], objects: [], deferred: entry.dataSource !== this.db };
+    const errors: Record<string, string[]> = {};
+    const user = userIdOf(ctx);
+    const oldest = Date.now() - TEMP_TTL_MS;
+    const taken = new Set<string>();
+    for (const name of names) {
+      const held = keysOf((existing as Record<string, unknown> | undefined)?.[name]);
+      changes.before.set(name, held);
+      const files: AdminFile[] = [];
+      for (const item of items(name)) {
+        if (item.token !== undefined) {
+          const row = byToken.get(item.token);
+          const valid = row && row.status === 'temp' && row.createdBy === user && row.resource === entry.schema.name && row.field === name && row.createdAt.getTime() > oldest && !taken.has(row.id);
+          if (!valid) {
+            errors[name] = [INVALID_UPLOAD];
+            continue;
+          }
+          taken.add(row.id);
+          changes.fresh.push({ id: row.id, field: name });
+          files.push(markAdminFile({ key: row.key, name: row.name, contentType: row.contentType, size: row.size, url: this.url(row), isNew: true }));
+        } else {
+          const key = item.key!;
+          if (!held.includes(key) || taken.has(key)) {
+            errors[name] = ['is not a file of this record'];
+            continue;
+          }
+          taken.add(key);
+          files.push(markAdminFile({ ...this.ref(key, byKey.get(key), entry, name), isNew: false }));
+        }
+      }
+      values[name] = values[name] === null ? null : Array.isArray(values[name]) ? files : (files[0] ?? null);
+    }
+    if (Object.keys(errors).length > 0) throw new AdminValidationError(errors);
+    return changes;
+  }
+
+  /**
+   * After the resource method, still inside the write: the uploads become `attached` to the record, and the rows of
+   * keys the record no longer holds are deleted. When `nma_file` lives on another DataSource than the record, there is
+   * no shared transaction, so both happen in `afterCommit` instead (a crash in between leaves `temp` rows for the sweep).
+   */
+  async attach(entry: RegisteredResource, changes: FileChanges, entity: object, ctx: AdminContext): Promise<void> {
+    const values = entity as Record<string, unknown>;
+    changes.recordId = recordIdOf(entity, entry.schema.primaryKeys);
+    for (const [name, held] of changes.before) {
+      // A host method may answer an entity without the column: then nothing is known to be removed.
+      if (values[name] === undefined) continue;
+      const now = new Set(keysOf(values[name]));
+      changes.removed.push(...held.filter((key) => !now.has(key)));
+    }
+    if (!changes.deferred) await this.applyRows(this.manager(entry, ctx), entry, changes);
+  }
+
+  private async applyRows(manager: EntityManager, entry: RegisteredResource, changes: FileChanges): Promise<void> {
+    const repo = manager.getRepository(NmaFile);
+    const recordId = changes.recordId!;
+    const ids = changes.fresh.map((file) => file.id);
+    if (ids.length > 0) {
+      await repo.update({ id: In(ids), status: 'temp' }, { status: 'attached', recordId });
+      // Another write (or the sweep) may have taken an upload since resolve() read it: all of them must be ours now.
+      const mine = await repo.findBy({ id: In(ids), status: 'attached', recordId, resource: entry.schema.name });
+      if (mine.length !== ids.length) {
+        const got = new Set(mine.map((row) => row.id));
+        throw new AdminValidationError(Object.fromEntries(changes.fresh.filter((file) => !got.has(file.id)).map((file) => [file.field, [INVALID_UPLOAD]])));
+      }
+    }
+    if (changes.removed.length > 0) {
+      // Only files the admin attached to this very record are deleted; a key a host wrote itself is left alone.
+      const rows = await repo.findBy({ key: In(changes.removed), resource: entry.schema.name, recordId, status: 'attached' });
+      if (rows.length > 0) await repo.delete({ id: In(rows.map((row) => row.id)) });
+      changes.objects.push(...rows.map((row) => row.key));
+    }
+  }
+
+  /** After the write's transaction committed: deletes the objects of removed files. Failures are logged, never thrown. */
+  async afterCommit(entry: RegisteredResource, changes: FileChanges): Promise<void> {
+    if (changes.deferred) {
+      try {
+        await this.applyRows(this.db.manager, entry, changes);
+      } catch (error) {
+        this.logger.warn(`files: could not update the files of ${entry.schema.name} "${changes.recordId}" after the write (${message(error)})`);
+      }
+    }
+    for (const key of changes.objects) {
+      await this.storage.delete(key).catch((error: unknown) => this.logger.warn(`files: could not delete "${key}" from storage (${message(error)})`));
+    }
+  }
+
+  /** `_files` of each entity: a ref for every file the named fields hold (a list for `many` fields). */
+  async refs(entry: RegisteredResource, entities: object[], fields: string[], ctx: AdminContext): Promise<Array<Record<string, AdminFileRef | AdminFileRef[]>>> {
+    const valueOf = (entity: object, name: string) => (entity as Record<string, unknown>)[name];
+    const keys = [...new Set(entities.flatMap((entity) => fields.flatMap((name) => keysOf(valueOf(entity, name)))))];
+    const rows = new Map((keys.length > 0 ? await this.manager(entry, ctx).getRepository(NmaFile).findBy({ key: In(keys) }) : []).map((row) => [row.key, row]));
+    return entities.map((entity) => {
+      const out: Record<string, AdminFileRef | AdminFileRef[]> = {};
+      for (const name of fields) {
+        const value = valueOf(entity, name);
+        const list = keysOf(value).map((key) => this.ref(key, rows.get(key), entry, name));
+        if (Array.isArray(value)) out[name] = list;
+        else if (list.length > 0) out[name] = list[0]!;
+      }
+      return out;
+    });
+  }
+
+  /** A key the admin has no row for (written by the host itself) still gets a ref, named after the key. */
+  private ref(key: string, row: NmaFile | undefined, entry: RegisteredResource, field: string): AdminFileRef {
+    if (row) return { key, name: row.name, contentType: row.contentType, size: row.size, url: this.url(row) };
+    const visibility = entry.fieldConfig.get(field)?.file?.visibility ?? 'private';
+    return { key, name: key.split('/').pop()!, contentType: 'application/octet-stream', size: 0, url: this.url({ key, visibility }) };
+  }
+
+  /**
+   * `GET /api/files/*key`: the bytes of a file attached to a record, for people who may view that record (scopes
+   * included) and that field. Everything else is the same 404 as a key that does not exist.
+   */
+  async download(key: string, ctx: AdminContext): Promise<{ body: Readable; contentType: string; size: number; name: string }> {
+    const gone = () => new AdminNotFoundError(NOT_FOUND);
+    if (!this.enabled || key.length > 500) throw gone();
+    const row = await this.db.getRepository(NmaFile).findOneBy({ key });
+    if (!row || row.status !== 'attached' || row.recordId === null) throw gone();
+    const entry = this.registry.list().find((candidate) => candidate.schema.name === row.resource);
+    if (!entry || !this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view')) throw gone();
+    const level = this.policy.levels(entry, ctx).get(row.field);
+    if (level === undefined || level === 'hidden') throw gone();
+    let entity: object | null;
+    try {
+      const id = parseRecordId(row.recordId, entry.schema);
+      entity = await entry.resource.findOne(id, ctx);
+      if (entity) await this.policy.requireInScope(entry, id, row.recordId, 'view', ctx); // a findOne override may ignore scopes
+    } catch (error) {
+      if (error instanceof AdminNotFoundError || error instanceof AdminBadRequestError || error instanceof AdminValidationError) throw gone();
+      throw error;
+    }
+    // The record must still hold the key: a row left behind by a host that changed the column itself opens nothing.
+    if (!entity || !keysOf((entity as Record<string, unknown>)[row.field]).includes(key)) throw gone();
+    const object = await this.storage.get(key);
+    if (!object) throw gone();
+    return { body: object.body, contentType: row.contentType, size: object.size, name: row.name };
+  }
+
+  /**
+   * Deletes uploads nobody saved a record for within 24 hours, rows first and then their objects; answers how many.
+   * Runs hourly; a row is deleted only while it is still `temp`, so a write attaching it at that moment wins or fails
+   * whole (`attach` re-reads the row).
+   */
+  async sweep(now = Date.now()): Promise<number> {
+    if (!this.enabled) return 0;
+    const repo = this.db.getRepository(NmaFile);
+    let removed = 0;
+    for (;;) {
+      const rows = await repo.find({ where: { status: 'temp', createdAt: LessThan(new Date(now - TEMP_TTL_MS)) }, order: { createdAt: 'ASC' }, take: SWEEP_BATCH });
+      let progressed = false;
+      for (const row of rows) {
+        await repo.delete({ id: row.id, status: 'temp' });
+        if ((await repo.countBy({ id: row.id })) > 0) continue; // attached in the meantime
+        progressed = true;
+        removed += 1;
+        await this.storage.delete(row.key).catch((error: unknown) => this.logger.warn(`files: could not delete "${row.key}" from storage (${message(error)})`));
+      }
+      if (rows.length < SWEEP_BATCH || !progressed) return removed;
     }
   }
 
@@ -147,7 +377,9 @@ export class FilesService implements OnApplicationBootstrap {
         resource: entry.schema.name,
         field,
         recordId: null,
-        createdBy: ctx.user ? String(ctx.user.id).slice(0, 100) : null,
+        createdBy: userIdOf(ctx),
+        // Set here rather than by the database's clock, so the 24-hour checks compare times written and read the same way.
+        createdAt: now,
       });
     } catch (error) {
       await this.storage.delete(key).catch(() => undefined);
@@ -156,6 +388,20 @@ export class FilesService implements OnApplicationBootstrap {
     const url = visibility === 'public' ? this.storage.publicUrl(key) : undefined;
     return { token: id, name, contentType: type, size: total, ...(url ? { url } : {}) };
   }
+}
+
+const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Who an upload belongs to, as `nma_file.createdBy` stores it. */
+const userIdOf = (ctx: AdminContext): string | null => (ctx.user ? String(ctx.user.id).slice(0, 100) : null);
+
+const fileFieldsOf = (entry: RegisteredResource): string[] =>
+  [...entry.fieldConfig].filter(([, config]) => config.widget === 'file' || config.widget === 'image').map(([name]) => name);
+
+/** The keys a file column holds: one, a list, or none. */
+function keysOf(value: unknown): string[] {
+  if (typeof value === 'string') return value === '' ? [] : [value];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item !== '') : [];
 }
 
 function declaredLength(req: AdminRequest): number {

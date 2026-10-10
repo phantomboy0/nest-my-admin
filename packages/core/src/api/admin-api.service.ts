@@ -13,6 +13,7 @@ import { isLoadedField, loadReferences, relationRef } from '../crud/references.j
 import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
+import { FilesService, type FileChanges } from '../files/files.service.js';
 import { AdminBadRequestError, AdminConflictError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import { AdminPolicy, type ResourceView } from '../policy/admin-policy.service.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
@@ -40,6 +41,7 @@ export class AdminApiService {
     private readonly registry: ResourceRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
     private readonly policy: AdminPolicy,
+    private readonly files: FilesService,
   ) {}
 
   /** The resource as this request's user sees it (cached per request). */
@@ -203,7 +205,9 @@ export class AdminApiService {
     const kindOf = (entity: object) =>
       entry.metadata.childEntityMetadatas.find((child) => child.target === entity.constructor)?.discriminatorValue ?? entry.metadata.discriminatorValue;
     const locale = ctx.locale ?? this.options.locale;
-    const out = entities.map((entity) => {
+    const fileFields = this.files.enabled ? schema.fields.filter((field) => field.file).map((field) => field.name) : [];
+    const files = fileFields.length > 0 ? await this.files.refs(entry, entities, fileFields, ctx) : undefined;
+    const out = entities.map((entity, index) => {
       const id = recordIdOf(entity, schema.primaryKeys);
       const locked = this.lockedFields(entry, entity);
       const links = this.recordLinks(entry, entity, locale);
@@ -215,6 +219,7 @@ export class AdminApiService {
       if (perm) record._perm = perm;
       if (locked.length > 0) record._readonly = locked;
       if (links.length > 0) record._links = links;
+      if (files) record._files = files[index];
       return record;
     });
     await this.policy.maskOutOfScope(entry, out, fields, ctx);
@@ -227,27 +232,63 @@ export class AdminApiService {
     return (await this.records(entry, [entity], relations, ctx))[0]!;
   }
 
-  /** Runs a write in one transaction (unless disabled) with ctx.manager set and AdminContext.current() pointing at it. */
+  /** Work to do once a write's transaction has committed, per transactional context (see `write`). */
+  private readonly afterCommits = new WeakMap<AdminContext, Array<() => Promise<void>>>();
+
+  /**
+   * Runs a write in one transaction (unless disabled) with ctx.manager set and AdminContext.current() pointing at it.
+   * Callbacks `work` adds to `afterCommits` for its context run once the transaction has committed (a failure is
+   * logged, never thrown), and never when it rolls back.
+   */
   private async write<T>(entry: RegisteredResource, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
-    if (!this.options.transactions) return work(ctx);
+    const committed = async (tx: AdminContext, run: () => Promise<T>): Promise<T> => {
+      const callbacks: Array<() => Promise<void>> = [];
+      this.afterCommits.set(tx, callbacks);
+      let result: T;
+      try {
+        result = await run();
+      } finally {
+        this.afterCommits.delete(tx);
+      }
+      for (const callback of callbacks) {
+        await callback().catch((error: unknown) => this.logger.warn(`after-commit work failed: ${error instanceof Error ? error.message : String(error)}`));
+      }
+      return result;
+    };
+    if (!this.options.transactions) {
+      // Nothing to commit: the callbacks run when the outermost write on this context is done.
+      return this.afterCommits.has(ctx) ? work(ctx) : committed(ctx, () => work(ctx));
+    }
     const { dataSource } = entry;
     // Re-entrant write (host code inside a write calls the API again on the same DataSource): join the outer
     // transaction; queueing behind it would deadlock. There is no savepoint: if host code catches a failed nested
     // write and carries on, the nested rows commit with the outer transaction. `manager.connection` is deprecated
-    // in TypeORM 1.x but is the only property that exists on both 0.3 and 1.x.
+    // in TypeORM 1.x but is the only property that exists on both 0.3 and 1.x. The nested write's after-commit work
+    // is collected on the outer context, so it waits for the outer commit.
     const outer = AdminContext.current();
     if (outer?.manager && outer.manager.connection === dataSource) return work(outer);
-    const run = () =>
-      dataSource.transaction(async (manager) => {
-        const transactional: AdminContext = { ...ctx, manager };
-        return runInAdminContext(transactional, () => work(transactional));
-      });
+    const run = () => {
+      const transactional: AdminContext = { ...ctx };
+      return committed(transactional, () =>
+        dataSource.transaction(async (manager) => {
+          transactional.manager = manager;
+          return runInAdminContext(transactional, () => work(transactional));
+        }),
+      );
+    };
     if (!SINGLE_CONNECTION_DRIVERS.has(dataSource.options.type)) return run();
     // One shared query runner: a second BEGIN would nest into (and roll back with) the first, so queue writes.
     const previous = this.writeQueues.get(dataSource) ?? Promise.resolve();
     const result = previous.then(run);
     this.writeQueues.set(dataSource, result.catch(() => undefined));
     return result;
+  }
+
+  /** After the resource method: attaches the write's uploads to the saved record and leaves the deletions for after the commit. */
+  private async saveFiles(entry: RegisteredResource, changes: FileChanges | undefined, entity: object, tx: AdminContext): Promise<void> {
+    if (!changes) return;
+    await this.files.attach(entry, changes, entity, tx);
+    this.afterCommits.get(tx)?.push(() => this.files.afterCommit(entry, changes));
   }
 
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
@@ -270,10 +311,12 @@ export class AdminApiService {
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
       await this.checkRelationsExist(entry, relationIds, tx, dto as Record<string, unknown>);
+      const files = await this.files.resolve(entry, dto, undefined, tx);
       const created: unknown = await resource.create(dto, tx);
       if (typeof created !== 'object' || created === null) {
         throw new Error(`${entry.className}.create() must return the created entity`);
       }
+      await this.saveFiles(entry, files, created, tx);
       return this.record(entry, created, tx);
     });
   }
@@ -308,8 +351,10 @@ export class AdminApiService {
         const values = { ...toValues(await this.record(entry, existing, tx)), ...(dto as Record<string, unknown>) };
         await this.checkRelationsExist(entry, relationIds, tx, values);
       }
-      const updated: unknown = await resource.update(id, dto, tx);
-      return this.record(entry, await this.reloadIfEmpty(entry, updated, id, tx), tx);
+      const files = await this.files.resolve(entry, dto, existing, tx);
+      const updated = await this.reloadIfEmpty(entry, await resource.update(id, dto, tx), id, tx);
+      await this.saveFiles(entry, files, updated, tx);
+      return this.record(entry, updated, tx);
     });
   }
 

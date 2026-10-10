@@ -59,6 +59,7 @@ describe('accepts', () => {
     expect(accepts('image/png', ['image/*'])).toBe(true);
     expect(accepts('image/png', ['image/png', 'application/pdf'])).toBe(true);
     expect(accepts('application/pdf', ['image/*'])).toBe(false);
+    expect(accepts('image/png', ['*'])).toBe(true);
     expect(accepts('application/pdf', ['*/*'])).toBe(true);
     expect(accepts('IMAGE/PNG', ['image/*'])).toBe(true);
     expect(accepts('image/png', [])).toBe(true);

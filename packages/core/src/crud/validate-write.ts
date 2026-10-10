@@ -60,6 +60,24 @@ function prunePartial(errors: ValidationError[], input: Record<string, unknown>)
   return kept;
 }
 
+/** Most files one `many` field takes. */
+const MAX_FILES = 100;
+
+/** A file field's value: `{ token }` (a new upload), `{ key }` (keep this file) or null; a list of those for `many`. */
+function checkFile(value: unknown, field: FieldSchema, errors: Record<string, string[]>): void {
+  if (value === null) return;
+  const one = (item: unknown): boolean => {
+    if (!isPlainObject(item)) return false;
+    const keys = Object.keys(item);
+    if (keys.length !== 1 || (keys[0] !== 'token' && keys[0] !== 'key')) return false;
+    const text = item[keys[0]];
+    return typeof text === 'string' && text !== '' && text.length <= (keys[0] === 'token' ? 36 : 500);
+  };
+  if (field.file!.many) {
+    if (!Array.isArray(value) || value.length > MAX_FILES || !value.every(one)) errors[field.name] = ['must be a list of uploaded files'];
+  } else if (!one(value)) errors[field.name] = ['must be an uploaded file'];
+}
+
 export async function validateWrite(body: unknown, rules: WriteRules): Promise<object> {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new AdminBadRequestError('Request body must be a JSON object');
@@ -71,19 +89,29 @@ export async function validateWrite(body: unknown, rules: WriteRules): Promise<o
     throw new AdminValidationError(Object.fromEntries(unknownKeys.map((key) => [key, ['is not a writable field']])));
   }
 
+  // File fields have their own shape, whatever the DTO says about the column (a string, or a list of them).
+  const fileFields = (rules.fields ?? []).filter((field) => field.file !== undefined && Object.hasOwn(input, field.name));
+  const fileErrors: Record<string, string[]> = {};
+  for (const field of fileFields) checkFile(input[field.name], field, fileErrors);
+  if (Object.keys(fileErrors).length > 0) throw new AdminValidationError(fileErrors);
+
   if (!rules.dto) {
     const errors: Record<string, string[]> = {};
     for (const field of rules.fields ?? []) {
-      if (field.type === 'object' && Object.hasOwn(input, field.name)) checkObject(input[field.name], field, field.name, errors);
+      if (field.type === 'object' && field.file === undefined && Object.hasOwn(input, field.name)) checkObject(input[field.name], field, field.name, errors);
     }
     if (Object.keys(errors).length > 0) throw new AdminValidationError(errors);
     return { ...input };
   }
 
-  const instance = plainToInstance(rules.dto, input);
-  let errors = await validate(instance, { whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true });
+  // The DTO validates the rest; a file that was sent satisfies whatever the DTO asks of its property.
+  const sent = new Set(fileFields.filter((field) => input[field.name] !== null).map((field) => field.name));
+  const plain = Object.fromEntries(Object.entries(input).filter(([key]) => !sent.has(key)));
+  const instance = plainToInstance(rules.dto, plain);
+  let errors = (await validate(instance, { whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true })).filter((error) => !sent.has(error.property));
   if (rules.partial) errors = prunePartial(errors, input);
   if (errors.length > 0) throw new AdminValidationError(flattenValidationErrors(errors));
+  for (const name of sent) (instance as Record<string, unknown>)[name] = input[name];
   // Constructor initializers add keys the client never sent; they would overwrite stored values on update.
   for (const key of Object.keys(instance)) {
     if (!Object.hasOwn(input, key)) delete (instance as Record<string, unknown>)[key];

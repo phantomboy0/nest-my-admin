@@ -1,24 +1,34 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { Injectable, Module, type INestApplication } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import request from 'supertest';
 import type { IncomingMessage } from 'node:http';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Column, Entity, PrimaryGeneratedColumn, type DataSource } from 'typeorm';
+import { Column, Entity, LessThan, PrimaryGeneratedColumn, type DataSource } from 'typeorm';
 import {
   ADMIN_FILE_ENTITIES,
   AdminAuth,
   AdminResource,
   AdminResourceBase,
+  AdminScope,
+  AfterSave,
   NmaFile,
   localStorage,
   type AdminAuthAdapter,
+  type AdminContext,
+  type AdminFile,
   type AdminPrincipal,
   type FieldsConfig,
+  type RecordId,
 } from '../src/index.js';
+import { AdminApiService } from '../src/api/admin-api.service.js';
+import { FilesService } from '../src/files/files.service.js';
 import { createTestApp } from './helpers/create-app.js';
+import { TEST_DB } from './helpers/test-db.js';
 
 @Entity('fu_product')
 class Product {
@@ -29,6 +39,7 @@ class Product {
   @Column({ type: 'varchar', length: 300, nullable: true }) secretDoc: string | null;
   @Column({ type: 'simple-json', nullable: true }) gallery: string[] | null;
   @Column({ type: 'varchar', length: 300, nullable: true }) frozen: string | null;
+  @Column({ type: 'varchar', length: 40, default: '' }) ownerId: string;
 }
 
 @AdminResource(Product)
@@ -40,6 +51,52 @@ class ProductAdmin extends AdminResourceBase<Product> {
     gallery: { widget: 'image', many: true },
     frozen: { widget: 'file' },
   };
+
+  @AdminScope('own') own(ctx: AdminContext) {
+    return { ownerId: ctx.user?.id };
+  }
+
+  /** Fails the write after the row was saved, so the transaction has something to roll back. */
+  @AfterSave() refuseBoom(product: Product) {
+    if (product.name === 'boom') throw new Error('boom');
+  }
+}
+
+@Entity('fu_doc')
+class Doc {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ default: '' }) title: string;
+  @Column({ type: 'varchar', length: 300, nullable: true }) attachment: string | null;
+  @Column({ type: 'simple-json', nullable: true }) pages: string[] | null;
+}
+
+/** What the host's `update` override was given, and a nested write it makes before failing. */
+const host: { dto?: Record<string, unknown>; nested?: { id: string; fail: boolean } } = {};
+
+/** A host app that routes updates through its own code: it gets `AdminFile`s and stores the keys itself. */
+@AdminResource(Doc)
+class DocAdmin extends AdminResourceBase<Doc> {
+  constructor(private readonly moduleRef: ModuleRef) {
+    super();
+  }
+  override fields: FieldsConfig<Doc> = { attachment: { widget: 'file' }, pages: { widget: 'file', many: true } };
+
+  override async update(id: RecordId, dto: object, ctx: AdminContext): Promise<Doc> {
+    host.dto = { ...dto };
+    const values = dto as { title?: string; attachment?: AdminFile | null; pages?: AdminFile[] | null };
+    const repo = ctx.manager!.getRepository(Doc);
+    const doc = await repo.findOneByOrFail({ id: Number(id) });
+    if (values.title !== undefined) doc.title = values.title;
+    if (values.attachment !== undefined) doc.attachment = values.attachment?.key ?? null;
+    if (values.pages !== undefined) doc.pages = values.pages?.map((page) => page.key) ?? null;
+    await repo.save(doc);
+    if (host.nested) {
+      // A write inside a write joins the outer transaction; its file deletions wait for the outer commit.
+      await this.moduleRef.get(AdminApiService, { strict: false }).update('product', host.nested.id, { manual: null }, ctx);
+      if (host.nested.fail) throw new Error('outer write failed');
+    }
+    return doc;
+  }
 }
 
 @Entity('fu_note')
@@ -55,6 +112,8 @@ const users: Record<string, { id: string; displayName: string; isSuperuser: bool
   editor: { id: 'editor', displayName: 'Editor', isSuperuser: false },
   viewer: { id: 'viewer', displayName: 'Viewer', isSuperuser: false },
   limited: { id: 'limited', displayName: 'Limited', isSuperuser: false },
+  other: { id: 'other', displayName: 'Other', isSuperuser: false },
+  scoped: { id: 'scoped', displayName: 'Scoped', isSuperuser: false },
   csrf: { id: 'csrf', displayName: 'Csrf', isSuperuser: true },
 };
 
@@ -66,11 +125,11 @@ class HeaderAuth implements AdminAuthAdapter {
     return user ? { user, ...(user.id === 'csrf' ? { csrfToken: 'tok-123' } : {}) } : null;
   }
   resolveRoles(user: { id: string | number }) {
-    return { editor: ['editor'], viewer: ['viewer'], limited: ['limited'] }[String(user.id)] ?? [];
+    return { editor: ['editor'], other: ['editor'], viewer: ['viewer'], limited: ['limited'], scoped: ['scoped'] }[String(user.id)] ?? [];
   }
 }
 
-@Module({ providers: [ProductAdmin, NoteAdmin, HeaderAuth] })
+@Module({ providers: [ProductAdmin, NoteAdmin, DocAdmin, HeaderAuth] })
 class FilesFixtureModule {}
 
 // 1x1 PNG
@@ -97,7 +156,7 @@ const rows = () => db.getRepository(NmaFile).find();
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'nma-files-'));
   app = await createTestApp({
-    entities: [Product, Note, ...ADMIN_FILE_ENTITIES],
+    entities: [Product, Note, Doc, ...ADMIN_FILE_ENTITIES],
     imports: [FilesFixtureModule],
     admin: {
       auth: AdminAuth.custom(HeaderAuth),
@@ -106,6 +165,7 @@ beforeAll(async () => {
         { name: 'editor', permissions: ['product.create', 'product.update', 'product.view'] },
         { name: 'viewer', permissions: ['product.view'] },
         { name: 'limited', permissions: ['product.create', 'product.view'], fields: { product: { manual: 'readonly' } } },
+        { name: 'scoped', permissions: ['product.view'], scopes: { product: { view: 'own' } } },
       ],
     },
   });
@@ -241,6 +301,345 @@ describe('POST /api/uploads', () => {
     expect(field('logo')).toMatchObject({ widget: 'image', file: { accept: ['image/*'], maxBytes: 1000, many: false } });
     expect(field('manual')).toMatchObject({ widget: 'file', file: { accept: ['application/pdf', 'image/*'], maxBytes: 5000, many: false } });
     expect(field('gallery')).toMatchObject({ widget: 'image', file: { accept: ['image/*'], many: true } });
+  });
+});
+
+const TEXT = Buffer.from('plain notes, nothing else\n');
+const json = (who = 'root') => ({
+  get: (path: string) => request(app.getHttpServer()).get(`/admin/api${path}`).set('X-User', who),
+  post: (path: string, body: object) => request(app.getHttpServer()).post(`/admin/api${path}`).set('X-User', who).send(body),
+  patch: (path: string, body: object) => request(app.getHttpServer()).patch(`/admin/api${path}`).set('X-User', who).send(body),
+});
+/** Uploads `body` to a field and answers the token with the stored key. */
+const upload = async (field: string, body: Buffer = PNG, who = 'root', resource = 'product', name = 'a file'): Promise<{ token: string; key: string }> => {
+  const res = await post(`resource=${resource}&field=${field}`, who).set('Content-Type', 'application/octet-stream').set('X-File-Name', encodeURIComponent(name)).send(body);
+  expect(res.status).toBe(201);
+  const row = await db.getRepository(NmaFile).findOneByOrFail({ id: res.body.token });
+  return { token: res.body.token, key: row.key };
+};
+const has = (key: string) => existsSync(join(dir, key));
+const rowOf = (key: string) => db.getRepository(NmaFile).findOneBy({ key });
+const download = (key: string, who = 'root') => request(app.getHttpServer()).get(`/admin/api/files/${key}`).set('X-User', who).responseType('blob');
+
+describe(`file fields in writes and reads (${TEST_DB})`, () => {
+  test('create with a token: the column holds the key, the row is attached to the record, _files carries the ref', async () => {
+    const logo = await upload('logo', PNG, 'root', 'product', 'logo.png');
+    const res = await json().post('/resources/product', { name: 'With logo', logo: { token: logo.token } });
+    expect(res.status).toBe(201);
+    expect(res.body.logo).toBe(logo.key);
+    expect(res.body._files).toEqual({ logo: { key: logo.key, name: 'logo.png', contentType: 'image/png', size: PNG.length, url: `https://cdn.example.com/f/${logo.key}` } });
+    expect(await rowOf(logo.key)).toMatchObject({ status: 'attached', recordId: res.body._id, resource: 'product', field: 'logo' });
+    expect((await db.getRepository(Product).findOneByOrFail({ id: Number(res.body._id) })).logo).toBe(logo.key);
+    // Lists and the detail read carry the same ref; private files link to the admin's download route.
+    const manual = await upload('manual', PDF);
+    const patched = await json().patch(`/resources/product/${res.body._id}`, { manual: { token: manual.token } });
+    expect(patched.body._files.manual.url).toBe(`/admin/api/files/${manual.key}`);
+    const listed = (await json().get('/resources/product')).body.items.find((item: { _id: string }) => item._id === res.body._id);
+    expect(listed._files.logo.key).toBe(logo.key);
+    expect((await json().get(`/resources/product/${res.body._id}`)).body._files.manual.key).toBe(manual.key);
+  });
+
+  test('replacing a file deletes the old object and row, after the write', async () => {
+    const first = await upload('manual', PDF);
+    const created = await json().post('/resources/product', { name: 'Replace', manual: { token: first.token } });
+    const second = await upload('manual', PDF);
+    const res = await json().patch(`/resources/product/${created.body._id}`, { manual: { token: second.token } });
+    expect(res.status).toBe(200);
+    expect(res.body.manual).toBe(second.key);
+    expect(has(first.key)).toBe(false);
+    expect(await rowOf(first.key)).toBeNull();
+    expect(has(second.key)).toBe(true);
+    expect(await rowOf(second.key)).toMatchObject({ status: 'attached', recordId: created.body._id });
+    // Sending the key back keeps the file.
+    const kept = await json().patch(`/resources/product/${created.body._id}`, { name: 'Kept', manual: { key: second.key } });
+    expect(kept.status).toBe(200);
+    expect(kept.body.manual).toBe(second.key);
+    expect(has(second.key)).toBe(true);
+  });
+
+  test('a write that rolls back keeps the old file, and the new upload stays temp (Review Focus 4)', async () => {
+    const old = await upload('manual', PDF);
+    const created = await json().post('/resources/product', { name: 'Rollback', manual: { token: old.token } });
+    const id = created.body._id as string;
+    const fresh = await upload('manual', PDF);
+    const replaced = await json().patch(`/resources/product/${id}`, { name: 'boom', manual: { token: fresh.token } });
+    expect(replaced.status).toBe(500);
+    const cleared = await json().patch(`/resources/product/${id}`, { name: 'boom', manual: null });
+    expect(cleared.status).toBe(500);
+    expect(has(old.key)).toBe(true);
+    expect(await rowOf(old.key)).toMatchObject({ status: 'attached', recordId: id });
+    expect(has(fresh.key)).toBe(true);
+    expect(await rowOf(fresh.key)).toMatchObject({ status: 'temp', recordId: null });
+    expect((await json().get(`/resources/product/${id}`)).body.manual).toBe(old.key);
+    // The upload is still good for a later write.
+    expect((await json().patch(`/resources/product/${id}`, { manual: { token: fresh.token } })).status).toBe(200);
+    expect(has(old.key)).toBe(false);
+  });
+
+  test('null clears the field and deletes the object', async () => {
+    const manual = await upload('manual', PDF);
+    const created = await json().post('/resources/product', { name: 'Clear', manual: { token: manual.token } });
+    const res = await json().patch(`/resources/product/${created.body._id}`, { manual: null });
+    expect(res.status).toBe(200);
+    expect(res.body.manual).toBeNull();
+    expect(res.body._files).toEqual({});
+    expect(has(manual.key)).toBe(false);
+    expect(await rowOf(manual.key)).toBeNull();
+  });
+
+  test('many: add, keep and remove in one PATCH', async () => {
+    const [a, b, c] = [await upload('gallery'), await upload('gallery'), await upload('gallery')];
+    const created = await json().post('/resources/product', { name: 'Gallery', gallery: [{ token: a!.token }, { token: b!.token }] });
+    expect(created.status).toBe(201);
+    expect(created.body.gallery).toEqual([a!.key, b!.key]);
+    const res = await json().patch(`/resources/product/${created.body._id}`, { gallery: [{ key: b!.key }, { token: c!.token }] });
+    expect(res.status).toBe(200);
+    expect(res.body.gallery).toEqual([b!.key, c!.key]);
+    expect(res.body._files.gallery.map((ref: { key: string }) => ref.key)).toEqual([b!.key, c!.key]);
+    expect(res.body._files.gallery[1]).toMatchObject({ contentType: 'image/png', size: PNG.length, url: `/admin/api/files/${c!.key}` });
+    expect([has(a!.key), has(b!.key), has(c!.key)]).toEqual([false, true, true]);
+    expect(await rowOf(a!.key)).toBeNull();
+    expect(await rowOf(c!.key)).toMatchObject({ status: 'attached', recordId: created.body._id });
+    const emptied = await json().patch(`/resources/product/${created.body._id}`, { gallery: [] });
+    expect(emptied.body.gallery).toEqual([]);
+    expect(emptied.body._files.gallery).toEqual([]);
+    expect([has(b!.key), has(c!.key)]).toEqual([false, false]);
+  });
+
+  test("a token the write did not issue to this user, for this field, is 422 and stays temp (Review Focus 1)", async () => {
+    const target = (await json().post('/resources/product', { name: 'Target' })).body._id as string;
+    const invalid = async (res: request.Response, field: string) => {
+      expect(res.status).toBe(422);
+      expect(res.body.fields[field]).toEqual(['is not a valid upload']);
+    };
+    // Another user's upload (the superuser's, and a peer's).
+    const roots = await upload('logo', PNG, 'root');
+    await invalid(await json('editor').post('/resources/product', { name: 'Steal', logo: { token: roots.token } }), 'logo');
+    await invalid(await json('editor').patch(`/resources/product/${target}`, { logo: { token: roots.token } }), 'logo');
+    const peers = await upload('logo', PNG, 'other');
+    await invalid(await json('editor').patch(`/resources/product/${target}`, { logo: { token: peers.token } }), 'logo');
+    await invalid(await json('root').patch(`/resources/product/${target}`, { logo: { token: peers.token } }), 'logo');
+    // Another field's upload, in a single and in a list field.
+    await invalid(await json().patch(`/resources/product/${target}`, { manual: { token: roots.token } }), 'manual');
+    await invalid(await json().patch(`/resources/product/${target}`, { gallery: [{ token: roots.token }] }), 'gallery');
+    // An expired upload.
+    const expired = await upload('logo');
+    await db.getRepository(NmaFile).update({ id: expired.token }, { createdAt: new Date(Date.now() - 25 * 3_600_000) });
+    await invalid(await json().patch(`/resources/product/${target}`, { logo: { token: expired.token } }), 'logo');
+    // Unknown, repeated and already attached tokens.
+    await invalid(await json().patch(`/resources/product/${target}`, { logo: { token: '00000000-0000-4000-8000-000000000000' } }), 'logo');
+    const twice = await upload('gallery');
+    await invalid(await json().patch(`/resources/product/${target}`, { gallery: [{ token: twice.token }, { token: twice.token }] }), 'gallery');
+    const used = await upload('logo');
+    expect((await json().post('/resources/product', { name: 'Uses it', logo: { token: used.token } })).status).toBe(201);
+    await invalid(await json().patch(`/resources/product/${target}`, { logo: { token: used.token } }), 'logo');
+
+    for (const { key } of [roots, peers, expired, twice]) {
+      expect(await rowOf(key)).toMatchObject({ status: 'temp', recordId: null });
+      expect(has(key)).toBe(true);
+    }
+    const stored = await db.getRepository(Product).findOneByOrFail({ id: Number(target) });
+    expect([stored.logo, stored.manual, stored.gallery]).toEqual([null, null, null]);
+    expect(await db.getRepository(Product).countBy({ name: 'Steal' })).toBe(0);
+  });
+
+  test('a key that is not on this record, and values of the wrong shape, are 422', async () => {
+    const mine = await upload('manual', PDF);
+    const owner = (await json().post('/resources/product', { name: 'Owner', manual: { token: mine.token } })).body._id as string;
+    const thief = (await json().post('/resources/product', { name: 'Thief' })).body._id as string;
+    const stolen = await json().patch(`/resources/product/${thief}`, { manual: { key: mine.key } });
+    expect(stolen.status).toBe(422);
+    expect(stolen.body.fields.manual).toEqual(['is not a file of this record']);
+    const onCreate = await json().post('/resources/product', { name: 'Thief 2', manual: { key: mine.key } });
+    expect(onCreate.status).toBe(422);
+    // A key of this record, but of another field.
+    const crossField = await json().patch(`/resources/product/${owner}`, { frozen: { key: mine.key } });
+    expect(crossField.status).toBe(422);
+    const list = await json().patch(`/resources/product/${thief}`, { gallery: [{ key: mine.key }] });
+    expect(list.status).toBe(422);
+    expect((await db.getRepository(Product).findOneByOrFail({ id: Number(thief) })).manual).toBeNull();
+    expect(await rowOf(mine.key)).toMatchObject({ status: 'attached', recordId: owner });
+
+    for (const [body, message] of [
+      [{ manual: mine.key }, 'must be an uploaded file'],
+      [{ manual: { token: 5 } }, 'must be an uploaded file'],
+      [{ manual: { token: mine.token, key: mine.key } }, 'must be an uploaded file'],
+      [{ manual: [{ key: mine.key }] }, 'must be an uploaded file'],
+      [{ gallery: { key: mine.key } }, 'must be a list of uploaded files'],
+      [{ gallery: [mine.key] }, 'must be a list of uploaded files'],
+    ] as const) {
+      const res = await json().patch(`/resources/product/${owner}`, body);
+      expect(res.status).toBe(422);
+      expect(Object.values(res.body.fields)).toEqual([[message]]);
+    }
+  });
+
+  test('a host update override receives AdminFile objects', async () => {
+    const created = await json().post('/resources/doc', { title: 'Doc' });
+    expect(created.status).toBe(201);
+    const id = created.body._id as string;
+    const attachment = await upload('attachment', PDF, 'root', 'doc', 'contract.pdf');
+    const page = await upload('pages', PNG, 'root', 'doc');
+    const first = await json().patch(`/resources/doc/${id}`, { attachment: { token: attachment.token }, pages: [{ token: page.token }] });
+    expect(first.status).toBe(200);
+    expect(host.dto!.attachment).toEqual({ key: attachment.key, name: 'contract.pdf', contentType: 'application/pdf', size: PDF.length, url: `/admin/api/files/${attachment.key}`, isNew: true });
+    expect(first.body.attachment).toBe(attachment.key);
+    expect(await rowOf(attachment.key)).toMatchObject({ status: 'attached', recordId: id });
+    const more = await upload('pages', PNG, 'root', 'doc');
+    const second = await json().patch(`/resources/doc/${id}`, { attachment: null, pages: [{ key: page.key }, { token: more.token }] });
+    expect(second.status).toBe(200);
+    expect(host.dto!.attachment).toBeNull();
+    expect((host.dto!.pages as AdminFile[]).map((file) => [file.key, file.isNew])).toEqual([[page.key, false], [more.key, true]]);
+    expect(second.body.pages).toEqual([page.key, more.key]);
+    expect(has(attachment.key)).toBe(false);
+  });
+
+  test('a nested write deletes its files only after the outer transaction commits, and never when it rolls back (Review Focus 4)', async () => {
+    const manual = await upload('manual', PDF);
+    const product = (await json().post('/resources/product', { name: 'Nested', manual: { token: manual.token } })).body._id as string;
+    const doc = (await json().post('/resources/doc', { title: 'Outer' })).body._id as string;
+    try {
+      host.nested = { id: product, fail: true };
+      expect((await json().patch(`/resources/doc/${doc}`, { title: 'fails' })).status).toBe(500);
+      expect(has(manual.key)).toBe(true);
+      expect(await rowOf(manual.key)).toMatchObject({ status: 'attached', recordId: product });
+      expect((await json().get(`/resources/product/${product}`)).body.manual).toBe(manual.key);
+      host.nested = { id: product, fail: false };
+      expect((await json().patch(`/resources/doc/${doc}`, { title: 'works' })).status).toBe(200);
+      expect(has(manual.key)).toBe(false);
+      expect(await rowOf(manual.key)).toBeNull();
+    } finally {
+      host.nested = undefined;
+    }
+  });
+});
+
+describe(`GET /api/files/*key (${TEST_DB})`, () => {
+  let id: string;
+  let manual: { token: string; key: string };
+  let secret: { token: string; key: string };
+  let notes: { token: string; key: string };
+
+  beforeAll(async () => {
+    manual = await upload('manual', PDF, 'root', 'product', 'راهنما.pdf');
+    secret = await upload('secretDoc', PDF);
+    notes = await upload('frozen', TEXT, 'root', 'product', 'notes.txt');
+    const created = await json().post('/resources/product', { name: 'Downloads', ownerId: 'someone-else', manual: { token: manual.token }, secretDoc: { token: secret.token }, frozen: { token: notes.token } });
+    expect(created.status).toBe(201);
+    id = created.body._id;
+  });
+
+  test('someone who may view the record gets the bytes, with headers that keep the browser from running them', async () => {
+    const res = await download(manual.key, 'viewer');
+    expect(res.status).toBe(200);
+    expect(Buffer.compare(res.body as Buffer, PDF)).toBe(0);
+    expect(res.headers['content-type']).toBe('application/pdf');
+    expect(res.headers['content-length']).toBe(String(PDF.length));
+    expect(res.headers['content-disposition']).toBe(`inline; filename*=UTF-8''${encodeURIComponent('راهنما.pdf')}`);
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['content-security-policy']).toBe('sandbox');
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    // Anything but an image or a pdf is a download.
+    const text = await download(notes.key, 'viewer');
+    expect(text.status).toBe(200);
+    expect(text.headers['content-type']).toBe('text/plain; charset=utf-8');
+    expect(text.headers['content-disposition']).toBe(`attachment; filename*=UTF-8''notes.txt`);
+    expect((text.body as Buffer).toString()).toBe(TEXT.toString());
+  });
+
+  test('out of scope, a hidden field and an unknown key are the same 404 (Review Focus 3)', async () => {
+    const missing = await download('product/manual/2026/01/00000000-0000-4000-8000-000000000000.pdf', 'scoped');
+    const outOfScope = await download(manual.key, 'scoped');
+    const hidden = await download(secret.key, 'viewer');
+    const noResource = await download(manual.key, 'limited-nobody');
+    expect(noResource.status).toBe(401);
+    for (const res of [missing, outOfScope, hidden]) {
+      expect(res.status).toBe(404);
+      const body = JSON.parse((res.body as Buffer).toString());
+      expect({ code: body.code, message: body.message }).toEqual({ code: 'NOT_FOUND', message: 'File not found' });
+    }
+    expect((await download(secret.key, 'root')).status).toBe(200);
+    // The record itself shows the viewer neither the key nor the ref of the hidden field.
+    const seen = (await json('viewer').get(`/resources/product/${id}`)).body;
+    expect(Object.keys(seen._files).sort()).toEqual(['frozen', 'manual']);
+    expect(seen.secretDoc).toBeUndefined();
+    expect(Object.keys((await json('root').get(`/resources/product/${id}`)).body._files).sort()).toEqual(['frozen', 'manual', 'secretDoc']);
+    // In scope, the same user gets the file.
+    await db.getRepository(Product).update({ id: Number(id) }, { ownerId: 'scoped' });
+    expect((await download(manual.key, 'scoped')).status).toBe(200);
+    await db.getRepository(Product).update({ id: Number(id) }, { ownerId: 'someone-else' });
+    expect((await download(manual.key, 'scoped')).status).toBe(404);
+  });
+
+  test('uploads nobody saved, replaced files and other shapes of key are 404', async () => {
+    const temp = await upload('manual', PDF);
+    expect((await download(temp.key)).status).toBe(404);
+    expect((await download('..%2F..%2Fetc%2Fpasswd')).status).toBe(404);
+    expect((await download('nope')).status).toBe(404);
+    // A user without the resource at all.
+    const doc = (await json().post('/resources/doc', { title: 'Private' })).body._id as string;
+    const attachment = await upload('attachment', PDF, 'root', 'doc');
+    await json().patch(`/resources/doc/${doc}`, { attachment: { token: attachment.token } });
+    expect((await download(attachment.key, 'root')).status).toBe(200);
+    expect((await download(attachment.key, 'viewer')).status).toBe(404);
+    // Once the record lets go of a file, its URL is dead.
+    await json().patch(`/resources/product/${id}`, { frozen: null });
+    expect((await download(notes.key)).status).toBe(404);
+  });
+});
+
+describe(`cleanup (${TEST_DB})`, () => {
+  test('the sweep deletes temp uploads older than 24 hours with their objects, and keeps the rest', async () => {
+    const [stale, recent, kept] = [await upload('manual', PDF), await upload('manual', PDF), await upload('manual', PDF)];
+    expect((await json().post('/resources/product', { name: 'Old but attached', manual: { token: kept!.token } })).status).toBe(201);
+    const old = new Date(Date.now() - 25 * 3_600_000);
+    await db.getRepository(NmaFile).update({ id: stale!.token }, { createdAt: old });
+    await db.getRepository(NmaFile).update({ id: kept!.token }, { createdAt: old });
+    const removed = await app.get(FilesService).sweep();
+    expect(removed).toBeGreaterThanOrEqual(1);
+    expect([has(stale!.key), has(recent!.key), has(kept!.key)]).toEqual([false, true, true]);
+    expect(await rowOf(stale!.key)).toBeNull();
+    expect(await rowOf(recent!.key)).toMatchObject({ status: 'temp' });
+    expect(await rowOf(kept!.key)).toMatchObject({ status: 'attached' });
+    expect(await db.getRepository(NmaFile).countBy({ status: 'temp', createdAt: LessThan(new Date(Date.now() - 24 * 3_600_000)) })).toBe(0);
+  });
+});
+
+describe(`nma_file on another DataSource (${TEST_DB})`, () => {
+  test('files are attached and deleted right after the record commits', async () => {
+    const otherDir = await mkdtemp(join(tmpdir(), 'nma-files-other-'));
+    const other = await createTestApp({
+      entities: [Product, Note, Doc],
+      dataSources: { files: [...ADMIN_FILE_ENTITIES] },
+      imports: [FilesFixtureModule],
+      admin: { auth: AdminAuth.custom(HeaderAuth), files: { storage: localStorage({ dir: otherDir }), dataSource: 'files' }, roles: [{ name: 'editor', permissions: ['product.*'] }, { name: 'viewer', permissions: [] }, { name: 'limited', permissions: [] }, { name: 'scoped', permissions: [] }] },
+    });
+    try {
+      const files = other.get<DataSource>(getDataSourceToken('files')).getRepository(NmaFile);
+      const send = async () => {
+        const res = await request(other.getHttpServer()).post('/admin/api/uploads?resource=product&field=manual').set('X-User', 'root').set('Content-Type', 'application/pdf').send(PDF);
+        return { token: res.body.token as string, key: (await files.findOneByOrFail({ id: res.body.token })).key };
+      };
+      const first = await send();
+      const created = await request(other.getHttpServer()).post('/admin/api/resources/product').set('X-User', 'root').send({ name: 'Elsewhere', manual: { token: first.token } });
+      expect(created.status).toBe(201);
+      expect(created.body._files.manual.key).toBe(first.key);
+      expect(await files.findOneBy({ key: first.key })).toMatchObject({ status: 'attached', recordId: created.body._id });
+      const second = await send();
+      const failed = await request(other.getHttpServer()).patch(`/admin/api/resources/product/${created.body._id}`).set('X-User', 'root').send({ name: 'boom', manual: { token: second.token } });
+      expect(failed.status).toBe(500);
+      expect(await files.findOneBy({ key: second.key })).toMatchObject({ status: 'temp', recordId: null });
+      expect(existsSync(join(otherDir, first.key))).toBe(true);
+      const replaced = await request(other.getHttpServer()).patch(`/admin/api/resources/product/${created.body._id}`).set('X-User', 'root').send({ manual: { token: second.token } });
+      expect(replaced.status).toBe(200);
+      expect(await files.findOneBy({ key: first.key })).toBeNull();
+      expect(existsSync(join(otherDir, first.key))).toBe(false);
+      expect(await files.findOneBy({ key: second.key })).toMatchObject({ status: 'attached', recordId: created.body._id });
+      expect((await request(other.getHttpServer()).get(`/admin/api/files/${second.key}`).set('X-User', 'root')).status).toBe(200);
+    } finally {
+      await other.close();
+      await rm(otherDir, { recursive: true, force: true });
+    }
   });
 });
 

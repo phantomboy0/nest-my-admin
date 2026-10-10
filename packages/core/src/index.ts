@@ -24,6 +24,7 @@ export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from 
 export type { FieldRule, ResourceOperation, RoleDefinition, ScopedOperation } from './policy/roles.js';
 export { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './rbac/entities.js';
 export { ADMIN_FILE_ENTITIES, NmaFile } from './files/entities.js';
+export type { AdminFile } from './files/admin-file.js';
 export { localStorage, type AdminStorage, type LocalStorageOptions } from './files/storage.js';
 export { s3Storage, type S3StorageOptions } from './files/s3-storage.js';
 export { accepts, sniff } from './files/sniff.js';

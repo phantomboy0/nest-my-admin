@@ -3,6 +3,7 @@ import { countRows } from '../crud/count.js';
 import { encodeCursor } from '../crud/cursor.js';
 import { applyListParams } from '../crud/list-query-builder.js';
 import { toRelationReferences } from '../crud/relation-writes.js';
+import { toFileKeys } from '../files/admin-file.js';
 import type { FilterOperator, SortDirection } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
@@ -226,23 +227,27 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   /**
    * Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them.
    * Relation fields arrive as ids (`customer: 3`, `tags: ['a', 'b']`), already checked to exist; the default
-   * turns them into references for TypeORM.
+   * turns them into references for TypeORM. File and image fields arrive as `AdminFile` objects (or a list of them,
+   * or null); the default writes their keys into the column.
    */
   async create(dto: object, ctx: AdminContext): Promise<T> {
     const repo = this.repositoryFor(ctx);
     await this.runHooks('beforeSave', dto, ctx, 'create');
-    const saved = await repo.save(repo.create(toRelationReferences(dto, repo.metadata) as DeepPartial<T>));
+    const saved = await repo.save(repo.create(toRelationReferences(toFileKeys(dto), repo.metadata) as DeepPartial<T>));
     await this.runHooks('afterSave', saved, ctx, 'create');
     return saved;
   }
 
-  /** Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them. */
+  /**
+   * Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them.
+   * Relation and file fields arrive as in `create`.
+   */
   async update(id: RecordId, dto: object, ctx: AdminContext): Promise<T> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeSave', dto, ctx, 'update');
     const repo = this.repositoryFor(ctx);
-    const changes = toRelationReferences(dto, repo.metadata) as Record<string, unknown>;
+    const changes = toRelationReferences(toFileKeys(dto), repo.metadata) as Record<string, unknown>;
     repo.merge(existing, changes as DeepPartial<T>);
     // merge() leaves lazy relations alone; their setters take the reference directly.
     for (const relation of repo.metadata.relations) {

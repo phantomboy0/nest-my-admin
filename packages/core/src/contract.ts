@@ -57,6 +57,24 @@ export interface FieldSchema {
   file?: { accept: string[]; maxBytes: number; many: boolean };
 }
 
+/**
+ * What a write sends for a `file` or `image` field: the `token` of a new upload, the `key` of a file the record
+ * already has (to keep it), or null to clear the field. Fields with `file.many` send a list of the first two.
+ */
+export type FileFieldValue = { token: string } | { key: string } | null;
+
+/** A stored file of a record, in `_files`. */
+export interface AdminFileRef {
+  /** The storage key: the field's value. */
+  key: string;
+  /** The original file name, cleaned. */
+  name: string;
+  contentType: string;
+  size: number;
+  /** The storage's public URL for public files, else `<admin path>/api/files/<key>` (answers only to people who may view the record and the field). */
+  url: string;
+}
+
 /** The answer of `POST /api/uploads`: `token` goes into the record's field to attach the file. */
 export interface UploadResponse {
   token: string;
@@ -231,7 +249,9 @@ export interface ResourceSchema {
  * A record: field name → value, dotted list paths (`'customer.name'`) as flat keys, `_id` (the encoded record id used
  * in URLs: key values in primary-key order, `~` as `~0` and `,` as `~1`, joined by `,`; `new` is `~new`), `_title`,
  * the record's display name (spec §5.2 `title`), and when configured `_readonly` (fields `readonlyIf` locks on this
- * record) and `_links` (`RecordLink[]`).
+ * record) and `_links` (`RecordLink[]`). File and image fields hold their key (a list of keys with `file.many`), and
+ * resources with such fields add `_files`: field name → `AdminFileRef` (`AdminFileRef[]` with `file.many`) for every
+ * field that holds a file.
  */
 export type AdminRecord = Record<string, unknown>;
 
