@@ -70,6 +70,9 @@ describe('file fields', () => {
     expect(check({ logo: { widget: 'file', file: { maxBytes: 0 } } })).toThrow('maxBytes: must be a positive number of bytes');
     expect(check({ logo: { widget: 'file', file: { visibility: 'secret' as 'public' } } })).toThrow('visibility: must be "public" or "private"');
     expect(check({ logo: { widget: 'file', file: { accept: ['png'] } } })).toThrow('file.accept');
+    expect(check({ logo: { widget: 'file', file: { accept: ['*/*'] } }, gallery: { widget: 'file', file: { accept: ['*', 'image/*', 'application/pdf'] } } })).not.toThrow();
+    expect(check({ logo: { widget: 'file', file: { accept: ['*/png'] } } })).toThrow('file.accept');
+
   });
   test('the schema carries accept, maxBytes and many, with defaults', () => {
     const logo = FIELDS[5]!;

@@ -6,6 +6,7 @@ import type { AdminContext } from './resource/admin-context.js';
 import type { AdminError } from './errors.js';
 import type { LocalizedText } from './i18n/localized-text.js';
 import type { AdminStorage } from './files/storage.js';
+import { DEFAULT_MAX_FILE_BYTES } from './schema/field-config.js';
 
 /** Host branding for the UI (spec §9.5): applied as CSS variables and shown in the sidebar. */
 export interface AdminBranding {
@@ -184,7 +185,7 @@ function checkFiles(files: AdminFilesOptions | undefined): ResolvedAdminOptions[
   if (!storage || (['put', 'get', 'delete', 'publicUrl'] as const).some((method) => typeof storage[method] !== 'function')) {
     throw new Error('nest-my-admin: files.storage must be an AdminStorage (localStorage({ dir }), s3Storage({ ... }) or your own)');
   }
-  const maxBytes = files.maxBytes ?? 10_485_760;
+  const maxBytes = files.maxBytes ?? DEFAULT_MAX_FILE_BYTES;
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('nest-my-admin: files.maxBytes must be a positive number of bytes');
   if (files.sanitizeHtml !== undefined && typeof files.sanitizeHtml !== 'function') throw new Error('nest-my-admin: files.sanitizeHtml must be a function');
   return { ...files, maxBytes };

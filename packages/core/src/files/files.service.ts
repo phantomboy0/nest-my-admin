@@ -12,7 +12,6 @@ import type { ResolvedAdminOptions } from '../options.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
-import { DEFAULT_MAX_FILE_BYTES } from '../schema/field-config.js';
 import { NmaFile } from './entities.js';
 import { accepts, extensionOf, sniff } from './sniff.js';
 import type { AdminStorage } from './storage.js';
@@ -89,7 +88,7 @@ export class FilesService implements OnApplicationBootstrap {
     if (config?.widget !== 'file' && config?.widget !== 'image') throw new AdminValidationError({ [field]: ['is not a file field'] });
     if (this.policy.levels(entry, ctx).get(field) !== 'edit') throw new AdminForbiddenError(`You may not change ${field}`);
 
-    const limit = config.file?.maxBytes ?? files.maxBytes ?? DEFAULT_MAX_FILE_BYTES;
+    const limit = config.file?.maxBytes ?? files.maxBytes;
     const accept = config.file?.accept ?? (config.widget === 'image' ? ['image/*'] : ['*/*']);
     const visibility = config.file?.visibility ?? 'private';
     const declared = declaredLength(req);

@@ -21,7 +21,12 @@ export function addFileRoutes<S extends State>(router: Router<S>, services: { fi
     const resource = url.searchParams.get('resource');
     const field = url.searchParams.get('field');
     if (!files.enabled) throw new AdminNotFoundError('File uploads are not enabled in this admin');
-    if (!resource || !field) throw new AdminBadRequestError('resource and field are required');
-    sendJson(res, 201, await files.upload(req, resource, field, ctx));
+    try {
+      if (!resource || !field) throw new AdminBadRequestError('resource and field are required');
+      sendJson(res, 201, await files.upload(req, resource, field, ctx));
+    } catch (error) {
+      req.resume(); // discard an unread body so the client gets the JSON error, not a connection reset
+      throw error;
+    }
   });
 }

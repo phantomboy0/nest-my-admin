@@ -97,7 +97,7 @@ function checkFileOptions(name: string, field: FieldSchema, options: FieldConfig
   if (options.file !== undefined) {
     if (!isFile) fail(`fields.${name}: \`file\` options need the "file" or "image" widget`);
     const { accept, maxBytes, visibility } = options.file;
-    if (accept !== undefined && (!Array.isArray(accept) || accept.some((type) => typeof type !== 'string' || !/^(\*|[a-z0-9.+-]+\/(\*|[a-z0-9.+-]+))$/i.test(type.trim())))) {
+    if (accept !== undefined && (!Array.isArray(accept) || accept.some((type) => typeof type !== 'string' || !/^(\*\/\*|\*|[a-z0-9.+-]+\/(\*|[a-z0-9.+-]+))$/i.test(type.trim())))) {
       fail(`fields.${name}.file.accept: use types such as "image/*" or "application/pdf"`);
     }
     if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)) fail(`fields.${name}.file.maxBytes: must be a positive number of bytes`);
