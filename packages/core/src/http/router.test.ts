@@ -24,3 +24,19 @@ describe('Router', () => {
     expect(router.match('GET', '/api/resources/widget/%E0%A4%A')).toBeUndefined();
   });
 });
+
+describe('Router wildcard', () => {
+  const router = new Router<null>().add('GET', '/api/files/*key', noop).add('GET', '/api/meta', noop);
+
+  test('a trailing wildcard takes the rest of the path', () => {
+    expect(router.match('GET', '/api/files/product/logo/2026/10/a%20b.png')?.params).toEqual({ key: 'product/logo/2026/10/a b.png' });
+    expect(router.match('GET', '/api/files/a.png')?.params).toEqual({ key: 'a.png' });
+  });
+
+  test('needs at least one segment, and refuses encoded slashes and bad encodings', () => {
+    expect(router.match('GET', '/api/files')).toBeUndefined();
+    expect(router.match('GET', '/api/files/')).toBeUndefined();
+    expect(router.match('GET', '/api/files/a%2Fb')).toBeUndefined();
+    expect(router.match('GET', '/api/files/a/%E0%A4%A')).toBeUndefined();
+  });
+});

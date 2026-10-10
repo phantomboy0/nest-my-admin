@@ -2,16 +2,26 @@ import 'reflect-metadata';
 import { ADMIN_FIELD_METADATA } from '../constants.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
 
-/** Inputs and displays the UI has (spec §5.6). Rich text and files arrive with uploads (M4). */
+/** Inputs and displays the UI has (spec §5.6). Rich text arrives with M4-1 task 3. */
 export const WIDGETS = [
   'text', 'textarea', 'number', 'money', 'switch', 'checkbox', 'select', 'radio', 'date', 'datetime', 'json', 'color',
-  'badge', 'slug', 'password', 'email', 'url',
+  'badge', 'slug', 'password', 'email', 'url', 'file', 'image',
 ] as const;
 export type WidgetName = (typeof WIDGETS)[number];
 
 /** Colours a badge value can take; the UI maps them to its palette in light and dark themes. */
 export const BADGE_COLORS = ['gray', 'red', 'amber', 'green', 'blue', 'purple', 'pink'] as const;
 export type BadgeColor = (typeof BADGE_COLORS)[number];
+
+/** Options of a `file` or `image` field (spec §5.6, §8.2). */
+export interface FileFieldOptions {
+  /** Types allowed, matched against the sniffed type: `['image/*']`, `['application/pdf', 'image/png']`. Default: images for `image`, anything for `file`. */
+  accept?: string[];
+  /** Largest file in bytes. Default: `files.maxBytes` of the module (10 MiB). */
+  maxBytes?: number;
+  /** `private` (default): bytes are served only through the admin, after the record-view check. `public`: linked through `publicUrl` when the storage has one. */
+  visibility?: 'public' | 'private';
+}
 
 type ShowIfValue = string | number | boolean | null;
 
@@ -34,6 +44,10 @@ export interface AdminFieldOptions {
   slugFrom?: string;
   /** Currency code shown with the `money` widget (display only). */
   currency?: string;
+  /** `file` and `image` widgets: type, size and visibility limits. */
+  file?: FileFieldOptions;
+  /** `file` and `image` widgets on a json column: a list of files instead of one. */
+  many?: boolean;
   /**
    * Hidden from everyone but superusers and roles that grant `<resource>.field.<name>.view|edit` or name the field
    * in their `fields` rules (spec §6.2).

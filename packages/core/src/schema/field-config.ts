@@ -43,7 +43,12 @@ const WIDGET_TYPES: Record<WidgetName, readonly FieldType[]> = {
   password: ['string'],
   email: ['string'],
   url: ['string'],
+  file: ['string', 'text', 'json'],
+  image: ['string', 'text', 'json'],
 };
+
+/** Default for `files.maxBytes`: 10 MiB. */
+export const DEFAULT_MAX_FILE_BYTES = 10_485_760;
 
 /**
  * The options of each field, merged in spec §5.3 order: `@AdminField` on the entity, then on the create and update
@@ -69,6 +74,7 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
       if (!WIDGETS.includes(options.widget)) fail(`fields.${name}: unknown widget "${options.widget}"${didYouMean(options.widget, WIDGETS)}`);
       if (!WIDGET_TYPES[options.widget].includes(field!.type)) fail(`fields.${name}: the "${options.widget}" widget does not fit ${field!.type} fields`);
     }
+    checkFileOptions(name, field!, options, fail);
     for (const color of Object.values(options.colors ?? {})) {
       if (!BADGE_COLORS.includes(color)) fail(`fields.${name}: unknown badge colour "${color}" (use ${BADGE_COLORS.join(', ')})`);
     }
@@ -86,8 +92,25 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
   }
 }
 
+function checkFileOptions(name: string, field: FieldSchema, options: FieldConfig, fail: (message: string) => never): void {
+  const isFile = options.widget === 'file' || options.widget === 'image';
+  if (options.file !== undefined) {
+    if (!isFile) fail(`fields.${name}: \`file\` options need the "file" or "image" widget`);
+    const { accept, maxBytes, visibility } = options.file;
+    if (accept !== undefined && (!Array.isArray(accept) || accept.some((type) => typeof type !== 'string' || !/^(\*|[a-z0-9.+-]+\/(\*|[a-z0-9.+-]+))$/i.test(type.trim())))) {
+      fail(`fields.${name}.file.accept: use types such as "image/*" or "application/pdf"`);
+    }
+    if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)) fail(`fields.${name}.file.maxBytes: must be a positive number of bytes`);
+    if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') fail(`fields.${name}.file.visibility: must be "public" or "private"`);
+  }
+  if (options.many !== undefined) {
+    if (!isFile) fail(`fields.${name}: \`many\` needs the "file" or "image" widget`);
+    if (options.many && field.type !== 'json') fail(`fields.${name}: \`many\` needs a json column (simple-json or json) holding the list of files, got ${field.type}`);
+  }
+}
+
 /** The field with its configured options, texts in `locale` (the schema the UI gets). */
-export function applyFieldConfig(field: FieldSchema, options: FieldConfig | undefined, locale: string, defaultLocale: string): FieldSchema {
+export function applyFieldConfig(field: FieldSchema, options: FieldConfig | undefined, locale: string, defaultLocale: string, defaultMaxBytes = DEFAULT_MAX_FILE_BYTES): FieldSchema {
   if (!options) return field;
   const text = (value: LocalizedText) => resolveText(value, locale, defaultLocale);
   const out: FieldSchema = { ...field };
@@ -100,6 +123,13 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
   if (options.showIf) out.showIf = { ...options.showIf };
   if (options.slugFrom !== undefined) out.slugFrom = options.slugFrom;
   if (options.currency !== undefined) out.currency = options.currency;
+  if (options.widget === 'file' || options.widget === 'image') {
+    out.file = {
+      accept: [...(options.file?.accept ?? (options.widget === 'image' ? ['image/*'] : ['*/*']))],
+      maxBytes: options.file?.maxBytes ?? defaultMaxBytes,
+      many: options.many === true,
+    };
+  }
   return out;
 }
 

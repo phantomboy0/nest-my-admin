@@ -18,6 +18,8 @@ import {
 import type { AdminAuthAdapter, AdminPrincipal } from '../auth/auth-adapter.js';
 import { AdminAuthService } from '../auth/auth.service.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
+import { addFileRoutes, UPLOAD_ROUTE } from '../files/file-routes.js';
+import { FilesService } from '../files/files.service.js';
 import { addRbacRoutes } from '../rbac/rbac-routes.js';
 import { AdminRbac } from '../rbac/rbac.service.js';
 import type { ResolvedAdminOptions } from '../options.js';
@@ -79,6 +81,7 @@ export class AdminHttpServer implements OnModuleInit {
     private readonly auth: AdminAuthService,
     private readonly policy: AdminPolicy,
     private readonly rbac: AdminRbac,
+    private readonly files: FilesService,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {
     this.router
@@ -206,6 +209,7 @@ export class AdminHttpServer implements OnModuleInit {
         res.statusCode = 204;
         res.end();
       });
+    addFileRoutes(this.router, { files: this.files });
     addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry });
   }
 
@@ -314,12 +318,13 @@ export class AdminHttpServer implements OnModuleInit {
         const match = this.router.match(req.method ?? 'GET', pathname);
         if (!match) throw new AdminNotFoundError(`No admin API route for ${req.method} ${pathname}`);
         // Only JSON can be sent by a script; forms and text/plain are CORS "simple" requests a foreign page could forge.
-        if (BODY_METHODS.has(req.method ?? '') && !isJsonContentType(req.headers['content-type'])) {
+        // Uploads carry the raw file instead; FilesService.upload refuses the simple types itself.
+        const route = `${req.method} ${pathname.replace(/\/+$/, '')}`;
+        if (BODY_METHODS.has(req.method ?? '') && route !== UPLOAD_ROUTE && !isJsonContentType(req.headers['content-type'])) {
           throw new AdminUnsupportedMediaTypeError('Content-Type must be application/json');
         }
         resourceName = match.params.resource;
         // Authentication before anything else (spec §4). Only the session routes answer without a session.
-        const route = `${req.method} ${pathname.replace(/\/+$/, '')}`;
         let principal: AdminPrincipal | undefined;
         if (PUBLIC_ROUTES.has(route)) principal = (await this.auth.principal(req)) ?? undefined;
         else principal = await this.auth.require(req);

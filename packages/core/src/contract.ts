@@ -42,7 +42,7 @@ export interface FieldSchema {
   help?: string;
   placeholder?: string;
   /** The widget chosen in the field config; the UI infers one from the type when absent. */
-  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url';
+  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url' | 'file' | 'image';
   /** Display labels of enum values (values sent stay the raw ones). */
   enumLabels?: Record<string, string>;
   /** Badge colour per value. */
@@ -53,6 +53,18 @@ export interface FieldSchema {
   slugFrom?: string;
   /** Currency code for the money widget (display only). */
   currency?: string;
+  /** Set for `file` and `image` widgets: what may be uploaded to the field. */
+  file?: { accept: string[]; maxBytes: number; many: boolean };
+}
+
+/** The answer of `POST /api/uploads`: `token` goes into the record's field to attach the file. */
+export interface UploadResponse {
+  token: string;
+  name: string;
+  contentType: string;
+  size: number;
+  /** Where a browser can fetch the file right away; only for public files of storages with public URLs. */
+  url?: string;
 }
 
 export interface FormLayoutSection {

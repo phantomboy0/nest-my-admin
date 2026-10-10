@@ -13,6 +13,8 @@ const FIELDS = [
   field('price', 'decimal', { scale: 2 }),
   field('active', 'boolean'),
   field('status', 'enum', { enumValues: ['draft', 'active'] }),
+  field('logo', 'string'),
+  field('gallery', 'json'),
 ];
 const fail = (message: string): never => {
   throw new Error(message);
@@ -52,6 +54,28 @@ describe('checkFieldConfig', () => {
     expect(check({ slug: { slugFrom: 'nme' } })).toThrow('fields.slug.slugFrom: unknown field "nme"');
     expect(check({ status: { colors: { draft: 'orange' } } })).toThrow('unknown badge colour "orange"');
     expect(check({ status: { enumLabels: { gone: 'Gone' } } })).toThrow('fields.status.enumLabels: "gone" is not one of draft, active');
+  });
+});
+
+describe('file fields', () => {
+  test('file and image widgets fit string, text and json columns only', () => {
+    expect(check({ logo: { widget: 'image', file: { accept: ['image/*'], maxBytes: 1000, visibility: 'public' } }, gallery: { widget: 'file', many: true } })).not.toThrow();
+    expect(check({ active: { widget: 'file' } })).toThrow('the "file" widget does not fit boolean fields');
+    expect(check({ price: { widget: 'image' } })).toThrow('the "image" widget does not fit decimal fields');
+  });
+  test('file options and many are checked', () => {
+    expect(check({ logo: { file: { accept: ['image/*'] } } })).toThrow('`file` options need the "file" or "image" widget');
+    expect(check({ logo: { widget: 'file', many: true } })).toThrow('`many` needs a json column');
+    expect(check({ name: { many: true } })).toThrow('`many` needs the "file" or "image" widget');
+    expect(check({ logo: { widget: 'file', file: { maxBytes: 0 } } })).toThrow('maxBytes: must be a positive number of bytes');
+    expect(check({ logo: { widget: 'file', file: { visibility: 'secret' as 'public' } } })).toThrow('visibility: must be "public" or "private"');
+    expect(check({ logo: { widget: 'file', file: { accept: ['png'] } } })).toThrow('file.accept');
+  });
+  test('the schema carries accept, maxBytes and many, with defaults', () => {
+    const logo = FIELDS[5]!;
+    expect(applyFieldConfig(logo, { widget: 'image' }, 'en', 'en', 500)).toMatchObject({ widget: 'image', file: { accept: ['image/*'], maxBytes: 500, many: false } });
+    expect(applyFieldConfig(logo, { widget: 'file', file: { accept: ['application/pdf'], maxBytes: 9 } }, 'en', 'en', 500)).toMatchObject({ file: { accept: ['application/pdf'], maxBytes: 9, many: false } });
+    expect(applyFieldConfig(FIELDS[6]!, { widget: 'file', many: true }, 'en', 'en')).toMatchObject({ file: { accept: ['*/*'], maxBytes: 10_485_760, many: true } });
   });
 });
 

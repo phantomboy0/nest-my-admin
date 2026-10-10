@@ -84,6 +84,13 @@ export class AdminUnsupportedMediaTypeError extends AdminError {
   }
 }
 
+/** 413: the request body is bigger than the limit. */
+export class AdminPayloadTooLargeError extends AdminError {
+  constructor(message: string) {
+    super('BAD_REQUEST', 413, message);
+  }
+}
+
 /** Throw from host code (e.g. a service called by a resource) to attach messages to form fields. */
 export class AdminFieldError extends AdminValidationError {
   constructor(fields: Record<string, string | string[]>, message = 'Validation failed') {

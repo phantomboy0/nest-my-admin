@@ -92,7 +92,7 @@ export class AdminApiService {
       const fieldLabel = entry.relatedFieldLabels[index];
       return { ...item, label: fieldLabel ? `${base} (${fieldLabel})` : base };
     });
-    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale));
+    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes));
     const layout = entry.resource.form?.layout;
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale) } : entry.schema.form;
     const localized = { ...entry.schema, label: text(entry.label), related, fields, form };

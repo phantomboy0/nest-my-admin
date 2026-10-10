@@ -1,5 +1,5 @@
 export { AdminModule } from './admin.module.js';
-export type { AdminBranding, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
+export type { AdminBranding, AdminFilesOptions, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
 export type { LocalizedText } from './i18n/localized-text.js';
 export { ResourceRegistry, type RegisteredGroup, type RegisteredResource } from './registry/resource-registry.js';
 export type { DbNames } from './registry/db-names.js';
@@ -17,12 +17,16 @@ export {
   type RecordId,
   type RecordLinkConfig,
 } from './resource/admin-resource-base.js';
-export { AdminField, BADGE_COLORS, WIDGETS, type AdminFieldOptions, type BadgeColor, type WidgetName } from './decorators/admin-field.js';
+export { AdminField, BADGE_COLORS, WIDGETS, type AdminFieldOptions, type FileFieldOptions, type BadgeColor, type WidgetName } from './decorators/admin-field.js';
 export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutSectionConfig, LayoutTabConfig } from './schema/field-config.js';
 export { AdminContext } from './resource/admin-context.js';
 export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from './decorators/admin-scope.js';
 export type { FieldRule, ResourceOperation, RoleDefinition, ScopedOperation } from './policy/roles.js';
 export { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './rbac/entities.js';
+export { ADMIN_FILE_ENTITIES, NmaFile } from './files/entities.js';
+export { localStorage, type AdminStorage, type LocalStorageOptions } from './files/storage.js';
+export { s3Storage, type S3StorageOptions } from './files/s3-storage.js';
+export { accepts, sniff } from './files/sniff.js';
 export type { FieldPath } from './schema/field-paths.js';
 export type { TitleDefinition } from './schema/titles.js';
 export {

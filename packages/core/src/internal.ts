@@ -10,3 +10,4 @@ export { EffectivePermissions } from './policy/effective.js';
 export { AdminRbac } from './rbac/rbac.service.js';
 export { ResourceRegistry, type RegisteredResource } from './registry/resource-registry.js';
 export { createAdminContext, runInAdminContext } from './resource/admin-context.js';
+export { FilesService } from './files/files.service.js';

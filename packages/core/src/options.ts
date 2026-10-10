@@ -5,6 +5,7 @@ import type { RoleDefinition } from './policy/roles.js';
 import type { AdminContext } from './resource/admin-context.js';
 import type { AdminError } from './errors.js';
 import type { LocalizedText } from './i18n/localized-text.js';
+import type { AdminStorage } from './files/storage.js';
 
 /** Host branding for the UI (spec §9.5): applied as CSS variables and shown in the sidebar. */
 export interface AdminBranding {
@@ -42,6 +43,18 @@ export interface GlobalScope {
   where: (ctx: AdminContext, resource: { name: string }) => ScopeCondition;
   /** Superusers are restricted too, unless this is true. */
   exemptSuperusers?: boolean;
+}
+
+/** File and image fields, uploads and downloads (spec §8.2). */
+export interface AdminFilesOptions {
+  /** Where files are kept: `localStorage({ dir })`, `s3Storage({ ... })` or your own AdminStorage. */
+  storage: AdminStorage;
+  /** Largest upload in bytes unless a field says otherwise. Default 10 MiB. */
+  maxBytes?: number;
+  /** Replaces the built-in HTML sanitizer of rich-text fields. */
+  sanitizeHtml?: (html: string) => string;
+  /** The TypeORM DataSource holding `ADMIN_FILE_ENTITIES` (default: the default DataSource). */
+  dataSource?: string;
 }
 
 export interface AdminModuleOptions {
@@ -83,6 +96,11 @@ export interface AdminModuleOptions {
    * Add `ADMIN_RBAC_ENTITIES` to the TypeORM entities of `dataSource` (default: the default DataSource).
    */
   rbac?: { dataSource?: string };
+  /**
+   * Uploads to file and image fields. Add `ADMIN_FILE_ENTITIES` to the TypeORM entities of `dataSource`.
+   * Without it `/api/uploads` answers 404.
+   */
+  files?: AdminFilesOptions;
 }
 
 export interface ResolvedAdminOptions {
@@ -102,6 +120,7 @@ export interface ResolvedAdminOptions {
   globalScopes: GlobalScope[];
   permissions: string[];
   rbac?: { dataSource?: string };
+  files?: AdminFilesOptions & { maxBytes: number };
 }
 
 export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedAdminOptions {
@@ -136,6 +155,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     globalScopes: options.globalScopes ?? [],
     permissions: options.permissions ?? [],
     rbac: options.rbac,
+    files: checkFiles(options.files),
   };
 }
 
@@ -156,4 +176,16 @@ function checkBranding(branding: AdminBranding): AdminBranding {
     throw new Error('nest-my-admin: branding.logo must be an http(s) URL or a relative path');
   }
   return branding;
+}
+
+function checkFiles(files: AdminFilesOptions | undefined): ResolvedAdminOptions['files'] {
+  if (!files) return undefined;
+  const storage = files.storage as Partial<AdminStorage> | undefined;
+  if (!storage || (['put', 'get', 'delete', 'publicUrl'] as const).some((method) => typeof storage[method] !== 'function')) {
+    throw new Error('nest-my-admin: files.storage must be an AdminStorage (localStorage({ dir }), s3Storage({ ... }) or your own)');
+  }
+  const maxBytes = files.maxBytes ?? 10_485_760;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('nest-my-admin: files.maxBytes must be a positive number of bytes');
+  if (files.sanitizeHtml !== undefined && typeof files.sanitizeHtml !== 'function') throw new Error('nest-my-admin: files.sanitizeHtml must be a function');
+  return { ...files, maxBytes };
 }
