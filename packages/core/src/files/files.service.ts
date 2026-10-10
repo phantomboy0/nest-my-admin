@@ -15,6 +15,7 @@ import { ResourceRegistry, type RegisteredResource } from '../registry/resource-
 import type { AdminContext } from '../resource/admin-context.js';
 import { markAdminFile, type AdminFile } from './admin-file.js';
 import { NmaFile } from './entities.js';
+import { createSanitizer, imageKeysOf, resolveImages, type ImageUrls } from './rich-text.js';
 import { accepts, extensionOf, sniff } from './sniff.js';
 import { encodeKey, type AdminStorage } from './storage.js';
 
@@ -33,6 +34,8 @@ const SWEEP_BATCH = 200;
 export interface FileChanges {
   /** Each resolved field with the keys the record held there before the write. */
   before: Map<string, string[]>;
+  /** The `richtext` fields among them: their keys are the images of the HTML, not the column value. */
+  richtext?: Set<string>;
   /** The uploads (`temp` rows) the write takes, by field. */
   fresh: Array<{ id: string; field: string }>;
   /** The record (set by `attach` or `release`). */
@@ -54,6 +57,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger('NestMyAdmin');
   private dataSource?: DataSource;
   private timer?: ReturnType<typeof setInterval>;
+  private sanitizer?: (html: string) => string;
 
   constructor(
     private readonly moduleRef: ModuleRef,
@@ -78,7 +82,17 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     return this.dataSource;
   }
 
-  onApplicationBootstrap(): void {
+  /** Where this admin's editor images may live (none without `files`). */
+  private imageUrls(): ImageUrls | undefined {
+    const files = this.options.files;
+    if (!files) return undefined;
+    const probe = files.storage.publicUrl('k');
+    return { adminPrefix: `${this.options.path}/api/files/`, ...(probe?.endsWith('k') ? { publicPrefix: probe.slice(0, -1) } : {}) };
+  }
+
+  /** `richtext` fields get the host's `files.sanitizeHtml`, else the built-in one, which needs the optional package `sanitize-html`. */
+  async onApplicationBootstrap(): Promise<void> {
+    if (richFieldsOf(...this.registry.list()).length > 0) this.sanitizer = this.options.files?.sanitizeHtml ?? (await createSanitizer(this.imageUrls()));
     if (!this.options.files) return;
     const name = this.options.files.dataSource;
     try {
@@ -99,6 +113,14 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     this.timer = undefined;
   }
 
+  /** The HTML a `richtext` field may store. */
+  sanitizeHtml(html: string): string {
+    if (!this.sanitizer) throw new Error('nest-my-admin: no HTML sanitizer is loaded (no resource has a richtext field)');
+    const clean = this.sanitizer(html);
+    if (typeof clean !== 'string') throw new Error('nest-my-admin: files.sanitizeHtml must return a string');
+    return clean;
+  }
+
   /** The record's transaction when `nma_file` shares its DataSource, else the files' own connection. */
   private manager(entry: RegisteredResource, ctx: AdminContext): EntityManager {
     return ctx.manager && entry.dataSource === this.db ? ctx.manager : this.db.manager;
@@ -116,7 +138,8 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
   async resolve(entry: RegisteredResource, dto: object, existing: object | undefined, ctx: AdminContext): Promise<FileChanges | undefined> {
     const values = dto as Record<string, unknown>;
     const names = fileFieldsOf(entry).filter((name) => Object.hasOwn(values, name));
-    if (names.length === 0) return undefined;
+    const richNames = this.enabled ? richFieldsOf(entry).filter((name) => Object.hasOwn(values, name)) : [];
+    if (names.length === 0 && richNames.length === 0) return undefined;
     if (!this.enabled) {
       const sent = names.filter((name) => values[name] !== null);
       if (sent.length > 0) throw new AdminValidationError(Object.fromEntries(sent.map((name) => [name, ['file uploads are not enabled in this admin']])));
@@ -135,6 +158,22 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     const user = userIdOf(ctx);
     const oldest = Date.now() - TEMP_TTL_MS;
     const taken = new Set<string>();
+    if (richNames.length > 0) {
+      const images = await resolveImages({
+        repo,
+        resource: entry.schema.name,
+        fields: richNames,
+        values,
+        existing: existing as Record<string, unknown> | undefined,
+        recordId: existing ? recordIdOf(existing, entry.schema.primaryKeys) : undefined,
+        user,
+        oldest,
+        urls: this.imageUrls()!,
+      });
+      changes.richtext = new Set(richNames);
+      changes.fresh.push(...images.fresh);
+      for (const [name, held] of images.before) changes.before.set(name, held);
+    }
     for (const name of names) {
       const held = keysOf((existing as Record<string, unknown> | undefined)?.[name]);
       changes.before.set(name, held);
@@ -183,7 +222,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     for (const [name, held] of changes.before) {
       // A host method may answer an entity without the column: then nothing is known to be removed.
       if (values[name] === undefined) continue;
-      const now = new Set(keysOf(values[name]));
+      const now = new Set(changes.richtext?.has(name) ? imageKeysOf(values[name], this.imageUrls()!) : keysOf(values[name]));
       removed.push(...held.filter((key) => !now.has(key)));
     }
     changes.removed = removed;
@@ -197,7 +236,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
    * (after commit when `nma_file` is on another DataSource), the objects after commit.
    */
   async release(entry: RegisteredResource, recordId: string, ctx: AdminContext): Promise<FileChanges | undefined> {
-    if (!this.enabled || fileFieldsOf(entry).length === 0) return undefined;
+    if (!this.enabled || (fileFieldsOf(entry).length === 0 && richFieldsOf(entry).length === 0)) return undefined;
     const changes: FileChanges = { before: new Map(), fresh: [], recordId, removed: 'all', objects: [], deferred: entry.dataSource !== this.db };
     if (!changes.deferred) await this.removeRows(this.manager(entry, ctx), entry, changes);
     return changes;
@@ -283,10 +322,19 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     const gone = () => new AdminNotFoundError(NOT_FOUND);
     if (!this.enabled || key.length > 500) throw gone();
     const row = await this.db.getRepository(NmaFile).findOneBy({ key });
-    if (!row || row.status !== 'attached' || row.recordId === null) throw gone();
+    if (!row) throw gone();
     const entry = this.registry.list().find((candidate) => candidate.schema.name === row.resource);
-    if (!entry || !this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view')) throw gone();
+    if (!entry) throw gone();
+    const permissions = this.policy.permissionsOf(ctx);
     const level = this.policy.levels(entry, ctx).get(row.field);
+    if (row.status === 'temp') {
+      // Not saved yet: only the person who uploaded it may preview it (the editor shows its images while composing).
+      const user = userIdOf(ctx);
+      const mayWrite = permissions.canOn(entry.schema.name, 'create') || permissions.canOn(entry.schema.name, 'update');
+      if (user === null || row.createdBy !== user || row.createdAt.getTime() <= Date.now() - TEMP_TTL_MS || !mayWrite || level !== 'edit') throw gone();
+      return this.open(key, row);
+    }
+    if (row.status !== 'attached' || row.recordId === null || !permissions.canOn(entry.schema.name, 'view')) throw gone();
     if (level === undefined || level === 'hidden') throw gone();
     let entity: object | null;
     try {
@@ -298,9 +346,16 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
       throw error;
     }
     // The record must still hold the key: a row left behind by a host that changed the column itself opens nothing.
-    if (!entity || !keysOf((entity as Record<string, unknown>)[row.field]).includes(key)) throw gone();
+    // A richtext field holds its images in its HTML.
+    const value = (entity as Record<string, unknown> | null)?.[row.field];
+    const held = entry.fieldConfig.get(row.field)?.widget === 'richtext' ? imageKeysOf(value, this.imageUrls()!) : keysOf(value);
+    if (!entity || !held.includes(key)) throw gone();
+    return this.open(key, row);
+  }
+
+  private async open(key: string, row: NmaFile): Promise<{ body: Readable; contentType: string; size: number; name: string }> {
     const object = await this.storage.get(key);
-    if (!object) throw gone();
+    if (!object) throw new AdminNotFoundError(NOT_FOUND);
     return { body: object.body, contentType: row.contentType, size: object.size, name: row.name };
   }
 
@@ -349,11 +404,12 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     if (!entry.schema.fields.some((candidate) => candidate.name === field && !field.includes('.'))) {
       throw new AdminNotFoundError(`Unknown field "${field}" of ${entry.schema.name}`);
     }
-    if (config?.widget !== 'file' && config?.widget !== 'image') throw new AdminValidationError({ [field]: ['is not a file field'] });
+    // The images of a rich-text editor are uploaded to the field they will be saved in.
+    if (config?.widget !== 'file' && config?.widget !== 'image' && config?.widget !== 'richtext') throw new AdminValidationError({ [field]: ['is not a file field'] });
     if (this.policy.levels(entry, ctx).get(field) !== 'edit') throw new AdminForbiddenError(`You may not change ${field}`);
 
     const limit = config.file?.maxBytes ?? files.maxBytes;
-    const accept = config.file?.accept ?? (config.widget === 'image' ? ['image/*'] : ['*/*']);
+    const accept = config.widget === 'richtext' ? ['image/*'] : (config.file?.accept ?? (config.widget === 'image' ? ['image/*'] : ['*/*']));
     const visibility = config.file?.visibility ?? 'private';
     const declared = declaredLength(req);
     if (declared > limit) throw new AdminPayloadTooLargeError(`The file is larger than the ${limit} byte limit`);
@@ -419,7 +475,8 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
       await this.storage.delete(key).catch(() => undefined);
       throw error;
     }
-    const url = visibility === 'public' ? this.storage.publicUrl(key) : undefined;
+    // An editor needs the URL to put in the HTML; a private file's is the admin's download route.
+    const url = config.widget === 'richtext' ? this.url({ key, visibility }) : visibility === 'public' ? this.storage.publicUrl(key) : undefined;
     return { token: id, name, contentType: type, size: total, ...(url ? { url } : {}) };
   }
 }
@@ -431,6 +488,9 @@ const userIdOf = (ctx: AdminContext): string | null => (ctx.user ? String(ctx.us
 
 const fileFieldsOf = (entry: RegisteredResource): string[] =>
   [...entry.fieldConfig].filter(([, config]) => config.widget === 'file' || config.widget === 'image').map(([name]) => name);
+
+const richFieldsOf = (...entries: RegisteredResource[]): string[] =>
+  entries.flatMap((entry) => [...entry.fieldConfig].filter(([, config]) => config.widget === 'richtext').map(([name]) => name));
 
 /** The keys a file column holds: one, a list, or none. */
 function keysOf(value: unknown): string[] {

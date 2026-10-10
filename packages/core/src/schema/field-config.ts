@@ -45,6 +45,7 @@ const WIDGET_TYPES: Record<WidgetName, readonly FieldType[]> = {
   url: ['string'],
   file: ['string', 'text', 'json'],
   image: ['string', 'text', 'json'],
+  richtext: ['string', 'text'],
 };
 
 /** Default for `files.maxBytes`: 10 MiB. */
@@ -95,8 +96,9 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
 function checkFileOptions(name: string, field: FieldSchema, options: FieldConfig, fail: (message: string) => never): void {
   const isFile = options.widget === 'file' || options.widget === 'image';
   if (options.file !== undefined) {
-    if (!isFile) fail(`fields.${name}: \`file\` options need the "file" or "image" widget`);
+    if (!isFile && options.widget !== 'richtext') fail(`fields.${name}: \`file\` options need the "file", "image" or "richtext" widget`);
     const { accept, maxBytes, visibility } = options.file;
+    if (accept !== undefined && options.widget === 'richtext') fail(`fields.${name}.file.accept: the images of a "richtext" field are always image/*`);
     if (accept !== undefined && (!Array.isArray(accept) || accept.some((type) => typeof type !== 'string' || !/^(\*\/\*|\*|[a-z0-9.+-]+\/(\*|[a-z0-9.+-]+))$/i.test(type.trim())))) {
       fail(`fields.${name}.file.accept: use types such as "image/*" or "application/pdf"`);
     }
@@ -110,7 +112,7 @@ function checkFileOptions(name: string, field: FieldSchema, options: FieldConfig
 }
 
 /** The field with its configured options, texts in `locale` (the schema the UI gets). */
-export function applyFieldConfig(field: FieldSchema, options: FieldConfig | undefined, locale: string, defaultLocale: string, defaultMaxBytes = DEFAULT_MAX_FILE_BYTES): FieldSchema {
+export function applyFieldConfig(field: FieldSchema, options: FieldConfig | undefined, locale: string, defaultLocale: string, defaultMaxBytes = DEFAULT_MAX_FILE_BYTES, filesEnabled = false): FieldSchema {
   if (!options) return field;
   const text = (value: LocalizedText) => resolveText(value, locale, defaultLocale);
   const out: FieldSchema = { ...field };
@@ -130,6 +132,7 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
       many: options.many === true,
     };
   }
+  if (options.widget === 'richtext') out.richtext = { images: filesEnabled, maxBytes: options.file?.maxBytes ?? defaultMaxBytes };
   return out;
 }
 

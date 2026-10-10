@@ -64,7 +64,7 @@ describe('file fields', () => {
     expect(check({ price: { widget: 'image' } })).toThrow('the "image" widget does not fit decimal fields');
   });
   test('file options and many are checked', () => {
-    expect(check({ logo: { file: { accept: ['image/*'] } } })).toThrow('`file` options need the "file" or "image" widget');
+    expect(check({ logo: { file: { accept: ['image/*'] } } })).toThrow('`file` options need the "file", "image" or "richtext" widget');
     expect(check({ logo: { widget: 'file', many: true } })).toThrow('`many` needs a json column');
     expect(check({ name: { many: true } })).toThrow('`many` needs the "file" or "image" widget');
     expect(check({ logo: { widget: 'file', file: { maxBytes: 0 } } })).toThrow('maxBytes: must be a positive number of bytes');

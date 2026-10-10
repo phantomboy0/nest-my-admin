@@ -2,10 +2,10 @@ import 'reflect-metadata';
 import { ADMIN_FIELD_METADATA } from '../constants.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
 
-/** Inputs and displays the UI has (spec §5.6). Rich text arrives with M4-1 task 3. */
+/** Inputs and displays the UI has (spec §5.6). */
 export const WIDGETS = [
   'text', 'textarea', 'number', 'money', 'switch', 'checkbox', 'select', 'radio', 'date', 'datetime', 'json', 'color',
-  'badge', 'slug', 'password', 'email', 'url', 'file', 'image',
+  'badge', 'slug', 'password', 'email', 'url', 'file', 'image', 'richtext',
 ] as const;
 export type WidgetName = (typeof WIDGETS)[number];
 
@@ -13,7 +13,7 @@ export type WidgetName = (typeof WIDGETS)[number];
 export const BADGE_COLORS = ['gray', 'red', 'amber', 'green', 'blue', 'purple', 'pink'] as const;
 export type BadgeColor = (typeof BADGE_COLORS)[number];
 
-/** Options of a `file` or `image` field (spec §5.6, §8.2). */
+/** Options of a `file` or `image` field (spec §5.6, §8.2). On a `richtext` field only `maxBytes` and `visibility` apply (to the images of the editor). */
 export interface FileFieldOptions {
   /** Types allowed, matched against the sniffed type: `['image/*']`, `['application/pdf', 'image/png']`. Default: images for `image`, anything for `file`. */
   accept?: string[];
@@ -44,7 +44,7 @@ export interface AdminFieldOptions {
   slugFrom?: string;
   /** Currency code shown with the `money` widget (display only). */
   currency?: string;
-  /** `file` and `image` widgets: type, size and visibility limits. */
+  /** `file` and `image` widgets: type, size and visibility limits; `richtext`: `maxBytes` and `visibility` of editor images. */
   file?: FileFieldOptions;
   /** `file` and `image` widgets on a json column: a list of files instead of one. */
   many?: boolean;

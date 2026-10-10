@@ -13,6 +13,8 @@ export interface WriteRules {
   partial?: boolean;
   /** The resource's fields: without a DTO, keys inside object fields are checked against their children. */
   fields?: FieldSchema[];
+  /** Cleans the HTML of `richtext` fields; sent values pass through it before anything else looks at them. */
+  sanitizeHtml?: (html: string) => string;
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -82,7 +84,7 @@ export async function validateWrite(body: unknown, rules: WriteRules): Promise<o
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new AdminBadRequestError('Request body must be a JSON object');
   }
-  const input = body as Record<string, unknown>;
+  let input = body as Record<string, unknown>;
 
   const unknownKeys = Object.keys(input).filter((key) => !rules.allowed.includes(key));
   if (unknownKeys.length > 0) {
@@ -94,6 +96,18 @@ export async function validateWrite(body: unknown, rules: WriteRules): Promise<o
   const fileErrors: Record<string, string[]> = {};
   for (const field of fileFields) checkFile(input[field.name], field, fileErrors);
   if (Object.keys(fileErrors).length > 0) throw new AdminValidationError(fileErrors);
+
+  // Rich text is cleaned first, so the DTO's rules (length, ...) judge what will be stored.
+  const richText = (rules.fields ?? []).filter((field) => field.widget === 'richtext' && Object.hasOwn(input, field.name) && input[field.name] !== null);
+  if (richText.length > 0) {
+    const sanitize = rules.sanitizeHtml;
+    const bad = richText.filter((field) => typeof input[field.name] !== 'string');
+    if (bad.length > 0) throw new AdminValidationError(Object.fromEntries(bad.map((field) => [field.name, ['must be text']])));
+    if (sanitize) {
+      input = { ...input };
+      for (const field of richText) input[field.name] = sanitize(input[field.name] as string);
+    }
+  }
 
   if (!rules.dto) {
     const errors: Record<string, string[]> = {};

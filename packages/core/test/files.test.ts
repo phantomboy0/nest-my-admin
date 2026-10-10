@@ -584,7 +584,9 @@ describe(`GET /api/files/*key (${TEST_DB})`, () => {
 
   test('uploads nobody saved, replaced files and other shapes of key are 404', async () => {
     const temp = await upload('manual', PDF);
-    expect((await download(temp.key)).status).toBe(404);
+    // Unsaved: only the uploader may preview it (rich-text.test.ts covers the rest).
+    expect((await download(temp.key, 'editor')).status).toBe(404);
+    expect((await download(temp.key)).status).toBe(200);
     expect((await download('..%2F..%2Fetc%2Fpasswd')).status).toBe(404);
     expect((await download('nope')).status).toBe(404);
     // A user without the resource at all.

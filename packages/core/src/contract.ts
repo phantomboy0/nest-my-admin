@@ -42,7 +42,7 @@ export interface FieldSchema {
   help?: string;
   placeholder?: string;
   /** The widget chosen in the field config; the UI infers one from the type when absent. */
-  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url' | 'file' | 'image';
+  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url' | 'file' | 'image' | 'richtext';
   /** Display labels of enum values (values sent stay the raw ones). */
   enumLabels?: Record<string, string>;
   /** Badge colour per value. */
@@ -55,6 +55,8 @@ export interface FieldSchema {
   currency?: string;
   /** Set for `file` and `image` widgets: what may be uploaded to the field. */
   file?: { accept: string[]; maxBytes: number; many: boolean };
+  /** Set for the `richtext` widget: whether the editor can upload images (`files` is configured) and their largest size. */
+  richtext?: { images: boolean; maxBytes: number };
 }
 
 /**

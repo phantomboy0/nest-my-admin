@@ -38,7 +38,13 @@
     "class-validator": ">=0.14.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
+    "sanitize-html": "^2.13.0",
     "typeorm": "^0.3.20 || ^1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "sanitize-html": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@nestjs/common": "12.1.1",
@@ -46,6 +52,7 @@
     "@nestjs/platform-express": "12.1.1",
     "@nestjs/testing": "12.1.1",
     "@nestjs/typeorm": "12.0.2",
+    "@types/sanitize-html": "2.16.2",
     "@types/supertest": "7.2.1",
     "class-transformer": "0.5.1",
     "class-validator": "0.15.1",
@@ -53,6 +60,7 @@
     "pg": "8.23.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
+    "sanitize-html": "2.18.0",
     "sql.js": "1.14.2",
     "supertest": "7.3.0",
     "typeorm": "1.1.1"

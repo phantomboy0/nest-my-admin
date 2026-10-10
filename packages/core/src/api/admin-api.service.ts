@@ -94,7 +94,7 @@ export class AdminApiService {
       const fieldLabel = entry.relatedFieldLabels[index];
       return { ...item, label: fieldLabel ? `${base} (${fieldLabel})` : base };
     });
-    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes));
+    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes, this.files.enabled));
     const layout = entry.resource.form?.layout;
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale) } : entry.schema.form;
     const localized = { ...entry.schema, label: text(entry.label), related, fields, form };
@@ -329,7 +329,7 @@ export class AdminApiService {
       );
     }
     this.policy.checkWriteFields(entry, body, entry.schema.form.create, ctx);
-    const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields });
+    const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields, sanitizeHtml: (html) => this.files.sanitizeHtml(html) });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
       // Files first, so relationOptions() sees AdminFiles in `values`, never what the client sent.
@@ -357,6 +357,7 @@ export class AdminApiService {
       dto: updateDto ?? resource.form?.create,
       partial: true, // PATCH validates only the keys that were sent, dedicated update DTO or not
       fields: schema.fields,
+      sanitizeHtml: (html) => this.files.sanitizeHtml(html),
     });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
