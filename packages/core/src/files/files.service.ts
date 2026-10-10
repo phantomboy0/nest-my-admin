@@ -29,18 +29,19 @@ const TEMP_TTL_MS = 24 * 3_600_000;
 const SWEEP_EVERY_MS = 3_600_000;
 const SWEEP_BATCH = 200;
 
-/** What one write does to a record's files; `resolve` starts it, `attach` and `afterCommit` finish it. */
+/** What one write does to a record's files; `resolve` or `release` starts it, `attach`, `afterCommit` and `rollback` finish it. */
 export interface FileChanges {
   /** Each resolved field with the keys the record held there before the write. */
   before: Map<string, string[]>;
   /** The uploads (`temp` rows) the write takes, by field. */
   fresh: Array<{ id: string; field: string }>;
-  /** Set by `attach`: the record, and the keys it let go of. */
+  /** The record (set by `attach` or `release`). */
   recordId?: string;
-  removed: string[];
+  /** The keys the record let go of; `'all'` when the record itself is deleted for good. */
+  removed: string[] | 'all';
   /** Keys whose rows are gone: their objects are deleted after commit. */
   objects: string[];
-  /** `nma_file` lives on another DataSource than the record: the rows change after the record commits. */
+  /** `nma_file` lives on another DataSource than the record, so its rows cannot share the record's transaction. */
   deferred: boolean;
 }
 
@@ -127,7 +128,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     const keys = names.flatMap((name) => items(name).flatMap((item) => (item.key !== undefined ? [item.key] : [])));
     const repo = manager.getRepository(NmaFile);
     const byToken = new Map((tokens.length > 0 ? await repo.findBy({ id: In(tokens) }) : []).map((row) => [row.id, row]));
-    const byKey = new Map((keys.length > 0 ? await repo.findBy({ key: In(keys) }) : []).map((row) => [row.key, row]));
+    const byKey = new Map((keys.length > 0 ? await repo.findBy({ key: In(keys), resource: entry.schema.name }) : []).map((row) => [row.key, row]));
 
     const changes: FileChanges = { before: new Map(), fresh: [], removed: [], objects: [], deferred: entry.dataSource !== this.db };
     const errors: Record<string, string[]> = {};
@@ -167,49 +168,72 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * After the resource method, still inside the write: the uploads become `attached` to the record, and the rows of
-   * keys the record no longer holds are deleted. When `nma_file` lives on another DataSource than the record, there is
-   * no shared transaction, so both happen in `afterCommit` instead (a crash in between leaves `temp` rows for the sweep).
+   * keys the record no longer holds are deleted.
+   *
+   * When `nma_file` lives on another DataSource than the record there is no shared transaction. The uploads are then
+   * attached on the files' own connection, still BEFORE the record commits (so an upload another write took fails
+   * this write, and a committed record never points at a `temp` row the sweep would delete); `rollback` turns them
+   * back into `temp` when the record's transaction fails. The removals wait for `afterCommit`. A crash in between
+   * leaves an attached row without a record, never a record without its file.
    */
   async attach(entry: RegisteredResource, changes: FileChanges, entity: object, ctx: AdminContext): Promise<void> {
     const values = entity as Record<string, unknown>;
     changes.recordId = recordIdOf(entity, entry.schema.primaryKeys);
+    const removed: string[] = [];
     for (const [name, held] of changes.before) {
       // A host method may answer an entity without the column: then nothing is known to be removed.
       if (values[name] === undefined) continue;
       const now = new Set(keysOf(values[name]));
-      changes.removed.push(...held.filter((key) => !now.has(key)));
+      removed.push(...held.filter((key) => !now.has(key)));
     }
-    if (!changes.deferred) await this.applyRows(this.manager(entry, ctx), entry, changes);
+    changes.removed = removed;
+    const manager = this.manager(entry, ctx);
+    await this.attachRows(manager, entry, changes);
+    if (!changes.deferred) await this.removeRows(manager, entry, changes);
   }
 
-  private async applyRows(manager: EntityManager, entry: RegisteredResource, changes: FileChanges): Promise<void> {
+  /**
+   * A record deleted for good (a hard delete or a purge, never the trash) takes its files with it: the rows now
+   * (after commit when `nma_file` is on another DataSource), the objects after commit.
+   */
+  async release(entry: RegisteredResource, recordId: string, ctx: AdminContext): Promise<FileChanges | undefined> {
+    if (!this.enabled || fileFieldsOf(entry).length === 0) return undefined;
+    const changes: FileChanges = { before: new Map(), fresh: [], recordId, removed: 'all', objects: [], deferred: entry.dataSource !== this.db };
+    if (!changes.deferred) await this.removeRows(this.manager(entry, ctx), entry, changes);
+    return changes;
+  }
+
+  private async attachRows(manager: EntityManager, entry: RegisteredResource, changes: FileChanges): Promise<void> {
+    const ids = changes.fresh.map((file) => file.id);
+    if (ids.length === 0) return;
     const repo = manager.getRepository(NmaFile);
     const recordId = changes.recordId!;
-    const ids = changes.fresh.map((file) => file.id);
-    if (ids.length > 0) {
-      await repo.update({ id: In(ids), status: 'temp' }, { status: 'attached', recordId });
-      // Another write (or the sweep) may have taken an upload since resolve() read it: all of them must be ours now.
-      const mine = await repo.findBy({ id: In(ids), status: 'attached', recordId, resource: entry.schema.name });
-      if (mine.length !== ids.length) {
-        const got = new Set(mine.map((row) => row.id));
-        throw new AdminValidationError(Object.fromEntries(changes.fresh.filter((file) => !got.has(file.id)).map((file) => [file.field, [INVALID_UPLOAD]])));
-      }
-    }
-    if (changes.removed.length > 0) {
-      // Only files the admin attached to this very record are deleted; a key a host wrote itself is left alone.
-      const rows = await repo.findBy({ key: In(changes.removed), resource: entry.schema.name, recordId, status: 'attached' });
-      if (rows.length > 0) await repo.delete({ id: In(rows.map((row) => row.id)) });
-      changes.objects.push(...rows.map((row) => row.key));
-    }
+    await repo.update({ id: In(ids), status: 'temp' }, { status: 'attached', recordId });
+    // Another write (or the sweep) may have taken an upload since resolve() read it: all of them must be ours now.
+    const mine = await repo.findBy({ id: In(ids), status: 'attached', recordId, resource: entry.schema.name });
+    if (mine.length === ids.length) return;
+    const got = new Set(mine.map((row) => row.id));
+    const lost = changes.fresh.filter((file) => !got.has(file.id));
+    changes.fresh = changes.fresh.filter((file) => got.has(file.id)); // rollback() gives back only what this write took
+    throw new AdminValidationError(Object.fromEntries(lost.map((file) => [file.field, [INVALID_UPLOAD]])));
+  }
+
+  /** Only files the admin attached to this very record are deleted; a key a host wrote itself is left alone. */
+  private async removeRows(manager: EntityManager, entry: RegisteredResource, changes: FileChanges): Promise<void> {
+    if (changes.removed !== 'all' && changes.removed.length === 0) return;
+    const repo = manager.getRepository(NmaFile);
+    const rows = await repo.findBy({ ...(changes.removed === 'all' ? {} : { key: In(changes.removed) }), resource: entry.schema.name, recordId: changes.recordId!, status: 'attached' });
+    if (rows.length > 0) await repo.delete({ id: In(rows.map((row) => row.id)) });
+    changes.objects.push(...rows.map((row) => row.key));
   }
 
   /** After the write's transaction committed: deletes the objects of removed files. Failures are logged, never thrown. */
   async afterCommit(entry: RegisteredResource, changes: FileChanges): Promise<void> {
     if (changes.deferred) {
       try {
-        await this.applyRows(this.db.manager, entry, changes);
+        await this.removeRows(this.db.manager, entry, changes);
       } catch (error) {
-        this.logger.warn(`files: could not update the files of ${entry.schema.name} "${changes.recordId}" after the write (${message(error)})`);
+        this.logger.warn(`files: could not delete the removed files of ${entry.schema.name} "${changes.recordId}" after the write (${message(error)})`);
       }
     }
     for (const key of changes.objects) {
@@ -217,11 +241,21 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
+  /**
+   * The write's transaction failed. Rows attached inside it rolled back with it; rows attached on another DataSource
+   * are turned back into `temp` here, so the upload can be used again (best effort: a row left `attached` only leaks).
+   */
+  async rollback(entry: RegisteredResource, changes: FileChanges): Promise<void> {
+    const ids = changes.fresh.map((file) => file.id);
+    if (!changes.deferred || ids.length === 0 || changes.recordId === undefined) return;
+    await this.db.getRepository(NmaFile).update({ id: In(ids), status: 'attached', recordId: changes.recordId, resource: entry.schema.name }, { status: 'temp', recordId: null });
+  }
+
   /** `_files` of each entity: a ref for every file the named fields hold (a list for `many` fields). */
   async refs(entry: RegisteredResource, entities: object[], fields: string[], ctx: AdminContext): Promise<Array<Record<string, AdminFileRef | AdminFileRef[]>>> {
     const valueOf = (entity: object, name: string) => (entity as Record<string, unknown>)[name];
     const keys = [...new Set(entities.flatMap((entity) => fields.flatMap((name) => keysOf(valueOf(entity, name)))))];
-    const rows = new Map((keys.length > 0 ? await this.manager(entry, ctx).getRepository(NmaFile).findBy({ key: In(keys) }) : []).map((row) => [row.key, row]));
+    const rows = new Map((keys.length > 0 ? await this.manager(entry, ctx).getRepository(NmaFile).findBy({ key: In(keys), resource: entry.schema.name }) : []).map((row) => [row.key, row]));
     return entities.map((entity) => {
       const out: Record<string, AdminFileRef | AdminFileRef[]> = {};
       for (const name of fields) {
@@ -234,7 +268,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     });
   }
 
-  /** A key the admin has no row for (written by the host itself) still gets a ref, named after the key. */
+  /** A key the admin has no row for in this resource (written by the host itself) still gets a ref, named after the key. */
   private ref(key: string, row: NmaFile | undefined, entry: RegisteredResource, field: string): AdminFileRef {
     if (row) return { key, name: row.name, contentType: row.contentType, size: row.size, url: this.url(row) };
     const visibility = entry.fieldConfig.get(field)?.file?.visibility ?? 'private';

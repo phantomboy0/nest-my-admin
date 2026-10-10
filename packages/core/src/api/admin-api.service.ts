@@ -232,39 +232,52 @@ export class AdminApiService {
     return (await this.records(entry, [entity], relations, ctx))[0]!;
   }
 
-  /** Work to do once a write's transaction has committed, per transactional context (see `write`). */
-  private readonly afterCommits = new WeakMap<AdminContext, Array<() => Promise<void>>>();
+  /** Work for when a write's transaction has committed or rolled back, per transactional context (see `write`). */
+  private readonly afterWrites = new WeakMap<AdminContext, { commit: Array<() => Promise<void>>; rollback: Array<() => Promise<void>> }>();
+
+  /** The lists of the write `tx` belongs to. Only `write()` creates them, so there is always one inside `work`. */
+  private afterWrite(tx: AdminContext) {
+    const hooks = this.afterWrites.get(tx);
+    if (!hooks) throw new Error('nest-my-admin: after-commit work was registered outside a write');
+    return hooks;
+  }
 
   /**
    * Runs a write in one transaction (unless disabled) with ctx.manager set and AdminContext.current() pointing at it.
-   * Callbacks `work` adds to `afterCommits` for its context run once the transaction has committed (a failure is
-   * logged, never thrown), and never when it rolls back.
+   * `afterWrite(tx).commit` callbacks run once the transaction has committed and never when it rolls back;
+   * `.rollback` callbacks run only when it fails. A failing callback is logged, never thrown.
    */
   private async write<T>(entry: RegisteredResource, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
+    const settle = async (callbacks: Array<() => Promise<void>>, what: string) => {
+      for (const callback of callbacks) {
+        await callback().catch((error: unknown) => this.logger.warn(`${what} work failed: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    };
     const committed = async (tx: AdminContext, run: () => Promise<T>): Promise<T> => {
-      const callbacks: Array<() => Promise<void>> = [];
-      this.afterCommits.set(tx, callbacks);
+      const hooks = { commit: [] as Array<() => Promise<void>>, rollback: [] as Array<() => Promise<void>> };
+      this.afterWrites.set(tx, hooks);
       let result: T;
       try {
         result = await run();
+      } catch (error) {
+        await settle(hooks.rollback, 'after-rollback');
+        throw error;
       } finally {
-        this.afterCommits.delete(tx);
+        this.afterWrites.delete(tx);
       }
-      for (const callback of callbacks) {
-        await callback().catch((error: unknown) => this.logger.warn(`after-commit work failed: ${error instanceof Error ? error.message : String(error)}`));
-      }
+      await settle(hooks.commit, 'after-commit');
       return result;
     };
     if (!this.options.transactions) {
       // Nothing to commit: the callbacks run when the outermost write on this context is done.
-      return this.afterCommits.has(ctx) ? work(ctx) : committed(ctx, () => work(ctx));
+      return this.afterWrites.has(ctx) ? work(ctx) : committed(ctx, () => work(ctx));
     }
     const { dataSource } = entry;
     // Re-entrant write (host code inside a write calls the API again on the same DataSource): join the outer
     // transaction; queueing behind it would deadlock. There is no savepoint: if host code catches a failed nested
     // write and carries on, the nested rows commit with the outer transaction. `manager.connection` is deprecated
-    // in TypeORM 1.x but is the only property that exists on both 0.3 and 1.x. The nested write's after-commit work
-    // is collected on the outer context, so it waits for the outer commit.
+    // in TypeORM 1.x but is the only property that exists on both 0.3 and 1.x. The nested write's after-commit
+    // and after-rollback work is collected on the outer context, so it follows the outer transaction.
     const outer = AdminContext.current();
     if (outer?.manager && outer.manager.connection === dataSource) return work(outer);
     const run = () => {
@@ -287,8 +300,17 @@ export class AdminApiService {
   /** After the resource method: attaches the write's uploads to the saved record and leaves the deletions for after the commit. */
   private async saveFiles(entry: RegisteredResource, changes: FileChanges | undefined, entity: object, tx: AdminContext): Promise<void> {
     if (!changes) return;
+    const hooks = this.afterWrite(tx);
+    hooks.rollback.push(() => this.files.rollback(entry, changes));
     await this.files.attach(entry, changes, entity, tx);
-    this.afterCommits.get(tx)?.push(() => this.files.afterCommit(entry, changes));
+    hooks.commit.push(() => this.files.afterCommit(entry, changes));
+  }
+
+  /** A record deleted for good takes its files with it (rows with the delete, objects after the commit). */
+  private async releaseFiles(entry: RegisteredResource, id: RecordId, tx: AdminContext): Promise<void> {
+    const keys = entry.schema.primaryKeys;
+    const changes = await this.files.release(entry, recordIdOf(typeof id === 'object' ? id : { [keys[0]!]: id }, keys), tx);
+    if (changes) this.afterWrite(tx).commit.push(() => this.files.afterCommit(entry, changes));
   }
 
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
@@ -310,8 +332,9 @@ export class AdminApiService {
     const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields });
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
-      await this.checkRelationsExist(entry, relationIds, tx, dto as Record<string, unknown>);
+      // Files first, so relationOptions() sees AdminFiles in `values`, never what the client sent.
       const files = await this.files.resolve(entry, dto, undefined, tx);
+      await this.checkRelationsExist(entry, relationIds, tx, dto as Record<string, unknown>);
       const created: unknown = await resource.create(dto, tx);
       if (typeof created !== 'object' || created === null) {
         throw new Error(`${entry.className}.create() must return the created entity`);
@@ -346,12 +369,12 @@ export class AdminApiService {
       this.policy.requireRecordRule(entry, 'update', existing, tx);
       const locked = this.lockedFields(entry, existing).filter((name) => Object.hasOwn(dto, name));
       if (locked.length > 0) throw new AdminValidationError(Object.fromEntries(locked.map((name) => [name, ['is read-only']])), 'Some fields are read-only');
+      const files = await this.files.resolve(entry, dto, existing, tx);
       if ([...relationIds.values()].some((ids) => ids.length > 0)) {
         // relationOptions() sees the record as it will be: what is stored, with the request's changes on top.
         const values = { ...toValues(await this.record(entry, existing, tx)), ...(dto as Record<string, unknown>) };
         await this.checkRelationsExist(entry, relationIds, tx, values);
       }
-      const files = await this.files.resolve(entry, dto, existing, tx);
       const updated = await this.reloadIfEmpty(entry, await resource.update(id, dto, tx), id, tx);
       await this.saveFiles(entry, files, updated, tx);
       return this.record(entry, updated, tx);
@@ -371,6 +394,8 @@ export class AdminApiService {
       if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       this.policy.requireRecordRule(entry, 'delete', existing, tx);
       await resource.delete(id, tx);
+      // The trash keeps the files (restore brings the record back with them); a hard delete takes them along.
+      if (!schema.softDelete) await this.releaseFiles(entry, id, tx);
     });
   }
 
@@ -539,6 +564,7 @@ export class AdminApiService {
       await this.policy.requireInScope(entry, id, rawId, 'delete', tx, true);
       await this.checkVersion(entry, id, version, tx, true);
       await entry.resource.purge(id, tx);
+      await this.releaseFiles(entry, id, tx);
     });
   }
 

@@ -228,7 +228,8 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them.
    * Relation fields arrive as ids (`customer: 3`, `tags: ['a', 'b']`), already checked to exist; the default
    * turns them into references for TypeORM. File and image fields arrive as `AdminFile` objects (or a list of them,
-   * or null); the default writes their keys into the column.
+   * or null); the default writes their keys into the column. It knows them by identity: a @BeforeSave hook that
+   * replaces one by a copy (`{ ...file }`) must write `file.key` into the DTO itself.
    */
   async create(dto: object, ctx: AdminContext): Promise<T> {
     const repo = this.repositoryFor(ctx);

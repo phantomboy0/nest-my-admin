@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Column, Entity, LessThan, PrimaryGeneratedColumn, type DataSource } from 'typeorm';
+import { Column, DeleteDateColumn, Entity, In, LessThan, PrimaryGeneratedColumn, type DataSource } from 'typeorm';
 import {
   ADMIN_FILE_ENTITIES,
   AdminAuth,
@@ -16,6 +16,7 @@ import {
   AdminResourceBase,
   AdminScope,
   AfterSave,
+  BeforeSave,
   NmaFile,
   localStorage,
   type AdminAuthAdapter,
@@ -56,6 +57,11 @@ class ProductAdmin extends AdminResourceBase<Product> {
     return { ownerId: ctx.user?.id };
   }
 
+  /** Lets a test act between resolve() and attach(), where a concurrent write would. */
+  @BeforeSave() async pause() {
+    await host.beforeSave?.();
+  }
+
   /** Fails the write after the row was saved, so the transaction has something to roll back. */
   @AfterSave() refuseBoom(product: Product) {
     if (product.name === 'boom') throw new Error('boom');
@@ -68,10 +74,13 @@ class Doc {
   @Column({ default: '' }) title: string;
   @Column({ type: 'varchar', length: 300, nullable: true }) attachment: string | null;
   @Column({ type: 'simple-json', nullable: true }) pages: string[] | null;
+  /** Named like Product's field: an upload for one resource must not pass for the other. */
+  @Column({ type: 'varchar', length: 300, nullable: true }) manual: string | null;
+  @DeleteDateColumn() deletedAt: Date | null;
 }
 
 /** What the host's `update` override was given, and a nested write it makes before failing. */
-const host: { dto?: Record<string, unknown>; nested?: { id: string; fail: boolean } } = {};
+const host: { dto?: Record<string, unknown>; nested?: (api: AdminApiService, ctx: AdminContext) => Promise<void>; beforeSave?: () => Promise<void> } = {};
 
 /** A host app that routes updates through its own code: it gets `AdminFile`s and stores the keys itself. */
 @AdminResource(Doc)
@@ -79,7 +88,7 @@ class DocAdmin extends AdminResourceBase<Doc> {
   constructor(private readonly moduleRef: ModuleRef) {
     super();
   }
-  override fields: FieldsConfig<Doc> = { attachment: { widget: 'file' }, pages: { widget: 'file', many: true } };
+  override fields: FieldsConfig<Doc> = { attachment: { widget: 'file' }, pages: { widget: 'file', many: true }, manual: { widget: 'file' } };
 
   override async update(id: RecordId, dto: object, ctx: AdminContext): Promise<Doc> {
     host.dto = { ...dto };
@@ -90,11 +99,8 @@ class DocAdmin extends AdminResourceBase<Doc> {
     if (values.attachment !== undefined) doc.attachment = values.attachment?.key ?? null;
     if (values.pages !== undefined) doc.pages = values.pages?.map((page) => page.key) ?? null;
     await repo.save(doc);
-    if (host.nested) {
-      // A write inside a write joins the outer transaction; its file deletions wait for the outer commit.
-      await this.moduleRef.get(AdminApiService, { strict: false }).update('product', host.nested.id, { manual: null }, ctx);
-      if (host.nested.fail) throw new Error('outer write failed');
-    }
+    // A write inside a write joins the outer transaction; its file deletions wait for the outer commit.
+    if (host.nested) await host.nested(this.moduleRef.get(AdminApiService, { strict: false }), ctx);
     return doc;
   }
 }
@@ -422,6 +428,9 @@ describe(`file fields in writes and reads (${TEST_DB})`, () => {
     // Another field's upload, in a single and in a list field.
     await invalid(await json().patch(`/resources/product/${target}`, { manual: { token: roots.token } }), 'manual');
     await invalid(await json().patch(`/resources/product/${target}`, { gallery: [{ token: roots.token }] }), 'gallery');
+    // Another resource's upload, to a field of the same name.
+    const docs = await upload('manual', PDF, 'root', 'doc');
+    await invalid(await json().patch(`/resources/product/${target}`, { manual: { token: docs.token } }), 'manual');
     // An expired upload.
     const expired = await upload('logo');
     await db.getRepository(NmaFile).update({ id: expired.token }, { createdAt: new Date(Date.now() - 25 * 3_600_000) });
@@ -434,7 +443,7 @@ describe(`file fields in writes and reads (${TEST_DB})`, () => {
     expect((await json().post('/resources/product', { name: 'Uses it', logo: { token: used.token } })).status).toBe(201);
     await invalid(await json().patch(`/resources/product/${target}`, { logo: { token: used.token } }), 'logo');
 
-    for (const { key } of [roots, peers, expired, twice]) {
+    for (const { key } of [roots, peers, docs, expired, twice]) {
       expect(await rowOf(key)).toMatchObject({ status: 'temp', recordId: null });
       expect(has(key)).toBe(true);
     }
@@ -499,12 +508,15 @@ describe(`file fields in writes and reads (${TEST_DB})`, () => {
     const product = (await json().post('/resources/product', { name: 'Nested', manual: { token: manual.token } })).body._id as string;
     const doc = (await json().post('/resources/doc', { title: 'Outer' })).body._id as string;
     try {
-      host.nested = { id: product, fail: true };
+      host.nested = async (api, ctx) => {
+        await api.update('product', product, { manual: null }, ctx);
+        throw new Error('outer write failed');
+      };
       expect((await json().patch(`/resources/doc/${doc}`, { title: 'fails' })).status).toBe(500);
       expect(has(manual.key)).toBe(true);
       expect(await rowOf(manual.key)).toMatchObject({ status: 'attached', recordId: product });
       expect((await json().get(`/resources/product/${product}`)).body.manual).toBe(manual.key);
-      host.nested = { id: product, fail: false };
+      host.nested = async (api, ctx) => void (await api.update('product', product, { manual: null }, ctx));
       expect((await json().patch(`/resources/doc/${doc}`, { title: 'works' })).status).toBe(200);
       expect(has(manual.key)).toBe(false);
       expect(await rowOf(manual.key)).toBeNull();
@@ -551,8 +563,7 @@ describe(`GET /api/files/*key (${TEST_DB})`, () => {
     const missing = await download('product/manual/2026/01/00000000-0000-4000-8000-000000000000.pdf', 'scoped');
     const outOfScope = await download(manual.key, 'scoped');
     const hidden = await download(secret.key, 'viewer');
-    const noResource = await download(manual.key, 'limited-nobody');
-    expect(noResource.status).toBe(401);
+    expect((await download(manual.key, 'nobody-signed-in')).status).toBe(401);
     for (const res of [missing, outOfScope, hidden]) {
       expect(res.status).toBe(404);
       const body = JSON.parse((res.body as Buffer).toString());
@@ -588,6 +599,64 @@ describe(`GET /api/files/*key (${TEST_DB})`, () => {
   });
 });
 
+describe(`files of deleted records (${TEST_DB})`, () => {
+  const del = (path: string, who = 'root') => request(app.getHttpServer()).delete(`/admin/api${path}`).set('X-User', who);
+  const productWithFiles = async (name: string) => {
+    const [manual, a, b] = [await upload('manual', PDF), await upload('gallery'), await upload('gallery')];
+    const created = await json().post('/resources/product', { name, manual: { token: manual.token }, gallery: [{ token: a!.token }, { token: b!.token }] });
+    expect(created.status).toBe(201);
+    return { id: created.body._id as string, keys: [manual!.key, a!.key, b!.key] };
+  };
+  const left = async (keys: string[]) => ({ objects: keys.filter(has).length, rows: await db.getRepository(NmaFile).countBy({ key: In(keys) }) });
+
+  test('a hard delete removes the rows and the objects of that record only', async () => {
+    const gone = await productWithFiles('Delete me');
+    const stays = await productWithFiles('Keep me');
+    expect((await del(`/resources/product/${gone.id}`)).status).toBe(204);
+    expect(await left(gone.keys)).toEqual({ objects: 0, rows: 0 });
+    expect(await left(stays.keys)).toEqual({ objects: 3, rows: 3 });
+    // Bulk delete goes the same way.
+    const bulk = await json().post('/resources/product/bulk-delete', { ids: [stays.id] });
+    expect(bulk.body.ok).toEqual([stays.id]);
+    expect(await left(stays.keys)).toEqual({ objects: 0, rows: 0 });
+  });
+
+  test('a delete that rolls back keeps the files', async () => {
+    const product = await productWithFiles('Survivor');
+    const doc = (await json().post('/resources/doc', { title: 'Outer delete' })).body._id as string;
+    try {
+      host.nested = async (api, ctx) => {
+        await api.remove('product', product.id, ctx);
+        throw new Error('outer write failed');
+      };
+      expect((await json().patch(`/resources/doc/${doc}`, { title: 'fails' })).status).toBe(500);
+    } finally {
+      host.nested = undefined;
+    }
+    expect(await left(product.keys)).toEqual({ objects: 3, rows: 3 });
+    expect((await json().get(`/resources/product/${product.id}`)).status).toBe(200);
+    expect((await download(product.keys[0]!)).status).toBe(200);
+  });
+
+  test('the trash keeps the files, restore brings them back, purge removes them', async () => {
+    const doc = (await json().post('/resources/doc', { title: 'Trash' })).body._id as string;
+    const attachment = await upload('attachment', PDF, 'root', 'doc');
+    const page = await upload('pages', PNG, 'root', 'doc');
+    expect((await json().patch(`/resources/doc/${doc}`, { attachment: { token: attachment.token }, pages: [{ token: page.token }] })).status).toBe(200);
+    const keys = [attachment.key, page.key];
+    expect((await del(`/resources/doc/${doc}`)).status).toBe(204);
+    expect(await left(keys)).toEqual({ objects: 2, rows: 2 });
+    expect((await download(attachment.key)).status).toBe(404); // the record is in the trash
+    const restored = await json().post(`/resources/doc/${doc}/restore`, {});
+    expect(restored.status).toBe(200);
+    expect(restored.body._files.attachment.key).toBe(attachment.key);
+    expect((await download(attachment.key)).status).toBe(200);
+    expect((await del(`/resources/doc/${doc}`)).status).toBe(204);
+    expect((await del(`/resources/doc/${doc}?purge=true`)).status).toBe(204);
+    expect(await left(keys)).toEqual({ objects: 0, rows: 0 });
+  });
+});
+
 describe(`cleanup (${TEST_DB})`, () => {
   test('the sweep deletes temp uploads older than 24 hours with their objects, and keeps the rest', async () => {
     const [stale, recent, kept] = [await upload('manual', PDF), await upload('manual', PDF), await upload('manual', PDF)];
@@ -606,7 +675,7 @@ describe(`cleanup (${TEST_DB})`, () => {
 });
 
 describe(`nma_file on another DataSource (${TEST_DB})`, () => {
-  test('files are attached and deleted right after the record commits', async () => {
+  test('uploads are attached before the record commits, removals follow it, a rollback gives the upload back', async () => {
     const otherDir = await mkdtemp(join(tmpdir(), 'nma-files-other-'));
     const other = await createTestApp({
       entities: [Product, Note, Doc],
@@ -636,6 +705,57 @@ describe(`nma_file on another DataSource (${TEST_DB})`, () => {
       expect(existsSync(join(otherDir, first.key))).toBe(false);
       expect(await files.findOneBy({ key: second.key })).toMatchObject({ status: 'attached', recordId: created.body._id });
       expect((await request(other.getHttpServer()).get(`/admin/api/files/${second.key}`).set('X-User', 'root')).status).toBe(200);
+
+      // One upload submitted twice: exactly one record gets it, the other write is refused whole.
+      const once = await send();
+      const submit = () => request(other.getHttpServer()).post('/admin/api/resources/product').set('X-User', 'root').send({ name: 'Twice', manual: { token: once.token } });
+      const answers = await Promise.all([submit(), submit()]);
+      expect(answers.map((res) => res.status).sort()).toEqual([201, 422]);
+      const refused = answers.find((res) => res.status === 422)!;
+      expect(refused.body.fields.manual).toEqual(['is not a valid upload']);
+      const holders = await other.get<DataSource>(getDataSourceToken()).getRepository(Product).findBy({ manual: once.key });
+      expect(holders.length).toBe(1);
+      expect(await files.findOneBy({ key: once.key })).toMatchObject({ status: 'attached', recordId: String(holders[0]!.id) });
+
+      // The same race, made certain: another write takes the upload after this one resolved it and before it attaches.
+      const raced = await send();
+      try {
+        host.beforeSave = async () => void (await files.update({ id: raced.token }, { status: 'attached', recordId: '999999' }));
+        const loser = await request(other.getHttpServer()).post('/admin/api/resources/product').set('X-User', 'root').send({ name: 'Raced', manual: { token: raced.token } });
+        expect(loser.status).toBe(422);
+        expect(loser.body.fields.manual).toEqual(['is not a valid upload']);
+      } finally {
+        host.beforeSave = undefined;
+      }
+      expect(await other.get<DataSource>(getDataSourceToken()).getRepository(Product).countBy({ name: 'Raced' })).toBe(0);
+      expect(await files.findOneBy({ key: raced.key })).toMatchObject({ status: 'attached', recordId: '999999' }); // the winner keeps it
+
+      // A rollback after the upload was attached (on the files' own connection) turns it back into temp.
+      const third = await send();
+      const doc = await request(other.getHttpServer()).post('/admin/api/resources/doc').set('X-User', 'root').send({ title: 'Outer' });
+      let attachedInside: NmaFile | null = null;
+      try {
+        host.nested = async (api, ctx) => {
+          await api.update('product', created.body._id, { manual: { token: third.token } }, ctx);
+          attachedInside = await files.findOneBy({ key: third.key });
+          throw new Error('outer write failed');
+        };
+        const rolledBack = await request(other.getHttpServer()).patch(`/admin/api/resources/doc/${doc.body._id}`).set('X-User', 'root').send({ title: 'fails' });
+        expect(rolledBack.status).toBe(500);
+      } finally {
+        host.nested = undefined;
+      }
+      expect(attachedInside).toMatchObject({ status: 'attached', recordId: created.body._id });
+      expect(await files.findOneBy({ key: third.key })).toMatchObject({ status: 'temp', recordId: null });
+      expect(await files.findOneBy({ key: second.key })).toMatchObject({ status: 'attached' });
+      expect(existsSync(join(otherDir, second.key))).toBe(true);
+      const retried = await request(other.getHttpServer()).patch(`/admin/api/resources/product/${created.body._id}`).set('X-User', 'root').send({ manual: { token: third.token } });
+      expect(retried.status).toBe(200);
+
+      // A hard delete takes the files along, after the record commits.
+      expect((await request(other.getHttpServer()).delete(`/admin/api/resources/product/${created.body._id}`).set('X-User', 'root')).status).toBe(204);
+      expect(await files.findOneBy({ key: third.key })).toBeNull();
+      expect(existsSync(join(otherDir, third.key))).toBe(false);
     } finally {
       await other.close();
       await rm(otherDir, { recursive: true, force: true });
