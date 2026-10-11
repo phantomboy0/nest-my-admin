@@ -74,7 +74,13 @@ export class PageRegistry implements OnModuleInit, OnApplicationBootstrap {
   onApplicationBootstrap(): void {
     if (this.pages.size === 0) return;
     const reserved = this.registry.find('page');
-    if (reserved) throw new Error(`${reserved.className}: a resource cannot be named "page" in an admin with settings pages (their permission codes are page.<name>)`);
+    if (reserved) {
+      // `page.*` held for the resource would grant every settings page, and `page.update` would read like a page's code.
+      throw new Error(
+        `${reserved.className}: a resource cannot be named "page" in an admin with settings pages: their permission codes are page.<name>, the prefix of this resource's codes. ` +
+          `Rename the resource, for example @AdminResource(${reserved.entity.name}, { name: 'content-page' })`,
+      );
+    }
     // `page:<name>` is how a page's files name their owner: no resource may look like one.
     const lookalike = this.registry.list().find((entry) => entry.schema.name.startsWith('page:'));
     if (lookalike) throw new Error(`${lookalike.className}: a resource name cannot start with "page:" in an admin with settings pages`);

@@ -803,7 +803,39 @@ describe('boot checks', () => {
   test('a resource named "page" or a global permission cannot share a code with a page', async () => {
     @AdminResource(Setting, { name: 'page' })
     class PageAdmin extends AdminResourceBase<Setting> {}
-    await expect(boot([PageAdmin, page('billing')])).rejects.toThrow('PageAdmin: a resource cannot be named "page" in an admin with settings pages');
+    await expect(boot([PageAdmin, page('billing')])).rejects.toThrow(
+      'PageAdmin: a resource cannot be named "page" in an admin with settings pages: their permission codes are page.<name>, the prefix of this resource\'s codes. ' +
+        "Rename the resource, for example @AdminResource(Setting, { name: 'content-page' })",
+    );
+    // Whichever is declared first.
+    await expect(boot([page('billing'), PageAdmin])).rejects.toThrow('PageAdmin: a resource cannot be named "page" in an admin with settings pages');
+  });
+
+  test('without settings pages, a resource named "page" works as before', async () => {
+    @AdminResource(Setting, { name: 'page', permissions: ['publish'] })
+    class PageAdmin extends AdminResourceBase<Setting> {}
+    @Module({ providers: [HeaderAuth, PageAdmin] })
+    class CmsModule {}
+    const roles: RoleDefinition[] = [
+      { name: 'viewer', permissions: ['*.view'] },
+      { name: 'paged', permissions: ['page.*'] },
+      { name: 'manager', permissions: ['page.view', 'page.update', 'page.publish'] },
+    ];
+    const cms = await createTestApp({ imports: [CmsModule], entities: [Setting], admin: { auth: AdminAuth.custom(HeaderAuth), roles } });
+    try {
+      const as = (who: string) => request(cms.getHttpServer()).get('/admin/api/meta/resources/page').set('X-User', who);
+      expect((await as('viewer')).body.permissions).toMatchObject({ update: false });
+      expect((await as('paged')).body.permissions).toMatchObject({ create: true, update: true, delete: true });
+      expect((await as('manager')).body.permissions).toMatchObject({ create: false, update: true });
+      expect((await as('nobody')).status).toBe(404);
+      const created = await request(cms.getHttpServer()).post('/admin/api/resources/page').set('X-User', 'paged').send({ name: 'home', value: 'Welcome' });
+      expect(created.status).toBe(201);
+      expect((await request(cms.getHttpServer()).get('/admin/api/resources/page').set('X-User', 'viewer')).body.items).toHaveLength(1);
+      // Uploads for `page:<name>` have nothing to find here.
+      expect((await request(cms.getHttpServer()).get('/admin/api/pages/page').set('X-User', 'root')).status).toBe(404);
+    } finally {
+      await cms.close();
+    }
     await expect(boot([page('billing')], [], { permissions: ['page.billing'] })).rejects.toThrow('nest-my-admin: the permission "page.billing" is the code of a settings page');
   });
 
