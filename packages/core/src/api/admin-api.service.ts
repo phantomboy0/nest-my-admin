@@ -14,6 +14,7 @@ import { isLoadedField, loadReferences, relationRef } from '../crud/references.j
 import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
+import type { FileOwner } from '../files/file-owner.js';
 import { FilesService, type FileChanges } from '../files/files.service.js';
 import { AdminBadRequestError, AdminConflictError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import { AdminPolicy, type ResourceView } from '../policy/admin-policy.service.js';
@@ -217,7 +218,7 @@ export class AdminApiService {
       entry.metadata.childEntityMetadatas.find((child) => child.target === entity.constructor)?.discriminatorValue ?? entry.metadata.discriminatorValue;
     const locale = ctx.locale ?? this.options.locale;
     const fileFields = this.files.enabled ? schema.fields.filter((field) => field.file).map((field) => field.name) : [];
-    const files = fileFields.length > 0 ? await this.files.refs(entry, entities, fileFields, ctx) : undefined;
+    const files = fileFields.length > 0 ? await this.files.refs(this.files.ownerOf(entry), entities, fileFields, ctx) : undefined;
     const out = entities.map((entity, index) => {
       const id = recordIdOf(entity, schema.primaryKeys);
       const locked = this.lockedFields(entry, entity);
@@ -309,19 +310,20 @@ export class AdminApiService {
   }
 
   /** After the resource method: attaches the write's uploads to the saved record and leaves the deletions for after the commit. */
-  private async saveFiles(entry: RegisteredResource, changes: FileChanges | undefined, entity: object, tx: AdminContext): Promise<void> {
+  private async saveFiles(owner: FileOwner, changes: FileChanges | undefined, entity: object, tx: AdminContext): Promise<void> {
     if (!changes) return;
     const hooks = this.afterWrite(tx);
-    hooks.rollback.push(() => this.files.rollback(entry, changes));
-    await this.files.attach(entry, changes, entity, tx);
-    hooks.commit.push(() => this.files.afterCommit(entry, changes));
+    hooks.rollback.push(() => this.files.rollback(owner, changes));
+    await this.files.attach(owner, changes, entity, tx);
+    hooks.commit.push(() => this.files.afterCommit(owner, changes));
   }
 
   /** A record deleted for good takes its files with it (rows with the delete, objects after the commit). */
   private async releaseFiles(entry: RegisteredResource, id: RecordId, tx: AdminContext): Promise<void> {
     const keys = entry.schema.primaryKeys;
-    const changes = await this.files.release(entry, recordIdOf(typeof id === 'object' ? id : { [keys[0]!]: id }, keys), tx);
-    if (changes) this.afterWrite(tx).commit.push(() => this.files.afterCommit(entry, changes));
+    const owner = this.files.ownerOf(entry);
+    const changes = await this.files.release(owner, recordIdOf(typeof id === 'object' ? id : { [keys[0]!]: id }, keys), tx);
+    if (changes) this.afterWrite(tx).commit.push(() => this.files.afterCommit(owner, changes));
   }
 
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
@@ -344,13 +346,13 @@ export class AdminApiService {
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
       // Files first, so relationOptions() sees AdminFiles in `values`, never what the client sent.
-      const files = await this.files.resolve(entry, dto, undefined, tx);
+      const files = await this.files.resolve(this.files.ownerOf(entry), dto, undefined, tx);
       await this.checkRelationsExist(entry, relationIds, tx, dto as Record<string, unknown>);
       const created: unknown = await resource.create(dto, tx);
       if (typeof created !== 'object' || created === null) {
         throw new Error(`${entry.className}.create() must return the created entity`);
       }
-      await this.saveFiles(entry, files, created, tx);
+      await this.saveFiles(this.files.ownerOf(entry), files, created, tx);
       return this.record(entry, created, tx);
     });
   }
@@ -381,14 +383,14 @@ export class AdminApiService {
       this.policy.requireRecordRule(entry, 'update', existing, tx);
       const locked = this.lockedFields(entry, existing).filter((name) => Object.hasOwn(dto, name));
       if (locked.length > 0) throw new AdminValidationError(Object.fromEntries(locked.map((name) => [name, ['is read-only']])), 'Some fields are read-only');
-      const files = await this.files.resolve(entry, dto, existing, tx);
+      const files = await this.files.resolve(this.files.ownerOf(entry), dto, existing, tx);
       if ([...relationIds.values()].some((ids) => ids.length > 0)) {
         // relationOptions() sees the record as it will be: what is stored, with the request's changes on top.
         const values = { ...toValues(await this.record(entry, existing, tx)), ...(dto as Record<string, unknown>) };
         await this.checkRelationsExist(entry, relationIds, tx, values);
       }
       const updated = await this.reloadIfEmpty(entry, await resource.update(id, dto, tx), id, tx);
-      await this.saveFiles(entry, files, updated, tx);
+      await this.saveFiles(this.files.ownerOf(entry), files, updated, tx);
       return this.record(entry, updated, tx);
     });
   }

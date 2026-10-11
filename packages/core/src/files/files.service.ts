@@ -5,7 +5,6 @@ import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { In, LessThan, type DataSource, type EntityManager } from 'typeorm';
 import type { AdminFileRef, UploadResponse } from '../contract.js';
-import { parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { AdminBadRequestError, AdminForbiddenError, AdminNotFoundError, AdminPayloadTooLargeError, AdminUnsupportedMediaTypeError, AdminValidationError } from '../errors.js';
 import type { AdminRequest } from '../http/http-io.js';
@@ -14,6 +13,7 @@ import { AdminPolicy } from '../policy/admin-policy.service.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import { markAdminFile, type AdminFile } from './admin-file.js';
+import { resourceFileOwner, type FileOwner } from './file-owner.js';
 import { NmaFile } from './entities.js';
 import { createSanitizer, imageKeysOf, resolveImages, type ImageUrls } from './rich-text.js';
 import { accepts, extensionOf, sniff } from './sniff.js';
@@ -30,7 +30,7 @@ const TEMP_TTL_MS = 24 * 3_600_000;
 const SWEEP_EVERY_MS = 3_600_000;
 const SWEEP_BATCH = 200;
 
-/** What one write does to a record's files; `resolve` or `release` starts it, `attach`, `afterCommit` and `rollback` finish it. */
+/** What one write does to the files of a record of an owner (a resource's record, a settings page); `resolve` or `release` starts it, `attach`, `afterCommit` and `rollback` finish it. */
 export interface FileChanges {
   /** Each resolved field with the keys the record held there before the write. */
   before: Map<string, string[]>;
@@ -92,7 +92,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** `richtext` fields get the host's `files.sanitizeHtml`, else the built-in one, which needs the optional package `sanitize-html`. */
   async onApplicationBootstrap(): Promise<void> {
-    if (richFieldsOf(...this.registry.list()).length > 0) this.sanitizer = this.options.files?.sanitizeHtml ?? (await createSanitizer(this.imageUrls()));
+    if (richFieldsOf(...this.owners()).length > 0) this.sanitizer = this.options.files?.sanitizeHtml ?? (await createSanitizer(this.imageUrls()));
     if (!this.options.files) return;
     const name = this.options.files.dataSource;
     try {
@@ -113,6 +113,31 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     this.timer = undefined;
   }
 
+  private readonly resourceOwners = new WeakMap<RegisteredResource, FileOwner>();
+
+  /** A resource as the owner of its records' files. */
+  ownerOf(entry: RegisteredResource): FileOwner {
+    let owner = this.resourceOwners.get(entry);
+    if (!owner) this.resourceOwners.set(entry, (owner = resourceFileOwner(entry, this.policy)));
+    return owner;
+  }
+
+  /** Every owner: what the sanitizer is loaded for. */
+  private owners(): FileOwner[] {
+    return this.registry.list().map((entry) => this.ownerOf(entry));
+  }
+
+  /** The owner an upload names (`?resource=`); unknown names are a 404. */
+  private ownerNamed(name: string): FileOwner {
+    return this.ownerOf(this.registry.get(name));
+  }
+
+  /** The owner a stored file names, if it still exists. */
+  private findOwner(name: string): FileOwner | undefined {
+    const entry = this.registry.find(name);
+    return entry ? this.ownerOf(entry) : undefined;
+  }
+
   /** The HTML a `richtext` field may store. */
   sanitizeHtml(html: string): string {
     if (!this.sanitizer) throw new Error('nest-my-admin: no HTML sanitizer is loaded (no resource has a richtext field)');
@@ -122,8 +147,8 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /** The record's transaction when `nma_file` shares its DataSource, else the files' own connection. */
-  private manager(entry: RegisteredResource, ctx: AdminContext): EntityManager {
-    return ctx.manager && entry.dataSource === this.db ? ctx.manager : this.db.manager;
+  private manager(owner: FileOwner, ctx: AdminContext): EntityManager {
+    return ctx.manager && owner.dataSource === this.db ? ctx.manager : this.db.manager;
   }
 
   private url(row: Pick<NmaFile, 'key' | 'visibility'>): string {
@@ -132,14 +157,14 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * Replaces what the form sent for each file field of `dto` (`{ token }`, `{ key }`, null, or a list) by `AdminFile`s,
-   * before the resource method runs. A token must be this user's own unsaved upload to this resource and field, less
+   * before the resource method runs. A token must be this user's own unsaved upload to this owner and field, less
    * than 24 hours old (or, for a retried write, the upload this user already attached to this record in this field,
    * which is then a keep); a key must be one the record already holds in that field. Anything else is a 422 on the field.
    */
-  async resolve(entry: RegisteredResource, dto: object, existing: object | undefined, ctx: AdminContext): Promise<FileChanges | undefined> {
+  async resolve(owner: FileOwner, dto: object, existing: object | undefined, ctx: AdminContext): Promise<FileChanges | undefined> {
     const values = dto as Record<string, unknown>;
-    const names = fileFieldsOf(entry).filter((name) => Object.hasOwn(values, name));
-    const richNames = this.enabled ? richFieldsOf(entry).filter((name) => Object.hasOwn(values, name)) : [];
+    const names = fileFieldsOf(owner).filter((name) => Object.hasOwn(values, name));
+    const richNames = this.enabled ? richFieldsOf(owner).filter((name) => Object.hasOwn(values, name)) : [];
     if (names.length === 0 && richNames.length === 0) return undefined;
     if (!this.enabled) {
       const sent = names.filter((name) => values[name] !== null);
@@ -147,23 +172,23 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
       return undefined;
     }
     const items = (name: string) => (values[name] === null ? [] : Array.isArray(values[name]) ? values[name] : [values[name]]) as Array<{ token?: string; key?: string }>;
-    const manager = this.manager(entry, ctx);
+    const manager = this.manager(owner, ctx);
     const tokens = names.flatMap((name) => items(name).flatMap((item) => (item.token !== undefined ? [item.token] : [])));
     const keys = names.flatMap((name) => items(name).flatMap((item) => (item.key !== undefined ? [item.key] : [])));
     const repo = manager.getRepository(NmaFile);
     const byToken = new Map((tokens.length > 0 ? await repo.findBy({ id: In(tokens) }) : []).map((row) => [row.id, row]));
-    const byKey = new Map((keys.length > 0 ? await repo.findBy({ key: In(keys), resource: entry.schema.name }) : []).map((row) => [row.key, row]));
+    const byKey = new Map((keys.length > 0 ? await repo.findBy({ key: In(keys), resource: owner.name }) : []).map((row) => [row.key, row]));
 
-    const changes: FileChanges = { before: new Map(), fresh: [], removed: [], objects: [], deferred: entry.dataSource !== this.db };
+    const changes: FileChanges = { before: new Map(), fresh: [], removed: [], objects: [], deferred: owner.dataSource !== this.db };
     const errors: Record<string, string[]> = {};
     const user = userIdOf(ctx);
     const oldest = Date.now() - TEMP_TTL_MS;
     const taken = new Set<string>();
-    const recordId = existing ? recordIdOf(existing, entry.schema.primaryKeys) : undefined;
+    const recordId = existing ? owner.recordId(existing) : undefined;
     if (richNames.length > 0) {
       const images = await resolveImages({
         repo,
-        resource: entry.schema.name,
+        resource: owner.name,
         fields: richNames,
         values,
         existing: existing as Record<string, unknown> | undefined,
@@ -185,13 +210,13 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
           const row = byToken.get(item.token);
           // A retry of a write whose answer was lost sends the token again: the upload is already this record's file
           // in this field, attached by this user, so it is kept. For any other record, field, resource or user it is refused.
-          const kept = row && row.status === 'attached' && existing !== undefined && row.recordId === recordId && row.createdBy === user && row.resource === entry.schema.name && row.field === name && held.includes(row.key);
+          const kept = row && row.status === 'attached' && existing !== undefined && row.recordId === recordId && row.createdBy === user && row.resource === owner.name && row.field === name && held.includes(row.key);
           if (row && kept && !taken.has(row.id) && !taken.has(row.key)) {
             taken.add(row.id).add(row.key);
             files.push(markAdminFile({ key: row.key, name: row.name, contentType: row.contentType, size: row.size, url: this.url(row), isNew: false }));
             continue;
           }
-          const valid = row && row.status === 'temp' && row.createdBy === user && row.resource === entry.schema.name && row.field === name && row.createdAt.getTime() > oldest && !taken.has(row.id);
+          const valid = row && row.status === 'temp' && row.createdBy === user && row.resource === owner.name && row.field === name && row.createdAt.getTime() > oldest && !taken.has(row.id);
           if (!valid) {
             errors[name] = [INVALID_UPLOAD];
             continue;
@@ -206,7 +231,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
             continue;
           }
           taken.add(key);
-          files.push(markAdminFile({ ...this.ref(key, byKey.get(key), entry, name), isNew: false }));
+          files.push(markAdminFile({ ...this.ref(key, byKey.get(key), owner, name), isNew: false }));
         }
       }
       values[name] = values[name] === null ? null : Array.isArray(values[name]) ? files : (files[0] ?? null);
@@ -225,9 +250,9 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
    * back into `temp` when the record's transaction fails. The removals wait for `afterCommit`. A crash in between
    * leaves an attached row without a record, never a record without its file.
    */
-  async attach(entry: RegisteredResource, changes: FileChanges, entity: object, ctx: AdminContext): Promise<void> {
+  async attach(owner: FileOwner, changes: FileChanges, entity: object, ctx: AdminContext): Promise<void> {
     const values = entity as Record<string, unknown>;
-    changes.recordId = recordIdOf(entity, entry.schema.primaryKeys);
+    changes.recordId = owner.recordId(entity);
     const removed: string[] = [];
     for (const [name, held] of changes.before) {
       // A host method may answer an entity without the column: then nothing is known to be removed.
@@ -236,30 +261,30 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
       removed.push(...held.filter((key) => !now.has(key)));
     }
     changes.removed = removed;
-    const manager = this.manager(entry, ctx);
-    await this.attachRows(manager, entry, changes);
-    if (!changes.deferred) await this.removeRows(manager, entry, changes);
+    const manager = this.manager(owner, ctx);
+    await this.attachRows(manager, owner, changes);
+    if (!changes.deferred) await this.removeRows(manager, owner, changes);
   }
 
   /**
    * A record deleted for good (a hard delete or a purge, never the trash) takes its files with it: the rows now
    * (after commit when `nma_file` is on another DataSource), the objects after commit.
    */
-  async release(entry: RegisteredResource, recordId: string, ctx: AdminContext): Promise<FileChanges | undefined> {
-    if (!this.enabled || (fileFieldsOf(entry).length === 0 && richFieldsOf(entry).length === 0)) return undefined;
-    const changes: FileChanges = { before: new Map(), fresh: [], recordId, removed: 'all', objects: [], deferred: entry.dataSource !== this.db };
-    if (!changes.deferred) await this.removeRows(this.manager(entry, ctx), entry, changes);
+  async release(owner: FileOwner, recordId: string, ctx: AdminContext): Promise<FileChanges | undefined> {
+    if (!this.enabled || (fileFieldsOf(owner).length === 0 && richFieldsOf(owner).length === 0)) return undefined;
+    const changes: FileChanges = { before: new Map(), fresh: [], recordId, removed: 'all', objects: [], deferred: owner.dataSource !== this.db };
+    if (!changes.deferred) await this.removeRows(this.manager(owner, ctx), owner, changes);
     return changes;
   }
 
-  private async attachRows(manager: EntityManager, entry: RegisteredResource, changes: FileChanges): Promise<void> {
+  private async attachRows(manager: EntityManager, owner: FileOwner, changes: FileChanges): Promise<void> {
     const ids = changes.fresh.map((file) => file.id);
     if (ids.length === 0) return;
     const repo = manager.getRepository(NmaFile);
     const recordId = changes.recordId!;
     await repo.update({ id: In(ids), status: 'temp' }, { status: 'attached', recordId });
     // Another write (or the sweep) may have taken an upload since resolve() read it: all of them must be ours now.
-    const mine = await repo.findBy({ id: In(ids), status: 'attached', recordId, resource: entry.schema.name });
+    const mine = await repo.findBy({ id: In(ids), status: 'attached', recordId, resource: owner.name });
     if (mine.length === ids.length) return;
     const got = new Set(mine.map((row) => row.id));
     const lost = changes.fresh.filter((file) => !got.has(file.id));
@@ -268,21 +293,21 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /** Only files the admin attached to this very record are deleted; a key a host wrote itself is left alone. */
-  private async removeRows(manager: EntityManager, entry: RegisteredResource, changes: FileChanges): Promise<void> {
+  private async removeRows(manager: EntityManager, owner: FileOwner, changes: FileChanges): Promise<void> {
     if (changes.removed !== 'all' && changes.removed.length === 0) return;
     const repo = manager.getRepository(NmaFile);
-    const rows = await repo.findBy({ ...(changes.removed === 'all' ? {} : { key: In(changes.removed) }), resource: entry.schema.name, recordId: changes.recordId!, status: 'attached' });
+    const rows = await repo.findBy({ ...(changes.removed === 'all' ? {} : { key: In(changes.removed) }), resource: owner.name, recordId: changes.recordId!, status: 'attached' });
     if (rows.length > 0) await repo.delete({ id: In(rows.map((row) => row.id)) });
     changes.objects.push(...rows.map((row) => row.key));
   }
 
   /** After the write's transaction committed: deletes the objects of removed files. Failures are logged, never thrown. */
-  async afterCommit(entry: RegisteredResource, changes: FileChanges): Promise<void> {
+  async afterCommit(owner: FileOwner, changes: FileChanges): Promise<void> {
     if (changes.deferred) {
       try {
-        await this.removeRows(this.db.manager, entry, changes);
+        await this.removeRows(this.db.manager, owner, changes);
       } catch (error) {
-        this.logger.warn(`files: could not delete the removed files of ${entry.schema.name} "${changes.recordId}" after the write (${message(error)})`);
+        this.logger.warn(`files: could not delete the removed files of ${owner.name} "${changes.recordId}" after the write (${message(error)})`);
       }
     }
     for (const key of changes.objects) {
@@ -294,22 +319,22 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
    * The write's transaction failed. Rows attached inside it rolled back with it; rows attached on another DataSource
    * are turned back into `temp` here, so the upload can be used again (best effort: a row left `attached` only leaks).
    */
-  async rollback(entry: RegisteredResource, changes: FileChanges): Promise<void> {
+  async rollback(owner: FileOwner, changes: FileChanges): Promise<void> {
     const ids = changes.fresh.map((file) => file.id);
     if (!changes.deferred || ids.length === 0 || changes.recordId === undefined) return;
-    await this.db.getRepository(NmaFile).update({ id: In(ids), status: 'attached', recordId: changes.recordId, resource: entry.schema.name }, { status: 'temp', recordId: null });
+    await this.db.getRepository(NmaFile).update({ id: In(ids), status: 'attached', recordId: changes.recordId, resource: owner.name }, { status: 'temp', recordId: null });
   }
 
   /** `_files` of each entity: a ref for every file the named fields hold (a list for `many` fields). */
-  async refs(entry: RegisteredResource, entities: object[], fields: string[], ctx: AdminContext): Promise<Array<Record<string, AdminFileRef | AdminFileRef[]>>> {
+  async refs(owner: FileOwner, entities: object[], fields: string[], ctx: AdminContext): Promise<Array<Record<string, AdminFileRef | AdminFileRef[]>>> {
     const valueOf = (entity: object, name: string) => (entity as Record<string, unknown>)[name];
     const keys = [...new Set(entities.flatMap((entity) => fields.flatMap((name) => keysOf(valueOf(entity, name)))))];
-    const rows = new Map((keys.length > 0 ? await this.manager(entry, ctx).getRepository(NmaFile).findBy({ key: In(keys), resource: entry.schema.name }) : []).map((row) => [row.key, row]));
+    const rows = new Map((keys.length > 0 ? await this.manager(owner, ctx).getRepository(NmaFile).findBy({ key: In(keys), resource: owner.name }) : []).map((row) => [row.key, row]));
     return entities.map((entity) => {
       const out: Record<string, AdminFileRef | AdminFileRef[]> = {};
       for (const name of fields) {
         const value = valueOf(entity, name);
-        const list = keysOf(value).map((key) => this.ref(key, rows.get(key), entry, name));
+        const list = keysOf(value).map((key) => this.ref(key, rows.get(key), owner, name));
         if (Array.isArray(value)) out[name] = list;
         else if (list.length > 0) out[name] = list[0]!;
       }
@@ -317,49 +342,37 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     });
   }
 
-  /** A key the admin has no row for in this resource (written by the host itself) still gets a ref, named after the key. */
-  private ref(key: string, row: NmaFile | undefined, entry: RegisteredResource, field: string): AdminFileRef {
+  /** A key the admin has no row for in this owner (written by the host itself) still gets a ref, named after the key. */
+  private ref(key: string, row: NmaFile | undefined, owner: FileOwner, field: string): AdminFileRef {
     if (row) return { key, name: row.name, contentType: row.contentType, size: row.size, url: this.url(row) };
-    const visibility = entry.fieldConfig.get(field)?.file?.visibility ?? 'private';
+    const visibility = owner.fieldConfig.get(field)?.file?.visibility ?? 'private';
     return { key, name: key.split('/').pop()!, contentType: 'application/octet-stream', size: 0, url: this.url({ key, visibility }) };
   }
 
   /**
    * `GET /api/files/*key`: the bytes of a file attached to a record, for people who may view that record (scopes
-   * included) and that field. Everything else is the same 404 as a key that does not exist.
+   * included) and that field; the owner decides (`FileOwner.held`). Everything else is the same 404 as a key that
+   * does not exist.
    */
   async download(key: string, ctx: AdminContext): Promise<{ body: Readable; contentType: string; size: number; name: string }> {
     const gone = () => new AdminNotFoundError(NOT_FOUND);
     if (!this.enabled || key.length > 500) throw gone();
     const row = await this.db.getRepository(NmaFile).findOneBy({ key });
     if (!row) throw gone();
-    const entry = this.registry.list().find((candidate) => candidate.schema.name === row.resource);
-    if (!entry) throw gone();
-    const permissions = this.policy.permissionsOf(ctx);
-    const level = this.policy.levels(entry, ctx).get(row.field);
+    const owner = this.findOwner(row.resource);
+    if (!owner) throw gone();
     if (row.status === 'temp') {
       // Not saved yet: only the person who uploaded it may preview it (the editor shows its images while composing).
       const user = userIdOf(ctx);
-      const mayWrite = permissions.canOn(entry.schema.name, 'create') || permissions.canOn(entry.schema.name, 'update');
-      if (user === null || row.createdBy !== user || row.createdAt.getTime() <= Date.now() - TEMP_TTL_MS || !mayWrite || level !== 'edit') throw gone();
+      if (user === null || row.createdBy !== user || row.createdAt.getTime() <= Date.now() - TEMP_TTL_MS || !owner.mayWrite(ctx) || !owner.mayEdit(row.field, ctx)) throw gone();
       return this.open(key, row);
     }
-    if (row.status !== 'attached' || row.recordId === null || !permissions.canOn(entry.schema.name, 'view')) throw gone();
-    if (level === undefined || level === 'hidden') throw gone();
-    let entity: object | null;
-    try {
-      const id = parseRecordId(row.recordId, entry.schema);
-      entity = await entry.resource.findOne(id, ctx);
-      if (entity) await this.policy.requireInScope(entry, id, row.recordId, 'view', ctx); // a findOne override may ignore scopes
-    } catch (error) {
-      if (error instanceof AdminNotFoundError || error instanceof AdminBadRequestError || error instanceof AdminValidationError) throw gone();
-      throw error;
-    }
+    if (row.status !== 'attached' || row.recordId === null) throw gone();
     // The record must still hold the key: a row left behind by a host that changed the column itself opens nothing.
     // A richtext field holds its images in its HTML.
-    const value = (entity as Record<string, unknown> | null)?.[row.field];
-    const held = entry.fieldConfig.get(row.field)?.widget === 'richtext' ? imageKeysOf(value, this.imageUrls()!) : keysOf(value);
-    if (!entity || !held.includes(key)) throw gone();
+    const value = await owner.held(row.recordId, row.field, ctx);
+    const held = owner.fieldConfig.get(row.field)?.widget === 'richtext' ? imageKeysOf(value, this.imageUrls()!) : keysOf(value);
+    if (!held.includes(key)) throw gone();
     return this.open(key, row);
   }
 
@@ -404,19 +417,13 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
       throw new AdminUnsupportedMediaTypeError("Content-Type must be the file's own type; text/plain, multipart/form-data and application/x-www-form-urlencoded are refused");
     }
 
-    const entry = this.registry.get(resource);
-    this.policy.requireReach(entry, ctx);
-    const permissions = this.policy.permissionsOf(ctx);
-    if (!permissions.canOn(entry.schema.name, 'create') && !permissions.canOn(entry.schema.name, 'update')) {
-      throw new AdminForbiddenError(`You may not create or change ${entry.schema.label} records`);
-    }
-    const config = entry.fieldConfig.get(field);
-    if (!entry.schema.fields.some((candidate) => candidate.name === field && !field.includes('.'))) {
-      throw new AdminNotFoundError(`Unknown field "${field}" of ${entry.schema.name}`);
-    }
+    const owner = this.ownerNamed(resource);
+    owner.requireWrite(ctx);
+    const config = owner.fieldConfig.get(field);
+    if (!owner.hasField(field)) throw new AdminNotFoundError(`Unknown field "${field}" of ${owner.name}`);
     // The images of a rich-text editor are uploaded to the field they will be saved in.
     if (config?.widget !== 'file' && config?.widget !== 'image' && config?.widget !== 'richtext') throw new AdminValidationError({ [field]: ['is not a file field'] });
-    if (this.policy.levels(entry, ctx).get(field) !== 'edit') throw new AdminForbiddenError(`You may not change ${field}`);
+    if (!owner.mayEdit(field, ctx)) throw new AdminForbiddenError(`You may not change ${field}`);
 
     const limit = config.file?.maxBytes ?? files.maxBytes;
     const accept = config.widget === 'richtext' ? ['image/*'] : (config.file?.accept ?? (config.widget === 'image' ? ['image/*'] : ['*/*']));
@@ -451,7 +458,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
 
     const now = new Date();
     const id = randomUUID();
-    const key = `${entry.schema.name}/${field}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}${extensionOf(type)}`;
+    const key = `${owner.name}/${field}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}${extensionOf(type)}`;
     let overflow: Error | undefined;
     async function* rest(): AsyncGenerator<Buffer> {
       yield* head;
@@ -481,7 +488,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
         size: total,
         visibility,
         status: 'temp',
-        resource: entry.schema.name,
+        resource: owner.name,
         field,
         recordId: null,
         createdBy: userIdOf(ctx),
@@ -503,11 +510,11 @@ const message = (error: unknown): string => (error instanceof Error ? error.mess
 /** Who an upload belongs to, as `nma_file.createdBy` stores it. */
 const userIdOf = (ctx: AdminContext): string | null => (ctx.user ? String(ctx.user.id).slice(0, 100) : null);
 
-const fileFieldsOf = (entry: RegisteredResource): string[] =>
-  [...entry.fieldConfig].filter(([, config]) => config.widget === 'file' || config.widget === 'image').map(([name]) => name);
+const fileFieldsOf = (owner: FileOwner): string[] =>
+  [...owner.fieldConfig].filter(([, config]) => config.widget === 'file' || config.widget === 'image').map(([name]) => name);
 
-const richFieldsOf = (...entries: RegisteredResource[]): string[] =>
-  entries.flatMap((entry) => [...entry.fieldConfig].filter(([, config]) => config.widget === 'richtext').map(([name]) => name));
+const richFieldsOf = (...owners: FileOwner[]): string[] =>
+  owners.flatMap((owner) => [...owner.fieldConfig].filter(([, config]) => config.widget === 'richtext').map(([name]) => name));
 
 /** The keys a file column holds: one, a list, or none. */
 function keysOf(value: unknown): string[] {
