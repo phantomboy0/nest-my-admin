@@ -11,6 +11,8 @@ import { getAdminResourceDefinition, type AdminResourceDefinition } from '../dec
 import { AdminNotFoundError } from '../errors.js';
 import { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { buildResourceSchema } from '../schema/build-resource-schema.js';
+import { getAdminFieldOptions } from '../decorators/admin-field.js';
+import { nestedOption, sensitiveInside } from '../schema/dto-form.js';
 import { mergeFieldConfig, type FieldConfig } from '../schema/field-config.js';
 import { operatorsFor } from '../schema/filter-operators.js';
 import { relationFields, type RelationLike } from '../schema/relation-fields.js';
@@ -213,6 +215,13 @@ export class ResourceRegistry implements OnModuleInit {
     const relations = new Map(
       relationFields(metadata).map(({ field, relation }) => [field.name, relation as RelationMetadataLike]),
     );
+    // `sensitive` is an option of the resource's own fields: inside a group the audit log would store the value all the same.
+    for (const field of schema.fields.filter((candidate) => candidate.type === 'object')) {
+      const inside =
+        [resource.form?.create, resource.form?.update].map((dto) => dto && nestedOption(dto, field.name, 'sensitive')).find(Boolean) ??
+        embeddedSensitive(metadata.embeddeds.find((embedded) => embedded.propertyName === field.name));
+      if (inside) throw new Error(`${className}: ${sensitiveInside(field.name, inside)}`);
+    }
     this.resources.set(schema.name, {
       schema,
       resource,
@@ -301,4 +310,17 @@ export class ResourceRegistry implements OnModuleInit {
       }
     }
   }
+}
+
+/** `Class.property` of the first `@AdminField({ sensitive: true })` in an embedded entity or the ones inside it, if any. */
+function embeddedSensitive(embedded: { type: Function | string; embeddeds: unknown[] } | undefined): string | undefined {
+  if (!embedded) return undefined;
+  if (typeof embedded.type === 'function') {
+    for (const [name, options] of Object.entries(getAdminFieldOptions(embedded.type))) if (options.sensitive) return `${embedded.type.name}.${name}`;
+  }
+  for (const child of embedded.embeddeds) {
+    const deeper = embeddedSensitive(child as { type: Function | string; embeddeds: unknown[] });
+    if (deeper) return deeper;
+  }
+  return undefined;
 }

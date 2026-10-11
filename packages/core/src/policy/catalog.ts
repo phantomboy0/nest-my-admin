@@ -8,6 +8,9 @@ import type { PolicyCatalog } from './roles.js';
 /** Codes the admin itself defines: reading and managing roles, groups and users. */
 export const RBAC_CODES = ['rbac.view', 'rbac.manage'];
 
+/** Reading the audit page. A code only while the audit log is on (`forRoot({ audit })`). */
+export const AUDIT_CODES = ['audit.view'];
+
 export function customCodes(entry: RegisteredResource): string[] {
   const definition = Reflect.getMetadata(ADMIN_RESOURCE_METADATA, entry.resource.constructor) as AdminResourceDefinition | undefined;
   return definition?.permissions ?? [];
@@ -26,5 +29,5 @@ export function buildCatalog(registry: ResourceRegistry, options: ResolvedAdminO
       restricted: fields.filter((name) => entry.fieldConfig.get(name)?.restricted === true),
     });
   }
-  return { resources, pages: [...pages], global: [...new Set([...options.permissions, ...(options.rbac ? RBAC_CODES : [])])] };
+  return { resources, pages: [...pages], global: [...new Set([...options.permissions, ...(options.rbac ? RBAC_CODES : []), ...(options.audit ? AUDIT_CODES : [])])] };
 }

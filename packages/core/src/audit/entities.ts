@@ -1,0 +1,63 @@
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+import type { AuditChange } from './diff.js';
+
+/** What an entry says besides its changes. Never a password, a one-time code, a secret or a sensitive value. */
+export interface AuditMeta {
+  /** `{r}.action.{name}` entries: the action's name. */
+  action?: string;
+  /** The action's validated input, without its sensitive keys. */
+  input?: Record<string, unknown>;
+  /** The input was too large to keep. */
+  inputTruncated?: true;
+  /** The action deleted the record it ran on. */
+  deleted?: true;
+  /** `page.{name}.updated` entries: the page's name. */
+  page?: string;
+  /** `auth.*` entries: where the request came from. */
+  ip?: string;
+  userAgent?: string;
+  /** `auth.login_failed`: the username that was tried, and the error code it was answered with. */
+  username?: string;
+  reason?: string;
+}
+
+/**
+ * One entry of the audit log (spec §10.2): who did what to which record, and when. Written by `AdminAudit`, in the
+ * transaction of the change it describes when both live on the same DataSource.
+ *
+ * `id` grows with every entry and is what the log is paged by. It is the database's own auto-increment integer
+ * (64-bit on SQLite, 32-bit on Postgres and MySQL: TypeORM cannot declare one generated bigint column that SQLite
+ * accepts too). Treat it as an opaque number or numeric string: the API serves it as a string, like a bigint, so
+ * widening the column later changes nothing for clients.
+ */
+@Entity('nma_audit')
+@Index(['resource', 'recordId', 'id'])
+@Index(['actorId', 'id'])
+@Index(['at'])
+export class NmaAuditEntry {
+  @PrimaryGeneratedColumn() id: number;
+  /** Set by the admin (not the database's clock) when the entry is recorded. */
+  @CreateDateColumn() at: Date;
+  /** The user's id; null when nobody is signed in (a failed sign-in). */
+  @Column({ type: 'varchar', length: 100, nullable: true }) actorId: string | null;
+  /** The user's display name at the time. */
+  @Column({ type: 'varchar', length: 200, nullable: true }) actorName: string | null;
+  /** The superuser's id when the entry was made while viewing the admin as `actorId`. */
+  @Column({ type: 'varchar', length: 100, nullable: true }) viewAsBy: string | null;
+  /** `product.updated`, `order.action.ship`, `page.shop.updated`, `rbac.role.changed`, `auth.login`… */
+  @Column({ type: 'varchar', length: 200 }) event: string;
+  /** The resource's name for record entries; null otherwise. */
+  @Column({ type: 'varchar', length: 100, nullable: true }) resource: string | null;
+  /** The record's `_id` (a role's name, a group's or a user's id for `rbac.*`; the user looked at for `auth.view_as`). */
+  @Column({ type: 'varchar', length: 255, nullable: true }) recordId: string | null;
+  /** The record's real title at the time, whoever the actor was: readers who may not see titles must not be shown it. */
+  @Column({ type: 'varchar', length: 255, nullable: true }) recordTitle: string | null;
+  /** Null when the entry describes no record change (a resource action, a sign-in); `[]` when a record change changed no field (a restore). */
+  @Column({ type: 'simple-json', nullable: true }) changes: AuditChange[] | null;
+  @Column({ type: 'simple-json', nullable: true }) meta: AuditMeta | null;
+  /** The request's correlation id, as in its error responses and log lines. */
+  @Column({ type: 'varchar', length: 64 }) correlationId: string;
+}
+
+/** Add these to the TypeORM entities of the DataSource named in `forRoot({ audit })`. */
+export const ADMIN_AUDIT_ENTITIES = [NmaAuditEntry];

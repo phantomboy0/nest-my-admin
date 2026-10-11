@@ -14,6 +14,8 @@ import { isLoadedField, loadReferences, relationRef } from '../crud/references.j
 import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
+import { auditParticipant } from '../audit/audit-participant.js';
+import { AdminAudit } from '../audit/audit.service.js';
 import { filesParticipant } from '../files/files-participant.js';
 import { FilesService } from '../files/files.service.js';
 import { AdminBadRequestError, AdminConflictError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
@@ -27,12 +29,13 @@ import { PageRegistry } from '../pages/page-registry.js';
 import { PageService } from '../pages/page.service.js';
 import { ActionService } from './action.service.js';
 import type { WriteChange } from './write-participant.js';
-import { SINGLE_CONNECTION_DRIVERS, WriteRunner } from './write-runner.js';
+import { SINGLE_CONNECTION_DRIVERS } from './write-queue.js';
+import { WriteRunner } from './write-runner.js';
 
 @Injectable()
 export class AdminApiService {
   private readonly logger = new Logger('NestMyAdmin');
-  /** The write transaction and what takes part in every change made inside it: files first. */
+  /** The write transaction and what takes part in every change made inside it: files, then the audit log. */
   private readonly writes: WriteRunner;
 
   constructor(
@@ -41,8 +44,10 @@ export class AdminApiService {
     private readonly policy: AdminPolicy,
     private readonly files: FilesService,
     pages: PageRegistry,
+    audit: AdminAudit,
   ) {
-    this.writes = new WriteRunner(options, this.logger, [filesParticipant(files)]);
+    // Without `audit` nothing is recorded: the audit log is not even a participant.
+    this.writes = new WriteRunner(options, this.logger, [filesParticipant(files), ...(audit.enabled ? [auditParticipant(audit)] : [])]);
     this.pages = new PageService({ pages, policy, options, files, writes: this.writes });
     this.actions = new ActionService({ policy, options, logger: this.logger, writes: this.writes, record: (entry, entity, ctx) => this.record(entry, entity, ctx) });
   }

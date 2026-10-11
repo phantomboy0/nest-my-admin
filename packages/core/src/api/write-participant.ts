@@ -1,3 +1,4 @@
+import type { RegisteredAction } from '../decorators/admin-action.js';
 import type { RegisteredPage } from '../pages/page-registry.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
@@ -16,6 +17,8 @@ export interface WriteChange {
   id?: RecordId;
   /** The validated payload of a create, an update or a page save; a participant may replace what the form sent (files). */
   dto?: object;
+  /** An `@AdminAction` run (`kind: 'action'`): the action, and its input as validated, before any method saw it. */
+  action?: { definition: RegisteredAction; input: object };
 }
 
 /**

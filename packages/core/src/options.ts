@@ -58,6 +58,14 @@ export interface AdminFilesOptions {
   dataSource?: string;
 }
 
+/** The audit log (spec §10.2): every change made through the admin, sign-ins and permission changes. */
+export interface AdminAuditOptions {
+  /** Entries older than this many days are deleted. Default: kept for ever. */
+  retentionDays?: number;
+  /** The TypeORM DataSource holding `ADMIN_AUDIT_ENTITIES` (default: the default DataSource). */
+  dataSource?: string;
+}
+
 export interface AdminModuleOptions {
   /** Mount path of the admin UI and API. Default `/admin`. */
   path?: string;
@@ -102,6 +110,13 @@ export interface AdminModuleOptions {
    * Without it `/api/uploads` answers 404.
    */
   files?: AdminFilesOptions;
+  /**
+   * Records who changed what and when (records, actions, settings pages, roles and groups, sign-ins). Add
+   * `ADMIN_AUDIT_ENTITIES` to the TypeORM entities of `dataSource`. An entry is written in the transaction of the
+   * change it describes when both are on the same DataSource; on another one it is written right after the commit.
+   * Without it nothing is recorded.
+   */
+  audit?: AdminAuditOptions;
 }
 
 export interface ResolvedAdminOptions {
@@ -122,6 +137,7 @@ export interface ResolvedAdminOptions {
   permissions: string[];
   rbac?: { dataSource?: string };
   files?: AdminFilesOptions & { maxBytes: number };
+  audit?: AdminAuditOptions;
 }
 
 export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedAdminOptions {
@@ -157,6 +173,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     permissions: options.permissions ?? [],
     rbac: options.rbac,
     files: checkFiles(options.files),
+    audit: checkAudit(options.audit),
   };
 }
 
@@ -190,4 +207,11 @@ function checkFiles(files: AdminFilesOptions | undefined): ResolvedAdminOptions[
   if (maxBytes > MAX_FILE_BYTES) throw new Error(`nest-my-admin: files.maxBytes must be at most ${MAX_FILE_BYTES} bytes (2 GiB - 1)`);
   if (files.sanitizeHtml !== undefined && typeof files.sanitizeHtml !== 'function') throw new Error('nest-my-admin: files.sanitizeHtml must be a function');
   return { ...files, maxBytes };
+}
+
+function checkAudit(audit: AdminAuditOptions | undefined): AdminAuditOptions | undefined {
+  if (!audit) return undefined;
+  const days = audit.retentionDays;
+  if (days !== undefined && (!Number.isSafeInteger(days) || days <= 0)) throw new Error('nest-my-admin: audit.retentionDays must be a positive whole number of days');
+  return audit;
 }

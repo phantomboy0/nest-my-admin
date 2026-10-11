@@ -35,7 +35,7 @@ export function addRbacRoutes<S extends State>(
   const manager = (ctx: AdminContext): RbacManager => {
     if (!rbac.enabled) throw new AdminNotFoundError('Roles and groups are not stored in this admin');
     if (!ctx.permissions || !ctx.user) throw new AdminForbiddenError('Sign in first');
-    return { userId: String(ctx.user.id), permissions: ctx.permissions };
+    return { userId: String(ctx.user.id), permissions: ctx.permissions, ctx };
   };
   const reader = (ctx: AdminContext): RbacManager => {
     const who = manager(ctx);

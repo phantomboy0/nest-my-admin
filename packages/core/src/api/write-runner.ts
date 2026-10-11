@@ -4,9 +4,7 @@ import { hostError } from '../http/error-response.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
 import type { WriteChange, WriteParticipant } from './write-participant.js';
-
-/** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
-export const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
+import { exclusive } from './write-queue.js';
 
 /** A participant's part in one change of a write; `done` once its `after` finished. */
 interface Step {
@@ -21,12 +19,6 @@ interface Step {
  * A plain class built by `AdminApiService`.
  */
 export class WriteRunner {
-  /**
-   * Tail of the write queue per single-connection DataSource, so admin transactions never interleave.
-   * A write whose host code never settles blocks every later admin write on that SQLite DataSource.
-   */
-  private readonly queues = new WeakMap<DataSource, Promise<unknown>>();
-
   /** The steps of the write a transactional context belongs to. Only `run()` opens one, so there is always one inside `work`. */
   private readonly open = new WeakMap<AdminContext, Step[]>();
 
@@ -70,7 +62,8 @@ export class WriteRunner {
     // collected on the outer context, so they settle with the outer transaction.
     const outer = AdminContext.current();
     if (outer?.manager && outer.manager.connection === dataSource) return work(outer);
-    const run = () => {
+    // On a single-connection driver the admin's transactions never interleave: they queue (see `exclusive`).
+    return exclusive(dataSource, () => {
       const transactional: AdminContext = { ...ctx };
       return committed(transactional, () =>
         dataSource.transaction(async (manager) => {
@@ -78,13 +71,7 @@ export class WriteRunner {
           return runInAdminContext(transactional, () => work(transactional));
         }),
       );
-    };
-    if (!SINGLE_CONNECTION_DRIVERS.has(dataSource.options.type)) return run();
-    // One shared query runner: a second BEGIN would nest into (and roll back with) the first, so queue writes.
-    const previous = this.queues.get(dataSource) ?? Promise.resolve();
-    const result = previous.then(run);
-    this.queues.set(dataSource, result.catch(() => undefined));
-    return result;
+    });
   }
 
   /**

@@ -1,5 +1,5 @@
 export { AdminModule } from './admin.module.js';
-export type { AdminBranding, AdminFilesOptions, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
+export type { AdminAuditOptions, AdminBranding, AdminFilesOptions, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
 export type { LocalizedText } from './i18n/localized-text.js';
 export { ResourceRegistry, type RegisteredGroup, type RegisteredResource } from './registry/resource-registry.js';
 export type { DbNames } from './registry/db-names.js';
@@ -26,6 +26,8 @@ export { AdminSettingsPage, type AdminSettingsPageOptions, type AdminSettingsSou
 export type { FieldRule, ResourceOperation, RoleDefinition, ScopedOperation } from './policy/roles.js';
 export { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './rbac/entities.js';
 export { ADMIN_FILE_ENTITIES, NmaFile } from './files/entities.js';
+export { ADMIN_AUDIT_ENTITIES, NmaAuditEntry, type AuditMeta } from './audit/entities.js';
+export type { AuditChange } from './audit/diff.js';
 export type { AdminFile } from './files/admin-file.js';
 export { localStorage, type AdminStorage, type LocalStorageOptions } from './files/storage.js';
 export { s3Storage, type S3StorageOptions } from './files/s3-storage.js';

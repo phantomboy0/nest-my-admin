@@ -90,6 +90,7 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
       if (field!.type !== 'string' && field!.type !== 'text') fail(`fields.${name}: a \`secret\` field must be text, got ${field!.type}`);
       if (options.widget !== undefined && !SECRET_WIDGETS.includes(options.widget)) fail(`fields.${name}: a \`secret\` field cannot use the "${options.widget}" widget`);
     }
+    if (options.sensitive !== undefined && typeof options.sensitive !== 'boolean') fail(`fields.${name}.sensitive: must be true or false`);
     for (const color of Object.values(options.colors ?? {})) {
       if (!BADGE_COLORS.includes(color)) fail(`fields.${name}: unknown badge colour "${color}" (use ${BADGE_COLORS.join(', ')})`);
     }
@@ -124,6 +125,11 @@ function checkFileOptions(name: string, field: FieldSchema, options: FieldConfig
     if (!isFile) fail(`fields.${name}: \`many\` needs the "file" or "image" widget`);
     if (options.many && field.type !== 'json') fail(`fields.${name}: \`many\` needs a json column (simple-json or json) holding the list of files, got ${field.type}`);
   }
+}
+
+/** Fields whose values the audit log never stores: `sensitive`, `secret`, and anything typed into a `password` widget. */
+export function sensitiveFields(config: ReadonlyMap<string, FieldConfig>): Set<string> {
+  return new Set([...config].filter(([, options]) => options.sensitive === true || options.secret === true || options.widget === 'password').map(([name]) => name));
 }
 
 /** The field with its configured options, texts in `locale` (the schema the UI gets). */

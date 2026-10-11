@@ -15,6 +15,7 @@ import {
   AdminUnsupportedMediaTypeError,
   AdminValidationError,
 } from '../errors.js';
+import { AdminAudit, clientOf } from '../audit/audit.service.js';
 import type { AdminAuthAdapter, AdminPrincipal } from '../auth/auth-adapter.js';
 import { AdminAuthService } from '../auth/auth.service.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
@@ -83,6 +84,7 @@ export class AdminHttpServer implements OnModuleInit {
     private readonly policy: AdminPolicy,
     private readonly rbac: AdminRbac,
     private readonly files: FilesService,
+    private readonly audit: AdminAudit,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {
     this.router
@@ -90,7 +92,7 @@ export class AdminHttpServer implements OnModuleInit {
         if (!principal) throw new AdminUnauthenticatedError();
         sendJson(res, 200, await this.sessionResponse(principal, ctx.viewAs));
       })
-      .add('POST', '/api/session', async ({ req, res }) => {
+      .add('POST', '/api/session', async ({ req, res, ctx }) => {
         const login = this.auth.adapter?.login;
         if (!login) throw new AdminNotFoundError('This admin has no username/password sign-in');
         const body = await readJsonBody(req);
@@ -101,13 +103,25 @@ export class AdminHttpServer implements OnModuleInit {
         if (otp !== undefined && (typeof otp !== 'string' || otp.length > 40)) fields.otp = ['must be a code'];
         if (Object.keys(fields).length > 0) throw new AdminValidationError(fields);
         const input = { username: (username as string).trim(), password: password as string, ...(typeof otp === 'string' && otp.trim() !== '' ? { otp: otp.trim() } : {}) };
-        const principal = await login.call(this.auth.adapter, input, { req, res });
+        let principal: AdminPrincipal;
+        try {
+          principal = await login.call(this.auth.adapter, input, { req, res });
+        } catch (error) {
+          // Wrong credentials or a lockout (being asked for the second factor is neither). The username and where it
+          // came from, never the password or the code; and the answer does not wait for the entry.
+          if (error instanceof AdminUnauthenticatedError || error instanceof AdminRateLimitError) {
+            this.audit.recordDetached({ event: 'auth.login_failed', meta: { username: input.username, ...clientOf(req), reason: error.code } }, { correlationId: ctx.correlationId });
+          }
+          throw error;
+        }
+        await this.audit.recordAfter({ event: 'auth.login', meta: clientOf(req) }, { correlationId: ctx.correlationId, user: principal.user });
         sendJson(res, 200, await this.sessionResponse(principal));
       })
-      .add('DELETE', '/api/session', async ({ req, res, principal }) => {
+      .add('DELETE', '/api/session', async ({ req, res, principal, ctx }) => {
         const adapter = this.auth.adapter;
         if (!adapter?.logout) throw new AdminNotFoundError('This admin has no sign-out');
         await adapter.logout(principal!, { req, res });
+        await this.audit.recordAfter({ event: 'auth.logout', meta: clientOf(req) }, { correlationId: ctx.correlationId, user: principal!.user });
         res.statusCode = 204;
         res.end();
       })
@@ -242,9 +256,13 @@ export class AdminHttpServer implements OnModuleInit {
     if (!target) throw new AdminNotFoundError(`User "${id}" not found`);
     const key = `${String(principal.user.id)}>${String(target.id)}`;
     const now = Date.now();
+    // Once an hour per pair, not once per request: an audit entry when the audit log is on, else a log line.
     if ((this.viewAsLogged.get(key) ?? 0) < now - 3_600_000) {
       this.viewAsLogged.set(key, now);
-      this.logger.log(`User ${String(principal.user.id)} is viewing the admin as user ${String(target.id)}`);
+      if (this.audit.enabled) {
+        const entry = { event: 'auth.view_as', recordId: String(target.id), title: target.displayName, meta: clientOf(ctx.request) };
+        await this.audit.recordAfter(entry, { correlationId: ctx.correlationId, user: principal.user });
+      } else this.logger.log(`User ${String(principal.user.id)} is viewing the admin as user ${String(target.id)}`);
     }
     ctx.viewAs = { by: principal.user };
     return { user: target, ...(principal.csrfToken ? { csrfToken: principal.csrfToken } : {}) };

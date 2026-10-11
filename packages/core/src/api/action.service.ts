@@ -51,9 +51,9 @@ export class ActionService {
     if (ctx.viewAs) throw new AdminForbiddenError('Viewing as another user is read-only');
 
     const request = parseRequest(body);
-    // Validated once up front (a 422 before anything runs); every run then gets an instance of its own.
-    await validateInput(action, request.input);
-    const input: InputFactory = () => validateInput(action, request.input);
+    // Validated once up front (a 422 before anything runs); every run then gets an instance of its own, and the
+    // first one, which no method ever sees, is what the participants of the write are told was sent.
+    const input: ActionInput = { sent: await validateInput(action, request.input), fresh: () => validateInput(action, request.input) };
     if (action.target === 'resource') {
       if (request.ids !== undefined) throw new AdminBadRequestError(`"${label}" runs on the resource, not on records: send no ids`);
       return this.runOnResource(entry, action, input, ctx);
@@ -64,12 +64,14 @@ export class ActionService {
     return action.atomic ? this.runTogether(entry, action, label, ids, input, ctx) : this.runEach(entry, action, label, ids, input, ctx);
   }
 
-  private async runOnResource(entry: RegisteredResource, action: RegisteredAction, input: InputFactory, ctx: AdminContext): Promise<ActionResourceResult> {
-    const outcome = await this.host.writes.run(entry, ctx, async (tx) => methodOf(entry, action).call(entry.resource, await input(), tx));
+  private async runOnResource(entry: RegisteredResource, action: RegisteredAction, input: ActionInput, ctx: AdminContext): Promise<ActionResourceResult> {
+    const outcome = await this.host.writes.run(entry, ctx, (tx) =>
+      this.host.writes.change({ kind: 'action', target: entry, action: { definition: action, input: input.sent } }, tx, async () => methodOf(entry, action).call(entry.resource, await input.fresh(), tx), () => undefined),
+    );
     return withMessage({}, messageOf(outcome, ctx, this.host.options));
   }
 
-  private runOnOne(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: InputFactory, ctx: AdminContext): Promise<ActionRecordResult> {
+  private runOnOne(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: ActionInput, ctx: AdminContext): Promise<ActionRecordResult> {
     return this.host.writes.run(entry, ctx, async (tx) => {
       const { message, after } = await this.runOnRecord(entry, action, label, rawId, input, tx);
       return withMessage({ record: after ? await this.host.record(entry, after, tx) : null }, message);
@@ -77,7 +79,7 @@ export class ActionService {
   }
 
   /** Each record in its own transaction: a failure is reported for its id (as the single run would answer) and undoes nothing else. */
-  private async runEach(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: InputFactory, ctx: AdminContext): Promise<ActionBulkResult> {
+  private async runEach(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: ActionInput, ctx: AdminContext): Promise<ActionBulkResult> {
     const result: ActionBulkResult = { ok: [], failed: [] };
     const messages: Array<string | undefined> = [];
     for (const id of ids) {
@@ -98,7 +100,7 @@ export class ActionService {
    * refuses the whole run without leaning on a rollback. Then all of them run in the same transaction; a method
    * that throws is the answer and undoes the ones before it (the registry refuses `atomic` without transactions).
    */
-  private runTogether(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: InputFactory, ctx: AdminContext): Promise<ActionBulkResult> {
+  private runTogether(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: ActionInput, ctx: AdminContext): Promise<ActionBulkResult> {
     return this.host.writes.run(entry, ctx, async (tx) => {
       for (const id of ids) await this.loadAllowed(entry, action, label, id, tx);
       const messages: Array<string | undefined> = [];
@@ -129,20 +131,31 @@ export class ActionService {
    * nowhere else. An atomic run has checked every record once already; it is loaded again here, because the methods
    * that ran before it may have changed it.
    */
-  private async runOnRecord(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: InputFactory, tx: AdminContext): Promise<RecordRun> {
+  private async runOnRecord(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: ActionInput, tx: AdminContext): Promise<RecordRun> {
     const { policy, options } = this.host;
     const { id, record } = await this.loadAllowed(entry, action, label, rawId, tx);
-    const outcome = await methodOf(entry, action).call(entry.resource, record, await input(), tx);
-
+    // One change of the write: its participants see the record before the method runs (which may change the entity
+    // it is handed) and as it is read again afterwards, whether or not the user can still see it; null: it is gone.
+    const { outcome, reloaded } = await this.host.writes.change(
+      { kind: 'action', target: entry, existing: record, id, action: { definition: action, input: input.sent } },
+      tx,
+      async () => ({ outcome: await methodOf(entry, action).call(entry.resource, record, await input.fresh(), tx), reloaded: (await entry.resource.findOne(id, tx)) as object | null }),
+      (result) => result.reloaded,
+    );
     // The action may have deleted the record or moved it out of the user's scopes (a findOne override may ignore them).
-    const reloaded = await entry.resource.findOne(id, tx);
     const visible = reloaded !== null && (await policy.allowedIds(entry, [id], 'view', tx)).size > 0;
     return withMessage({ after: visible ? reloaded : null }, messageOf(outcome, tx, options));
   }
 }
 
-/** A fresh, validated instance of the action's input: a method that changes its input changes nobody else's. */
-type InputFactory = () => Promise<object>;
+/**
+ * The action's validated input. `fresh()` is a new instance for each run: a method that changes its input changes
+ * nobody else's. `sent` is the instance of the up-front validation, handed to no method.
+ */
+interface ActionInput {
+  sent: object;
+  fresh(): Promise<object>;
+}
 
 function methodOf(entry: RegisteredResource, action: RegisteredAction): ActionMethod {
   return (entry.resource as unknown as Record<string, ActionMethod>)[action.name]!;

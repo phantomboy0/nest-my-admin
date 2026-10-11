@@ -12,11 +12,10 @@ import { customCodes } from '../policy/catalog.js';
 import { RESERVED_PAGE_NAMES, pageCode } from '../policy/roles.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
-import { buildDtoForm, type DtoForm } from '../schema/dto-form.js';
-import { dtoPropertyNames, type DtoClass } from '../schema/dto-fields.js';
+import { buildDtoForm, nestedOption, type DtoForm } from '../schema/dto-form.js';
+import type { DtoClass } from '../schema/dto-fields.js';
 import { checkLayout, type FieldConfig, type LayoutConfig } from '../schema/field-config.js';
 import { humanize } from '../schema/humanize.js';
-import { nestedTypeOf } from '../schema/nested-fields.js';
 
 export interface RegisteredPage {
   /** URL segment (`/api/pages/<name>`) and permission segment (`page.<name>`). */
@@ -135,7 +134,7 @@ export class PageRegistry implements OnModuleInit, OnApplicationBootstrap {
     }
     // Only the page's own fields have options: a `secret` inside a group would be served like any other value.
     for (const field of built.fields) {
-      const inside = field.type === 'object' ? nestedSecret(form, field.name) : undefined;
+      const inside = field.type === 'object' ? nestedOption(form, field.name, 'secret') : undefined;
       if (inside) fail(`fields.${field.name}: a \`secret\` field cannot be inside a group (${inside}); make it a field of the page itself`);
     }
     if (layout) checkLayout(layout, built.fields.map((field) => field.name), fail);
@@ -160,19 +159,6 @@ export class PageRegistry implements OnModuleInit, OnApplicationBootstrap {
       dataSource,
     });
   }
-}
-
-/** `Class.property` of the first `@AdminField({ secret: true })` in the DTOs nested under a property, if any. */
-function nestedSecret(dto: DtoClass, property: string, seen = new Set<DtoClass>()): string | undefined {
-  const nested = nestedTypeOf(dto, property)?.type;
-  if (!nested || seen.has(nested)) return undefined;
-  seen.add(nested);
-  for (const [name, options] of Object.entries(getAdminFieldOptions(nested))) if (options.secret) return `${nested.name}.${name}`;
-  for (const name of dtoPropertyNames(nested)) {
-    const deeper = nestedSecret(nested, name, seen);
-    if (deeper) return deeper;
-  }
-  return undefined;
 }
 
 export const unknownPage = (name: string): AdminNotFoundError => new AdminNotFoundError(`Unknown page "${name}"`);

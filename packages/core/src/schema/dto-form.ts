@@ -1,5 +1,6 @@
 import type { DtoFormSchema, FieldConstraints, FieldSchema } from '../contract.js';
 import { dtoConstraints, isConditionalProperty } from './dto-constraints.js';
+import { getAdminFieldOptions } from '../decorators/admin-field.js';
 import { dtoOnlyField, dtoPropertyNames, type DtoClass } from './dto-fields.js';
 import { applyFieldConfig, checkFieldConfig, mergeFieldConfig, type FieldConfig } from './field-config.js';
 import { dtoObjectField, nestedTypeOf } from './nested-fields.js';
@@ -49,8 +50,31 @@ export function buildDtoForm(dto: DtoClass, fieldsConfig?: Record<string, FieldC
 
   const config = mergeFieldConfig([dto], fieldsConfig);
   checkFieldConfig(fields, config, failed, allow);
+  for (const field of fields) {
+    const inside = field.type === 'object' ? nestedOption(dto, field.name, 'sensitive') : undefined;
+    if (inside) failed(sensitiveInside(field.name, inside));
+  }
   return { fields, constraints, required: names.filter((name) => constraints[name]!.required === true), config };
 }
+
+/**
+ * `Class.property` of the first `@AdminField` with `option` set in the DTOs nested under a property, if any. Field
+ * options apply to a form's own fields only, so `secret` or `sensitive` inside a group would protect nothing.
+ */
+export function nestedOption(dto: DtoClass, property: string, option: 'secret' | 'sensitive', seen = new Set<DtoClass>()): string | undefined {
+  const nested = nestedTypeOf(dto, property)?.type;
+  if (!nested || seen.has(nested)) return undefined;
+  seen.add(nested);
+  for (const [name, options] of Object.entries(getAdminFieldOptions(nested))) if (options[option]) return `${nested.name}.${name}`;
+  for (const name of dtoPropertyNames(nested)) {
+    const deeper = nestedOption(nested, name, option, seen);
+    if (deeper) return deeper;
+  }
+  return undefined;
+}
+
+export const sensitiveInside = (field: string, inside: string): string =>
+  `fields.${field}: \`sensitive\` on ${inside} is inside a group, where it is not applied; mark the group itself (\`fields.${field}.sensitive\`)`;
 
 /** `required` is present only when true, as in a resource's form constraints. */
 function withRequired(source: FieldConstraints | undefined): FieldConstraints {

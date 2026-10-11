@@ -58,6 +58,12 @@ export interface AdminFieldOptions {
    * served: the form shows whether one is stored, replaces it with what is typed, and clears it on request.
    */
   secret?: boolean;
+  /**
+   * The audit log never stores this field's values: a change is recorded as "changed" only (a salary, a national id,
+   * a token). On a resource's field, a settings page's field, or a property of an action's input DTO, which is then
+   * left out of the recorded input. `password`-widget fields and `secret` fields are sensitive without it.
+   */
+  sensitive?: boolean;
 }
 
 /** Customises how a property appears in the admin (spec §5.3 layer 3). Later layers (resource `fields`) win. */

@@ -1,7 +1,11 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
-import { In, type DataSource } from 'typeorm';
+import { randomUUID } from 'node:crypto';
+import { In, type DataSource, type EntityManager } from 'typeorm';
+import { exclusive } from '../api/write-queue.js';
+import { AdminAudit, type AuditContext, type AuditInput } from '../audit/audit.service.js';
+import { diffPlain } from '../audit/diff.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
@@ -11,6 +15,7 @@ import type { EffectivePermissions } from '../policy/effective.js';
 import { checkRoles, type PolicyCatalog, type RoleDefinition } from '../policy/roles.js';
 import { PageRegistry } from '../pages/page-registry.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
+import { AdminContext } from '../resource/admin-context.js';
 import { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './entities.js';
 import { escalations } from './escalation.js';
 
@@ -31,6 +36,8 @@ export interface GroupRecord {
 export interface RbacManager {
   userId: string;
   permissions: EffectivePermissions;
+  /** The request, for the audit log's entries (default: the admin request being handled, if any). */
+  ctx?: AuditContext;
 }
 
 const NAME = /^[a-z0-9][a-z0-9._-]{0,99}$/i;
@@ -53,10 +60,34 @@ export class AdminRbac implements OnApplicationBootstrap {
     private readonly registry: ResourceRegistry,
     private readonly pages: PageRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
+    private readonly audit: AdminAudit,
   ) {}
 
   get enabled(): boolean {
     return this.options.rbac !== undefined;
+  }
+
+  /**
+   * One change of roles, groups or memberships: `work` in a transaction, then the cached permissions are dropped.
+   * The audit entries it hands to `log` are written in that transaction when the audit log shares the DataSource
+   * (they roll back with the change), else right after the commit.
+   */
+  private async transact<T>(who: RbacManager, work: (tx: EntityManager, log: (input: AuditInput | undefined) => void) => Promise<T>): Promise<T> {
+    const entries: AuditInput[] = [];
+    const current = AdminContext.current();
+    const ctx: AuditContext = who.ctx ?? current ?? { correlationId: randomUUID(), user: { id: who.userId, displayName: who.userId } };
+    const run = () =>
+      this.db.transaction(async (tx) => {
+        const result = await work(tx, (input) => void (input && entries.push(input)));
+        const inside: AuditContext = { correlationId: ctx.correlationId, user: ctx.user, viewAs: ctx.viewAs, manager: tx };
+        if (this.audit.joins(inside)) for (const input of entries.splice(0)) await this.audit.record(input, inside);
+        return result;
+      });
+    // Queued with the admin's other writes on a single-connection driver, unless this runs inside one of them.
+    const result = await (current?.manager?.connection === this.db ? run() : exclusive(this.db, run));
+    for (const input of entries) await this.audit.recordAfter(input, ctx);
+    this.invalidate();
+    return result;
   }
 
   /** Changes whenever roles, groups or memberships change (the UI refetches its permissions). */
@@ -196,10 +227,11 @@ export class AdminRbac implements OnApplicationBootstrap {
     this.validate(role);
     this.requireWithin(role, manager, 'grant');
     if (existing) this.requireWithin(toRole(existing), manager, 'change');
-    await repository.save(
-      repository.create({ name: role.name, label: role.label ?? null, description: role.description ?? null, system: false, definition: definitionOf(role) }),
-    );
-    this.invalidate();
+    await this.transact(manager, async (tx, log) => {
+      const roles = tx.getRepository(NmaRole);
+      await roles.save(roles.create({ name: role.name, label: role.label ?? null, description: role.description ?? null, system: false, definition: definitionOf(role) }));
+      log(roleEntry(role.name, existing ? toRole(existing) : undefined, role));
+    });
     return { ...role, system: false };
   }
 
@@ -209,12 +241,12 @@ export class AdminRbac implements OnApplicationBootstrap {
     if (!existing) throw new AdminNotFoundError(`Role "${name}" not found`);
     if (existing.system) throw new AdminForbiddenError(`"${name}" is a system role: remove it in code`);
     this.requireWithin(toRole(existing), manager, 'delete');
-    await this.db.transaction(async (tx) => {
+    await this.transact(manager, async (tx, log) => {
       await tx.getRepository(NmaUserRole).delete({ roleName: name });
       await tx.getRepository(NmaGroupRole).delete({ roleName: name });
       await tx.getRepository(NmaRole).delete({ name });
+      log(roleEntry(name, toRole(existing), undefined));
     });
-    this.invalidate();
   }
 
   /** Roles that are not system roles, as JSON for another admin (spec §6.6). */
@@ -244,18 +276,20 @@ export class AdminRbac implements OnApplicationBootstrap {
       this.requireWithin(role, manager, 'grant');
     }
     const repository = this.db.getRepository(NmaRole);
+    const stored = new Map<string, RoleRecord>();
     for (const existing of await repository.find({ where: { name: In([...names]) } })) {
       if (existing.system) throw new AdminForbiddenError(`"${existing.name}" is a system role`);
       this.requireWithin(toRole(existing), manager, 'change');
+      stored.set(existing.name, toRole(existing));
     }
-    await this.db.transaction(async (tx) => {
+    await this.transact(manager, async (tx, log) => {
       for (const role of roles) {
         await tx.getRepository(NmaRole).save(
           tx.getRepository(NmaRole).create({ name: role.name, label: role.label ?? null, description: role.description ?? null, system: false, definition: definitionOf(role) }),
         );
+        log(roleEntry(role.name, stored.get(role.name), role));
       }
     });
-    this.invalidate();
     return { imported: roles.map((role) => role.name) };
   }
 
@@ -302,7 +336,7 @@ export class AdminRbac implements OnApplicationBootstrap {
     if (!manager.permissions.superuser && members && members.includes(manager.userId) && !(existing?.members ?? []).includes(manager.userId)) {
       throw new AdminForbiddenError('You may not add yourself to a group');
     }
-    const saved = await this.db.transaction(async (tx) => {
+    const saved = await this.transact(manager, async (tx, log) => {
       const groups = tx.getRepository(NmaGroup);
       if (typeof body.name === 'string') {
         const clash = await groups.findOne({ where: { name: body.name } });
@@ -320,9 +354,10 @@ export class AdminRbac implements OnApplicationBootstrap {
         await tx.getRepository(NmaGroupMember).delete({ groupId: group.id });
         if (members.length > 0) await tx.getRepository(NmaGroupMember).insert(members.map((userId) => ({ groupId: group.id, userId })));
       }
+      const label = body.label !== undefined ? (body.label as LocalizedText | null) : (existing?.label ?? null);
+      log(groupEntry(group.id, existing, { name: typeof body.name === 'string' ? body.name : existing!.name, label, roles: [...finalRoles].sort(), members: [...(members ?? existing?.members ?? [])].sort() }));
       return group;
     });
-    this.invalidate();
     return this.getGroup(saved.id);
   }
 
@@ -331,12 +366,12 @@ export class AdminRbac implements OnApplicationBootstrap {
     const group = await this.getGroup(id);
     const known = await this.roles();
     for (const name of group.roles) if (known.has(name)) this.requireWithin(known.get(name)!, manager, 'change');
-    await this.db.transaction(async (tx) => {
+    await this.transact(manager, async (tx, log) => {
       await tx.getRepository(NmaGroupRole).delete({ groupId: id });
       await tx.getRepository(NmaGroupMember).delete({ groupId: id });
       await tx.getRepository(NmaGroup).delete({ id });
+      log(groupEntry(id, group, undefined));
     });
-    this.invalidate();
   }
 
   // ---- users ----------------------------------------------------------------------------------------------------
@@ -373,7 +408,7 @@ export class AdminRbac implements OnApplicationBootstrap {
         if (!current.groups.includes(groupId)) for (const name of group.roles) if (known.has(name)) this.requireWithin(known.get(name)!, manager, 'assign');
       }
     }
-    await this.db.transaction(async (tx) => {
+    await this.transact(manager, async (tx, log) => {
       if (roles !== undefined) {
         await tx.getRepository(NmaUserRole).delete({ userId });
         if (roles.length > 0) await tx.getRepository(NmaUserRole).insert(roles.map((roleName) => ({ userId, roleName })));
@@ -382,8 +417,10 @@ export class AdminRbac implements OnApplicationBootstrap {
         await tx.getRepository(NmaGroupMember).delete({ userId });
         if (groups.length > 0) await tx.getRepository(NmaGroupMember).insert(groups.map((groupId) => ({ groupId, userId })));
       }
+      const after = { roles: roles ? [...roles].sort() : current.roles, groups: groups ? [...groups].sort((a, b) => a - b) : current.groups };
+      const changes = diffPlain(current, after, ['roles', 'groups']);
+      if (changes.length > 0) log({ event: 'rbac.user_roles.changed', recordId: userId, changes });
     });
-    this.invalidate();
   }
 
   /** User ids that appear in memberships (the users list of adapters that cannot list users). */
@@ -436,6 +473,26 @@ function toRole(row: NmaRole): RoleRecord {
     ...(row.definition?.scopes ? { scopes: row.definition.scopes } : {}),
     system: row.system,
   };
+}
+
+/**
+ * The audit entry of a role that was created (`before` absent), changed or deleted (`after` absent): what it grants,
+ * before and after. Nothing when a save changed nothing.
+ */
+function roleEntry(name: string, before: RoleDefinition | undefined, after: RoleDefinition | undefined): AuditInput | undefined {
+  const values = (role: RoleDefinition | undefined) =>
+    role && { label: role.label ?? null, description: role.description ?? null, permissions: [...role.permissions].sort(), fields: role.fields ?? null, scopes: role.scopes ?? null };
+  const changes = diffPlain(values(before), values(after), ['label', 'description', 'permissions', 'fields', 'scopes']);
+  return before && after && changes.length === 0 ? undefined : { event: 'rbac.role.changed', recordId: name, changes };
+}
+
+type GroupValues = Pick<GroupRecord, 'name' | 'label' | 'roles' | 'members'>;
+
+/** The audit entry of a group that was created, changed or deleted: its name, its roles and its members. */
+function groupEntry(id: number, before: GroupValues | undefined, after: GroupValues | undefined): AuditInput | undefined {
+  const values = (group: GroupValues | undefined) => group && { name: group.name, label: group.label, roles: group.roles, members: group.members };
+  const changes = diffPlain(values(before), values(after), ['name', 'label', 'roles', 'members']);
+  return before && after && changes.length === 0 ? undefined : { event: 'rbac.group.changed', recordId: String(id), title: (after ?? before)!.name, changes };
 }
 
 function definitionOf(role: RoleDefinition): NmaRole['definition'] {

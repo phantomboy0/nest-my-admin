@@ -1,0 +1,148 @@
+import type { EntityManager } from 'typeorm';
+import type { WriteChange, WriteParticipant } from '../api/write-participant.js';
+import { recordIdOf } from '../crud/record-id.js';
+import { serializeFull, storedFields } from '../crud/serialize-full.js';
+import type { RegisteredAction } from '../decorators/admin-action.js';
+import type { RegisteredPage } from '../pages/page-registry.js';
+import { pick } from '../pages/page.service.js';
+import type { RegisteredResource } from '../registry/resource-registry.js';
+import type { RecordId } from '../resource/admin-resource-base.js';
+import { sensitiveFields } from '../schema/field-config.js';
+import type { AdminAudit, AuditInput } from './audit.service.js';
+import { diffRecords } from './diff.js';
+
+/** What the audit log keeps of one change between the host method's start and the entry. */
+interface AuditState {
+  /** The record (or the page's values) as stored before the host method ran. */
+  before?: Record<string, unknown>;
+  recordId?: string;
+  title?: string;
+  /** The entry, when it cannot share the change's transaction: written once that has committed. */
+  pending?: AuditInput;
+}
+
+const EVENTS = { create: 'created', update: 'updated', delete: 'deleted', restore: 'restored', purge: 'purged' } as const;
+
+/**
+ * The audit log as a participant of every write (after files). "Before" is read and serialized ahead of the host
+ * method, which may change the entity it is handed; "after" is read back from the database once it has returned,
+ * so what the host computed on its own is recorded too. Both are the full stored record (`serializeFull`),
+ * whatever the actor may see, and the payload that was sent is never looked at.
+ *
+ * The entry is written in the change's transaction when the audit table is on the same DataSource, so the two
+ * commit or roll back together; on another DataSource it is written once the change has committed; without
+ * transactions, once the host method has returned. A change that fails writes none.
+ */
+export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState> {
+  return {
+    async before(change, tx) {
+      const { target } = change;
+      if (!('schema' in target)) return { before: pageValues(target, change.existing) };
+      const manager = tx.manager ?? target.dataSource.manager;
+      // The stored row, read here: like "after", so the two compare column for column whatever the resource's
+      // `findOne` selected, and the entity the host method is handed (and may change) is never the one serialized.
+      // A purge is not handed its record at all: this reads it, from the trash if need be.
+      const key = change.id ?? (change.existing ? keyOf(target, change.existing) : undefined);
+      const reads = change.existing !== undefined || change.kind === 'purge';
+      const existing = reads && key !== undefined ? ((await load(target, key, manager)) ?? change.existing) : change.existing;
+      if (!existing) return {};
+      return { before: await serializeFull(target, existing, manager), recordId: recordIdOf(existing, target.schema.primaryKeys), title: titleOf(target, existing) };
+    },
+
+    async after(change, state, saved, tx) {
+      const { target } = change;
+      const input = 'schema' in target ? await recordEntry(target, change, state, saved, tx.manager ?? target.dataSource.manager) : pageEntry(target, state, saved);
+      if (!input) return;
+      if (audit.joins(tx)) await audit.record(input, tx);
+      else if (tx.manager) state.pending = input;
+      else await audit.recordAfter(input, tx);
+    },
+
+    async onCommit(_change, state, tx) {
+      if (state.pending) await audit.recordAfter(state.pending, tx);
+    },
+  };
+}
+
+const whereOf = (entry: RegisteredResource, id: RecordId): Record<string, unknown> => (typeof id === 'object' ? id : { [entry.schema.primaryKeys[0]!]: id });
+
+const keyOf = (entry: RegisteredResource, entity: object): RecordId => Object.fromEntries(entry.schema.primaryKeys.map((key) => [key, (entity as Record<string, unknown>)[key]])) as RecordId;
+
+/** The record's real title, unless the title is a sensitive field's value: that is never stored, here either. */
+function titleOf(entry: RegisteredResource, entity: object): string | undefined {
+  const column = entry.title.column;
+  return column !== undefined && sensitiveFields(entry.fieldConfig).has(column) ? undefined : entry.title(entity);
+}
+
+/** The stored row, in the trash or not, whoever asks: no scope, no `query()`, no `findOne` override. */
+async function load(entry: RegisteredResource, id: RecordId, manager: EntityManager): Promise<object | undefined> {
+  const where = whereOf(entry, id);
+  if (Object.values(where).some((value) => value === undefined || value === null)) return undefined;
+  return ((await manager.getRepository(entry.metadata.target).findOne({ where, withDeleted: true })) as object | null) ?? undefined;
+}
+
+/** The entry of a record change, or nothing when an update changed no field. */
+async function recordEntry(entry: RegisteredResource, change: WriteChange, state: AuditState, saved: object | null | undefined, manager: EntityManager): Promise<AuditInput | undefined> {
+  const name = entry.schema.name;
+  const { action } = change;
+  if (change.kind === 'action' && action && state.recordId === undefined) {
+    // A resource action: no record, only that it ran and with what.
+    return { event: `${name}.action.${action.definition.name}`, entry, meta: actionMeta(action.definition, action.input) };
+  }
+  const fields = storedFields(entry);
+  const masked = sensitiveFields(entry.fieldConfig);
+  const gone = change.kind === 'delete' || change.kind === 'purge';
+  // What is stored now, read back: a host method may answer nothing, or an entity from before it finished.
+  const known = change.id ?? (change.existing ? keyOf(entry, change.existing) : saved ? keyOf(entry, saved) : undefined);
+  const current = gone ? undefined : ((known !== undefined ? await load(entry, known, manager) : undefined) ?? saved ?? undefined);
+  const after = current ? await serializeFull(entry, current, manager) : undefined;
+  const recordId = current ? recordIdOf(current, entry.schema.primaryKeys) : (state.recordId ?? (change.id !== undefined ? recordIdOf(whereOf(entry, change.id), entry.schema.primaryKeys) : undefined));
+  const title = current ? titleOf(entry, current) : state.title;
+  const record = { entry, ...(recordId !== undefined ? { recordId } : {}), ...(title !== undefined ? { title } : {}) };
+
+  if (change.kind === 'action' && action) {
+    const changes = diffRecords(state.before, after, fields, masked);
+    return { ...record, event: `${name}.action.${action.definition.name}`, changes, meta: { ...actionMeta(action.definition, action.input), ...(after ? {} : { deleted: true as const }) } };
+  }
+  if (change.kind === 'action' || change.kind === 'page') return undefined;
+  const event = `${name}.${EVENTS[change.kind]}`;
+  if (change.kind === 'restore') return { ...record, event, changes: [] };
+  if (gone) return { ...record, event, changes: diffRecords(state.before, undefined, fields, masked) };
+  if (!after) return undefined;
+  const changes = diffRecords(change.kind === 'create' ? undefined : state.before, after, fields, masked);
+  // A save that changed nothing is no entry.
+  return change.kind === 'update' && changes.length === 0 ? undefined : { ...record, event, changes };
+}
+
+/** `meta` of an action's entry: its name, and the input that was validated, as plain JSON without its sensitive keys. */
+function actionMeta(action: RegisteredAction, input: object): { action: string; input?: Record<string, unknown> } {
+  if (!action.form) return { action: action.name };
+  const hidden = sensitiveFields(action.form.config);
+  const kept: Record<string, unknown> = {};
+  for (const field of action.form.fields) {
+    const value = (input as Record<string, unknown>)[field.name];
+    if (!hidden.has(field.name) && value !== undefined) kept[field.name] = value;
+  }
+  return { action: action.name, input: JSON.parse(JSON.stringify(kept)) as Record<string, unknown> };
+}
+
+/**
+ * The values of a page's own fields (whatever else `load()` answers is no field), copied so the host's `save()`
+ * cannot change them afterwards. Secrets and sensitive fields are here only to be compared: `diffRecords` masks them.
+ */
+function pageValues(page: RegisteredPage, stored: object | undefined): Record<string, unknown> {
+  const source = (stored ?? {}) as Record<string, unknown>;
+  const masked = sensitiveFields(page.form.config);
+  const values = Object.fromEntries(page.form.fields.map((field) => [field.name, masked.has(field.name) ? (source[field.name] ?? null) : pick(field, source[field.name])]));
+  try {
+    return structuredClone(values);
+  } catch {
+    return values;
+  }
+}
+
+function pageEntry(page: RegisteredPage, state: AuditState, saved: object | null | undefined): AuditInput | undefined {
+  if (!saved) return undefined;
+  const changes = diffRecords(state.before ?? {}, pageValues(page, saved), page.form.fields, sensitiveFields(page.form.config));
+  return changes.length === 0 ? undefined : { event: `page.${page.name}.updated`, changes, meta: { page: page.name } };
+}

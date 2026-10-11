@@ -173,7 +173,7 @@ const isPlain = (value: unknown): boolean => Array.isArray(value) || (typeof val
 const isSet = (value: unknown): boolean => value !== undefined && value !== null && value !== '';
 
 /** A stored value as it is served: `null` when missing, and inside a group only the keys the form has. */
-function pick(field: FieldSchema, value: unknown): unknown {
+export function pick(field: FieldSchema, value: unknown): unknown {
   if (value === undefined || value === null) return null;
   if (typeof value === 'bigint') return value.toString();
   if (field.type !== 'object' || !field.fields || field.file) return value;

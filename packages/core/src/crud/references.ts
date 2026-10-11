@@ -6,9 +6,12 @@ import { recordIdOf } from './record-id.js';
 import { serializeValue } from './serialize.js';
 
 export interface ReferenceSource {
-  registry: ResourceRegistry;
+  /** Where titles come from. Without it every ref's title is empty: for callers that only want the ids. */
+  registry?: ResourceRegistry;
   /** `ctx.manager` inside a write (so rows written by it are visible), the DataSource's manager otherwise. */
   manager: EntityManager;
+  /** Also reads records in the trash, and relations to them (the audit log's before and after images). */
+  withDeleted?: boolean;
 }
 
 /** Relation fields and dotted paths: the values `serializeRecord` takes from the reference loader. */
@@ -26,7 +29,7 @@ export async function loadReferences(
   entry: RegisteredResource,
   entities: object[],
   fields: FieldSchema[],
-  { registry, manager }: ReferenceSource,
+  { registry, manager, withDeleted }: ReferenceSource,
 ): Promise<Map<string, Record<string, unknown>>> {
   const { metadata, schema } = entry;
   const keys = schema.primaryKeys;
@@ -40,8 +43,11 @@ export async function loadReferences(
   if (ids.length === 0) return out;
 
   const toRef = (field: FieldSchema, relation: RelationLike, target: object): RelationRef =>
-    relationRef(field, relation, target, registry.titleFor((relation as RelationMetadataLike).inverseEntityMetadata, entry.dataSource));
-  const query = (): SelectQueryBuilder<any> => manager.getRepository(metadata.target).createQueryBuilder('ref').whereInIds(ids);
+    relationRef(field, relation, target, registry ? registry.titleFor((relation as RelationMetadataLike).inverseEntityMetadata, entry.dataSource) : () => '');
+  const query = (): SelectQueryBuilder<any> => {
+    const qb = manager.getRepository(metadata.target).createQueryBuilder('ref');
+    return (withDeleted ? qb.withDeleted() : qb).whereInIds(ids);
+  };
 
   const toOne: Array<{ field: FieldSchema; relation: RelationLike }> = [];
   const paths: Array<{ field: FieldSchema; relations: RelationLike[]; column: string[] }> = [];

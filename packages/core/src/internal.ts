@@ -12,3 +12,4 @@ export { ResourceRegistry, type RegisteredResource } from './registry/resource-r
 export { PageRegistry, type RegisteredPage } from './pages/page-registry.js';
 export { createAdminContext, runInAdminContext } from './resource/admin-context.js';
 export { FilesService } from './files/files.service.js';
+export { AdminAudit, type AuditContext, type AuditInput } from './audit/audit.service.js';
