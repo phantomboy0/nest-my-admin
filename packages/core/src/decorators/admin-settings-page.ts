@@ -30,13 +30,19 @@ export interface AdminSettingsPageOptions<T extends object = any> {
  * What a settings page class implements: where its values come from and where they go.
  *
  * - `load` returns the stored values (secrets included: the admin never serves them, it only reports whether each is set).
+ *   For a file field it returns the key, and `null` once the file was cleared: leaving the key out means "unknown",
+ *   and the removed file is then kept.
  * - `save` gets only the keys that were sent. A secret is a new non-empty string, or `null` to clear it; a file field
  *   is an `AdminFile` (store its `key`, which is what `load` returns) or `null`.
  *
  * Both run with the admin's context; `save` runs inside a transaction on the default DataSource (`ctx.manager`), and
- * `load` is called inside it too, before and after. Use `ctx.manager` when it is set: on Postgres and MySQL a write
- * on another connection is outside the transaction. Throw `AdminFieldError` (or an `HttpException`) from `save` to
- * refuse.
+ * `load` is called inside it too, before and after. Use `ctx.manager` when it is set: a `save` that ignores it writes
+ * outside the transaction (on Postgres and MySQL on another connection), so a later failure does not undo it and
+ * the `load` after it may not see it. Throw `AdminFieldError` (or an `HttpException`) from `save` to refuse.
+ *
+ * Never put a secret into an error message. As a last line of defence the admin replaces the exact values of secrets
+ * of 6 or more characters in errors leaving a save (best effort: shorter values and transformed ones are not found),
+ * and it cannot do that for errors thrown by `load` outside a save: those are logged as thrown.
  */
 export interface AdminSettingsSource<T extends object = Record<string, unknown>> {
   load(ctx: AdminContext): Partial<T> | Promise<Partial<T>>;

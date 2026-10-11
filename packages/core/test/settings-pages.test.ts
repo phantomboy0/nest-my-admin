@@ -20,6 +20,7 @@ import {
   AdminResource,
   AdminResourceBase,
   AdminSettingsPage,
+  AdminValidationError,
   NmaFile,
   localStorage,
   type AdminAuthAdapter,
@@ -49,6 +50,24 @@ class Setting {
   @Column({ type: 'text' }) value: string;
 }
 
+/** A table of the host with a unique column: saving a secret another row holds is a unique violation that quotes it. */
+@Entity('sp_vault')
+class Vault {
+  @PrimaryColumn({ length: 40 }) name: string;
+  @Column({ type: 'varchar', length: 80, unique: true }) token: string;
+}
+
+/** A domain error of the host, which its `errorMapper` turns into a field error. */
+class ProviderError extends Error {
+  constructor(
+    message: string,
+    readonly field: string,
+  ) {
+    super(message);
+    this.name = 'ProviderError';
+  }
+}
+
 class SmtpDto {
   @IsString() @Length(1, 60) host: string;
   @IsOptional() @IsInt() @Min(1) port?: number;
@@ -72,7 +91,16 @@ class ShopSettingsDto {
 }
 
 /** What the page's methods saw, and what they are told to do next. */
-const host: { saves: Array<{ changes: Record<string, unknown>; inTransaction: boolean }>; loadFails?: Error; saveFails?: (changes: Record<string, unknown>) => Error | undefined } = { saves: [] };
+const host: {
+  saves: Array<{ changes: Record<string, unknown>; inTransaction: boolean }>;
+  /** `load()` calls so far in this test. */
+  loads: number;
+  /** Told which call this is (1 = the first of the test). */
+  loadFails?: (call: number) => Error | undefined;
+  saveFails?: (changes: Record<string, unknown>) => Error | undefined;
+  /** More writes of the host inside `save()`. */
+  inSave?: (changes: Record<string, unknown>, ctx: AdminContext) => Promise<void>;
+} = { saves: [], loads: 0 };
 
 @AdminSettingsPage('shop', {
   label: { en: 'Shop settings', fa: 'تنظیمات فروشگاه' },
@@ -91,7 +119,8 @@ class ShopSettingsPage implements AdminSettingsSource<ShopSettingsDto> {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   async load(ctx: AdminContext): Promise<Partial<ShopSettingsDto>> {
-    if (host.loadFails) throw host.loadFails;
+    const failure = host.loadFails?.(++host.loads);
+    if (failure) throw failure;
     const rows = await (ctx.manager ?? this.dataSource.manager).find(Setting);
     // A key the form does not have: it must never be served.
     return { ...Object.fromEntries(rows.map((row) => [row.name, JSON.parse(row.value)])), internalNote: 'not a field' } as Partial<ShopSettingsDto>;
@@ -105,6 +134,7 @@ class ShopSettingsPage implements AdminSettingsSource<ShopSettingsDto> {
       const stored = name === 'logo' && value ? (value as unknown as AdminFile).key : value;
       await repo.save({ name, value: JSON.stringify(stored) });
     }
+    await host.inSave?.(changes as Record<string, unknown>, ctx);
     const failure = host.saveFails?.(changes as Record<string, unknown>);
     if (failure) throw failure;
   }
@@ -123,7 +153,7 @@ class NoticesPage implements AdminSettingsSource<NoticeDto> {
 }
 
 const users = new Map<string, AdminUserRecord>();
-for (const [id, isSuperuser] of [['root', true], ['manager', false], ['viewer', false], ['saver', false], ['wild', false], ['paged', false], ['nobody', false]] as const) {
+for (const [id, isSuperuser] of [['root', true], ['manager', false], ['viewer', false], ['saver', false], ['wild', false], ['paged', false], ['stars', false], ['nobody', false]] as const) {
   users.set(id, { id, displayName: id.toUpperCase(), username: id, isSuperuser, isActive: true });
 }
 const ROLES: RoleDefinition[] = [
@@ -132,6 +162,8 @@ const ROLES: RoleDefinition[] = [
   { name: 'saver', permissions: ['page.shop.update'] },
   { name: 'wild', permissions: ['*'] },
   { name: 'paged', permissions: ['page.*'] },
+  // A pattern over every resource: valid (it matches `widget.view`), and never about pages.
+  { name: 'stars', permissions: ['*.*'] },
   { name: 'nobody', permissions: ['widget.view'] },
 ];
 
@@ -159,10 +191,9 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 let app: INestApplication;
 let dir: string;
 let db: DataSource;
-/** Every response body of this file, as text. */
-const bodies: string[] = [];
+/** Every answer of this file goes through here: none may contain a secret (each test checks its own, whatever else runs). */
 const seen = (res: Response): Response => {
-  bodies.push(res.text ?? JSON.stringify(res.body));
+  expect(res.text ?? JSON.stringify(res.body)).not.toContain('SENTINEL');
   return res;
 };
 const getPage = async (who = 'root', name = 'shop', headers: Record<string, string> = {}) => seen(await request(app.getHttpServer()).get(`/admin/api/pages/${name}`).set('X-User', who).set(headers));
@@ -181,9 +212,15 @@ const filePath = (key: string) => join(dir, ...key.split('/'));
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'nma-pages-'));
   app = await createTestApp({
-    entities: [Setting, ...ADMIN_FILE_ENTITIES],
+    entities: [Setting, Vault, ...ADMIN_FILE_ENTITIES],
     imports: [ConfigModule],
-    admin: { auth: AdminAuth.custom(HeaderAuth), roles: ROLES, locales: ['en', 'fa'], files: { storage: localStorage({ dir }), maxBytes: 5000 } },
+    admin: {
+      auth: AdminAuth.custom(HeaderAuth),
+      roles: ROLES,
+      locales: ['en', 'fa'],
+      files: { storage: localStorage({ dir }), maxBytes: 5000 },
+      errorMapper: (error) => (error instanceof ProviderError ? new AdminValidationError({ [error.field]: [error.message] }, 'The provider said no') : undefined),
+    },
   });
   db = app.get<DataSource>(getDataSourceToken());
 });
@@ -193,8 +230,11 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   host.saves = [];
+  host.loads = 0;
   host.loadFails = undefined;
   host.saveFails = undefined;
+  host.inSave = undefined;
+  await db.getRepository(Vault).clear();
   await put({ shopName: 'Lamp Shop', lowStock: 3, open: true, mode: 'sandbox', smtp: { host: 'mail.test', port: 25 }, apiKey: OLD_SECRET });
 });
 
@@ -242,8 +282,9 @@ describe(`GET /api/pages/:name (${TEST_DB})`, () => {
     expect((await getPage()).body.secrets).toEqual({ apiKey: false, webhookSecret: false });
   });
 
-  test('load() throwing is a 500 with a correlation id and nothing else (Review Focus 5)', async () => {
-    host.loadFails = new Error(`the vault is down, key was ${SENTINEL}`);
+  // About the response only: what load() throws outside a save is logged as thrown (core does not know the secrets yet).
+  test('load() throwing answers a 500 with a correlation id and nothing else (Review Focus 5)', async () => {
+    host.loadFails = () => new Error(`the vault is down, key was ${SENTINEL}`);
     const res = await getPage();
     expect(res.status).toBe(500);
     expect(Object.keys(res.body).sort()).toEqual(['code', 'correlationId', 'message']);
@@ -376,6 +417,58 @@ describe(`PATCH /api/pages/:name (${TEST_DB})`, () => {
     expect((await storedValues()).apiKey).toBe(OLD_SECRET);
   });
 
+  test("a host error keeps its class when scrubbed, so the host's errorMapper still maps it", async () => {
+    const logged = spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      host.saveFails = (changes) => new ProviderError(`key ${String(changes.apiKey)} is revoked (${encodeURIComponent(`${SENTINEL} x`)}, ${JSON.stringify(`${SENTINEL}"`)})`, 'apiKey');
+      const res = await patch({ apiKey: SENTINEL });
+      expect(res.status).toBe(422);
+      expect(res.body).toMatchObject({ code: 'VALIDATION', message: 'The provider said no', fields: { apiKey: ['key *** is revoked (***%20x, "***\\"")'] } });
+      // Escaped forms of a secret with characters that JSON and URLs escape.
+      const odd = 'p@ss "word"/1';
+      host.saveFails = () => new ProviderError(`saw ${JSON.stringify(odd)} and ${encodeURIComponent(odd)}`, 'apiKey');
+      const escaped = await request(app.getHttpServer()).patch('/admin/api/pages/shop').set('X-User', 'root').send({ apiKey: odd });
+      expect(escaped.body.fields).toEqual({ apiKey: ['saw "***" and ***'] });
+      expect(logged).not.toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  test('a unique violation that quotes the secret is still the mapped conflict, without the value', async () => {
+    await db.getRepository(Vault).save({ name: 'taken', token: SENTINEL });
+    host.inSave = async (changes, ctx) => void (await ctx.manager!.getRepository(Vault).insert({ name: 'mine', token: String(changes.apiKey) }));
+    const logged = spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      const res = await patch({ apiKey: SENTINEL });
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ code: 'CONFLICT', message: 'A record with this value already exists' });
+      // MySQL names the unique index, not the column, and a page has no resource whose `dbNames` would translate it;
+      // Postgres and SQLite name the column.
+      expect(res.body.fields).toEqual(TEST_DB === 'mysql' ? undefined : { token: ['already exists'] });
+      expect(logged).not.toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+    }
+    expect((await storedValues()).apiKey).toBe(OLD_SECRET);
+    expect(await db.getRepository(Vault).count()).toBe(1);
+  });
+
+  test('save() succeeding and the load() after it throwing: a 500, everything rolled back, the upload not attached', async () => {
+    const sent = await upload();
+    host.loadFails = (call) => (call === 2 ? new Error('the read replica is behind') : undefined);
+    const res = await patch({ shopName: 'Half saved', logo: { token: sent.body.token } });
+    expect(res.status).toBe(500);
+    expect(Object.keys(res.body).sort()).toEqual(['code', 'correlationId', 'message']);
+    expect(host.saves).toHaveLength(1);
+    expect(host.loads).toBe(2);
+    // save() wrote through ctx.manager, so its rows went with the transaction.
+    expect(await storedValues()).toMatchObject({ shopName: 'Lamp Shop' });
+    expect((await storedValues()).logo).toBeUndefined();
+    expect(await db.getRepository(NmaFile).findOneByOrFail({ id: sent.body.token })).toMatchObject({ status: 'temp', recordId: null });
+    expect(await db.getRepository(NmaFile).countBy({ resource: 'page:shop', status: 'attached' })).toBe(0);
+  });
+
   test('rich text goes through the sanitizer', async () => {
     const res = await patch({ about: '<p>Hello</p><script>alert(1)</script>' });
     expect(res.status).toBe(200);
@@ -415,6 +508,12 @@ describe(`page permissions (${TEST_DB})`, () => {
       expect((await getPage(who)).status).toBe(200);
       expect((await patch({ open: true }, who)).status).toBe(200);
     }
+    // Patterns that start with `*` are about resources: `*.*` reaches every resource and no page.
+    expect((await getPage('stars')).status).toBe(404);
+    expect((await patch({ open: true }, 'stars')).status).toBe(404);
+    expect((await upload('stars')).status).toBe(404);
+    expect(seen(await request(app.getHttpServer()).get('/admin/api/resources/widget').set('X-User', 'stars')).status).toBe(200);
+    expect((seen(await request(app.getHttpServer()).get('/admin/api/meta').set('X-User', 'stars')).body as MetaResponse).groups.flatMap((group) => group.pages)).toEqual([]);
     // `page.*` is about pages only.
     expect(seen(await request(app.getHttpServer()).get('/admin/api/resources/widget').set('X-User', 'paged')).status).toBe(404);
   });
@@ -474,7 +573,11 @@ describe(`page permissions in the catalog (${TEST_DB})`, () => {
     });
     expect((await explain('root')).every((page) => page.view && page.update && page.grantedBy.length === 0)).toBe(true);
     // What it says is what the API does.
-    for (const who of ['viewer', 'saver', 'paged', 'nobody', 'manager']) {
+    expect(await explain('stars')).toEqual([
+      { name: 'shop', label: 'تنظیمات فروشگاه', view: false, update: false, grantedBy: [] },
+      { name: 'notices', label: 'Notices', view: false, update: false, grantedBy: [] },
+    ]);
+    for (const who of ['viewer', 'saver', 'paged', 'nobody', 'manager', 'stars']) {
       const shop = (await explain(who))[0]!;
       expect((await getPage(who)).status).toBe(shop.view ? 200 : 404);
       expect((await patch({ open: true }, who)).status).toBe(shop.update ? 200 : shop.view ? 403 : 404);
@@ -631,6 +734,10 @@ describe('boot checks', () => {
     await expect(boot([page('update')])).rejects.toThrow('BootPage: the page name "update" is reserved');
     await expect(boot([page('widget')])).rejects.toThrow('BootPage: the page name "widget" is the name of a resource (WidgetAdmin)');
     await expect(boot([page('twice'), page('twice')])).rejects.toThrow('Duplicate settings page name "twice"');
+    // `setting.export` and `page.export` would read alike in roles.
+    @AdminResource(Setting, { permissions: ['export'] })
+    class CodedAdmin extends AdminResourceBase<Setting> {}
+    await expect(boot([CodedAdmin, page('export')])).rejects.toThrow('BootPage: the page name "export" is a custom permission of a resource (CodedAdmin: setting.export); give the page another name');
   });
 
   test('a page needs a form, load() and save(); its fields and layout are checked', async () => {
@@ -645,11 +752,50 @@ describe('boot checks', () => {
     await expect(boot([page('typo', { fields: { txt: { label: 'T' } } })])).rejects.toThrow('BootPage: fields: unknown field "txt" (did you mean "text"?)');
     await expect(boot([page('laid', { layout: [{ fields: ['text', 'nope'] }] })])).rejects.toThrow('BootPage: form.layout: "nope" is not on the form');
     await expect(boot([page('locked', { fields: { text: { restricted: true } } })])).rejects.toThrow('BootPage: fields.text: `restricted` is not supported on settings pages');
+    await expect(boot([page('album', { fields: { logo: { widget: 'image', many: true } } }, ShopSettingsDto)])).rejects.toThrow('BootPage: fields.logo: list file fields (`many`) are not supported on settings pages yet');
+  });
+
+  test('a group named by key takes the label of the module with that key, whichever is discovered first', async () => {
+    @AdminSettingsPage('keyed', { form: NoticeDto, group: 'settings' })
+    class KeyedPage {
+      load() {
+        return {};
+      }
+      save() {}
+    }
+    @Module({ providers: [KeyedPage] })
+    class KeyedModule {}
+    @AdminSettingsPage('housed', { form: NoticeDto })
+    class HousedPage {
+      load() {
+        return {};
+      }
+      save() {}
+    }
+    @AdminGroup({ key: 'settings', label: 'Preferences', order: 1 })
+    @Module({ providers: [HousedPage] })
+    class PreferencesModule {}
+    @Module({ providers: [HeaderAuth] })
+    class AuthModule {}
+    for (const imports of [[KeyedModule, PreferencesModule], [PreferencesModule, KeyedModule]]) {
+      const ordered = await createTestApp({ imports: [AuthModule, ...imports], admin: { auth: AdminAuth.custom(HeaderAuth) } });
+      try {
+        const meta = (await request(ordered.getHttpServer()).get('/admin/api/meta').set('X-User', 'root')).body as MetaResponse;
+        expect(meta.groups[0]).toMatchObject({ key: 'settings', label: 'Preferences' });
+        expect(meta.groups[0]!.pages.map((item) => item.name).sort()).toEqual(['housed', 'keyed']);
+      } finally {
+        await ordered.close();
+      }
+    }
   });
 
   test('roles are checked against the page codes', async () => {
     await expect(boot([page('billing')], [{ name: 'typo', permissions: ['page.biling'] }])).rejects.toThrow('unknown permission "page.biling" (did you mean "page.billing"?)');
     await boot([page('billing')], [{ name: 'ok', permissions: ['page.billing', 'page.billing.update', 'page.*', 'page.*.update'] }]);
+    // A pattern starting with `*` matches no page code, so one that could match nothing else is unknown.
+    await expect(boot([page('billing')], [{ name: 'stars', permissions: ['*.billing'] }])).rejects.toThrow('unknown permission "*.billing"');
+    await expect(boot([page('billing')], [{ name: 'stars', permissions: ['*.*.update'] }])).rejects.toThrow('unknown permission "*.*.update"');
+    await boot([page('billing')], [{ name: 'stars', permissions: ['*.*', '*.view', '*'] }]);
     // Without any page there is no page code.
     await expect(boot([], [{ name: 'early', permissions: ['page.*'] }])).rejects.toThrow('unknown permission "page.*"');
   });
@@ -683,11 +829,4 @@ describe('boot checks', () => {
       await loose.close();
     }
   });
-});
-
-// Last: everything this file was answered.
-test('no response of this file contains a secret', () => {
-  expect(bodies.length).toBeGreaterThan(60);
-  const leaked = bodies.filter((body) => body.includes('SENTINEL'));
-  expect(leaked).toEqual([]);
 });

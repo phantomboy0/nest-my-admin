@@ -30,6 +30,10 @@ describe('role drafts', () => {
     expect(grants(fromStar, 'page.payments')).toBe(true);
     expect(grants(fromStar, 'page.payments.update')).toBe(true);
     expect(togglePermission(['page.*'], 'page.payments.update', false, known)).toEqual(['page.payments']);
+    // The server's rule: a pattern that starts with `*` (other than `*` itself) never grants a page.
+    expect(grants(['*.payments', '*.*', '*.*.update'], 'page.payments')).toBe(false);
+    expect(grants(['*.*.update'], 'page.payments.update')).toBe(false);
+    expect(grants(['*.*'], 'tag.view')).toBe(true);
   });
   test('unticking a plain code removes it', () => {
     expect(togglePermission(['product.view', 'tag.view'], 'tag.view', false, known)).toEqual(['product.view']);

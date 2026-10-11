@@ -1,9 +1,16 @@
 import type { RbacCatalog } from '@nest-my-admin/core/contract';
 
-/** Whether `pattern` grants `code` (the server's rule: `*` last matches the rest, elsewhere one segment). */
+const RESERVED_PAGE_NAMES = ['view', 'create', 'update', 'delete', 'purge', 'field', 'action'];
+
+/**
+ * Whether `pattern` grants `code` (the server's rule: `*` last matches the rest, elsewhere one segment; a settings
+ * page's code, `page.<name>` or `page.<name>.update`, is granted only by `*` or a pattern starting with `page`).
+ */
 export function codeMatches(pattern: string, code: string): boolean {
   const wanted = pattern.split('.');
   const actual = code.split('.');
+  const pageCode = actual[0] === 'page' && !RESERVED_PAGE_NAMES.includes(actual[1] ?? '') && (actual.length === 2 || (actual.length === 3 && actual[2] === 'update'));
+  if (wanted[0] === '*' && wanted.length > 1 && pageCode) return false;
   for (let i = 0; i < wanted.length; i++) {
     const part = wanted[i]!;
     if (part === '*' && i === wanted.length - 1) return actual.length > i;

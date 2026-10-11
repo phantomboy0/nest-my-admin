@@ -1,11 +1,9 @@
-import { HttpException } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 import type { FieldSchema, MetaPageSummary, PageResponse, PageSchema } from '../contract.js';
 import { validateWrite } from '../crud/validate-write.js';
-import { AdminError, AdminForbiddenError, AdminValidationError } from '../errors.js';
+import { AdminForbiddenError, AdminValidationError } from '../errors.js';
 import type { FileOwner } from '../files/file-owner.js';
 import type { FileChanges, FilesService } from '../files/files.service.js';
-import { codeForStatus, httpExceptionMessage } from '../http/error-response.js';
 import { resolveText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { AdminPolicy } from '../policy/admin-policy.service.js';
@@ -170,6 +168,8 @@ export class PageService {
   }
 }
 
+const isPlain = (value: unknown): boolean => Array.isArray(value) || (typeof value === 'object' && value !== null && [Object.prototype, null].includes(Object.getPrototypeOf(value) as object | null));
+
 const isSet = (value: unknown): boolean => value !== undefined && value !== null && value !== '';
 
 /** A stored value as it is served: `null` when missing, and inside a group only the keys the form has. */
@@ -196,33 +196,54 @@ function withoutEchoes(error: AdminValidationError, secrets: string[], input: Re
   return new AdminValidationError(fields, error.message);
 }
 
+/** Properties of an error that hold more of the same: a driver's error, the cause, an HttpException's body, field messages, query parameters. */
+const NESTED = ['driverError', 'cause', 'response', 'fields', 'parameters', 'errors', 'originalError'];
+const MAX_DEPTH = 4;
+
 /**
- * An error on its way out of a save, with every secret value (sent, or stored before) replaced by `***` in its
- * message, field messages and stack: a host that answers "the provider refused sk_live_…" must not leak the key into
- * the response or the log. An error naming no secret is returned as it is; one that does is rebuilt (an `AdminError`
- * or a 4xx `HttpException` keeps its status and code, anything else becomes a plain `Error` with the same name).
- * Values shorter than 6 characters are left alone.
+ * An error on its way out of a save, with every secret value (sent, or stored before) replaced by `***`: a host that
+ * answers "the provider refused sk_live_…", or a database that quotes the duplicate value, must not leak the key into
+ * the response or the log.
+ *
+ * An error naming no secret is returned as it is. One that does is copied with its class and its own properties (so
+ * `errorMapper`, `instanceof` checks and the database-error mapping still recognise it), and the copy's `message`,
+ * `stack` and string properties are cleaned, as are those of its `driverError`, `cause`, `response`, `fields`… (a few
+ * levels deep). Besides the value itself, its JSON-escaped and URL-encoded forms are replaced. Best effort: values
+ * shorter than 6 characters, and values transformed in any other way, are not found.
  */
 export function scrubSecrets(error: unknown, secrets: string[]): unknown {
-  const values = [...new Set(secrets.filter((secret) => secret.length >= MIN_SCRUBBED))].sort((a, b) => b.length - a.length);
+  const values = [...new Set(secrets.filter((secret) => secret.length >= MIN_SCRUBBED).flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1), encodeURIComponent(secret)]))].sort(
+    (a, b) => b.length - a.length,
+  );
   if (values.length === 0) return error;
-  const names = (text: string | undefined): boolean => text !== undefined && values.some((value) => text.includes(value));
-  const clean = (text: string): string => values.reduce((out, value) => out.split(value).join('***'), text);
-  if (error instanceof AdminError) {
-    const messages = Object.entries(error.fields ?? {});
-    if (!names(error.message) && !messages.some(([field, list]) => names(field) || list.some(names))) return error;
-    return new AdminError(error.code, error.status, clean(error.message), error.fields ? Object.fromEntries(messages.map(([field, list]) => [clean(field), list.map(clean)])) : undefined);
-  }
-  if (error instanceof HttpException && error.getStatus() < 500) {
-    const message = httpExceptionMessage(error);
-    return names(message) ? new AdminError(codeForStatus(error.getStatus()), error.getStatus(), clean(message)) : error;
-  }
-  if (error instanceof Error) {
-    if (!names(error.message) && !names(error.stack)) return error;
-    const scrubbed = new Error(clean(error.message));
-    scrubbed.name = error.name;
-    scrubbed.stack = error.stack === undefined ? undefined : clean(error.stack);
-    return scrubbed;
-  }
-  return typeof error === 'string' ? clean(error) : error;
+  let found = false;
+  const clean = (text: string): string => {
+    const out = values.reduce((result, value) => result.split(value).join('***'), text);
+    if (out !== text) found = true;
+    return out;
+  };
+  // `whole`: a plain container (`fields`, a response body, parameters) is cleaned through; of an error, only what is named.
+  const scrub = (value: unknown, depth: number, whole = false): unknown => {
+    if (typeof value === 'string') return clean(value);
+    if (typeof value !== 'object' || value === null || depth > MAX_DEPTH || ArrayBuffer.isView(value)) return value;
+    if (Array.isArray(value)) return value.map((item) => scrub(item, depth + 1, whole));
+    const copy = Object.assign(Object.create(Object.getPrototypeOf(value) as object | null) as Record<string, unknown>, value);
+    for (const [key, item] of Object.entries(copy)) {
+      if (typeof item === 'string') copy[key] = clean(item);
+      else if (whole || NESTED.includes(key)) copy[key] = scrub(item, depth + 1, isPlain(item));
+    }
+    if (value instanceof Error) {
+      // Own but not enumerable, so the copy above left them behind.
+      const hidden = (key: 'message' | 'stack' | 'cause') => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor && 'value' in descriptor && !descriptor.enumerable) Object.defineProperty(copy, key, { ...descriptor, value: scrub(descriptor.value, depth + 1) });
+      };
+      hidden('message');
+      hidden('stack');
+      hidden('cause');
+    }
+    return copy;
+  };
+  const scrubbed = scrub(error, 0);
+  return found ? scrubbed : error;
 }

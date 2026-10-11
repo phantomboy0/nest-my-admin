@@ -8,7 +8,8 @@ import { getAdminSettingsPageDefinition, type AdminSettingsPageDefinition, type 
 import { AdminNotFoundError } from '../errors.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
-import { RESOURCE_OPERATIONS, pageCode } from '../policy/roles.js';
+import { customCodes } from '../policy/catalog.js';
+import { RESERVED_PAGE_NAMES, pageCode } from '../policy/roles.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import { buildDtoForm, type DtoForm } from '../schema/dto-form.js';
@@ -36,8 +37,8 @@ export interface RegisteredPage {
   dataSource: DataSource;
 }
 
-/** Page names that are a segment of other permission codes: `*.update` must never grant a page called "update". */
-const RESERVED_NAMES: readonly string[] = [...RESOURCE_OPERATIONS, 'field', 'action'];
+/** Page names that are a segment of other permission codes: `page.update` would read as an operation. */
+const RESERVED_NAMES = RESERVED_PAGE_NAMES;
 
 /** Options that mean something on a resource's field only. */
 const RESOURCE_ONLY = ['readonly', 'readonlyIf', 'restricted'] as const;
@@ -80,6 +81,9 @@ export class PageRegistry implements OnModuleInit, OnApplicationBootstrap {
     for (const page of this.pages.values()) {
       const resource = this.registry.find(page.name);
       if (resource) throw new Error(`${page.className}: the page name "${page.name}" is the name of a resource (${resource.className}); give the page another name`);
+      // `order.export` and `page.export` would read alike in roles; wildcards do not mix them, and neither should people.
+      const coded = this.registry.list().find((entry) => customCodes(entry).includes(page.name));
+      if (coded) throw new Error(`${page.className}: the page name "${page.name}" is a custom permission of a resource (${coded.className}: ${coded.schema.name}.${page.name}); give the page another name`);
       for (const code of [pageCode(page.name), pageCode(page.name, 'update')]) {
         if (this.options.permissions.includes(code)) throw new Error(`nest-my-admin: the permission "${code}" is the code of a settings page (${page.className}); remove it from \`permissions\``);
       }
@@ -113,6 +117,10 @@ export class PageRegistry implements OnModuleInit, OnApplicationBootstrap {
     const source = instance as Partial<AdminSettingsSource<any>>;
     if (typeof source.load !== 'function' || typeof source.save !== 'function') fail('a settings page needs load(ctx) and save(changes, ctx) methods');
 
+    // A DTO property is never a json column, which is what a list of files is kept in.
+    for (const [field, config] of [...Object.entries(getAdminFieldOptions(form)), ...Object.entries(definition.fields ?? {})]) {
+      if ((config as FieldConfig | undefined)?.many) fail(`fields.${field}: list file fields (\`many\`) are not supported on settings pages yet`);
+    }
     const built = buildDtoForm(form, definition.fields as Record<string, FieldConfig | undefined> | undefined, fail, { secrets: true });
     for (const [field, config] of built.config) {
       // Silently ignoring `restricted` would leave a field open that its author believes hidden.

@@ -70,12 +70,29 @@ describe('permission codes', () => {
     expect(both('*.view')).toEqual([false, false]);
     expect(both('*.update')).toEqual([false, false]);
     expect(both('product.*')).toEqual([false, false]);
+    // Nor does any other pattern that starts with `*`: only `*` itself and `page.…` patterns grant a page.
+    for (const pattern of ['*.payments', '*.*', '*.payments.update', '*.*.update', '*.payments.*', '*.*.*']) expect(both(pattern)).toEqual([false, false]);
+    expect(codeMatches('*.*', 'product.view')).toBe(true);
+    expect(codeMatches('*.*', 'page.view')).toBe(true); // a resource named "page": `page.view` is not a page's code
+    expect(codeMatches('*.action.publish', 'page.action.publish')).toBe(true);
     expect(new EffectivePermissions([], true).canPage('payments', 'update')).toBe(true);
     expect(new EffectivePermissions([], false).canPage('payments', 'view')).toBe(false);
     const checkShop = (permissions: string[]) => () => checkRoles([{ name: 'r', permissions }], shop, fail);
     expect(checkShop(['page.payments', 'page.sms.update', 'page.*', 'page.*.update', 'page.payments.*'])).not.toThrow();
     expect(checkShop(['page.payment'])).toThrow('unknown permission "page.payment" (did you mean "page.payments"?)');
     expect(checkShop(['page.payments.view'])).toThrow('unknown permission "page.payments.view"');
+  });
+  test('a page named like a custom permission is not granted by the wildcard over that permission', () => {
+    // Boot refuses this pair of names; the matcher holds on its own all the same.
+    const shop: PolicyCatalog = { resources: new Map([['order', { fields: [], scopes: [], custom: ['export'] }]]), pages: ['export'], global: [] };
+    const role: RoleDefinition = { name: 'exporter', permissions: ['*.export'] };
+    expect(() => checkRoles([role], shop, fail)).not.toThrow(); // it names `order.export`
+    const perms = new EffectivePermissions([role], false);
+    expect(perms.can('order.export')).toBe(true);
+    expect(perms.canPage('export', 'view')).toBe(false);
+    expect(perms.canPage('export', 'update')).toBe(false);
+    expect(perms.can('page.export')).toBe(false);
+    expect(knownCodes(shop).filter((code) => codeMatches('*.export', code))).toEqual(['order.export']);
   });
 });
 

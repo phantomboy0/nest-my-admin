@@ -35,16 +35,33 @@ export function actionCode(resource: string, action: string): string {
 /**
  * The permission codes of a settings page: `page.payments` to view it, `page.payments.update` to save it.
  * `page.*` grants both for every page, `page.*.update` saving every page, and `*` everything; `page.payments.*` grants
- * only `page.payments.update` (which lets its holder view the page too).
+ * only `page.payments.update` (which lets its holder view the page too). No other pattern starting with `*` grants a
+ * page code (see `codeMatches`).
  */
 export function pageCode(page: string, operation: 'view' | 'update' = 'view'): string {
   return operation === 'update' ? `page.${page}.update` : `page.${page}`;
 }
 
-/** Whether `pattern` grants `code`: `*` as the last segment matches the rest, elsewhere exactly one segment. */
+/** Second segments of `page.…` codes that are never a page: a page cannot have these names. */
+export const RESERVED_PAGE_NAMES: readonly string[] = [...RESOURCE_OPERATIONS, 'field', 'action'];
+
+/** Whether a code has the shape of a settings page's: `page.<name>` or `page.<name>.update`. */
+function isPageCode(segments: string[]): boolean {
+  if (segments[0] !== 'page' || RESERVED_PAGE_NAMES.includes(segments[1] ?? '')) return false;
+  return segments.length === 2 || (segments.length === 3 && segments[2] === 'update');
+}
+
+/**
+ * Whether `pattern` grants `code`: `*` as the last segment matches the rest, elsewhere exactly one segment.
+ *
+ * A settings page's code is granted only by `*` itself or by a pattern that starts with `page`: a pattern over every
+ * resource (`*.export`, `*.*`) is about resources, and must not open a page that happens to be called `export`.
+ * (So for a resource that is itself named `page`, `*.<custom code>` does not reach its custom codes; name them.)
+ */
 export function codeMatches(pattern: string, code: string): boolean {
   const wanted = pattern.split('.');
   const actual = code.split('.');
+  if (wanted[0] === '*' && wanted.length > 1 && isPageCode(actual)) return false;
   for (let i = 0; i < wanted.length; i++) {
     const part = wanted[i]!;
     if (part === '*' && i === wanted.length - 1) return actual.length > i;

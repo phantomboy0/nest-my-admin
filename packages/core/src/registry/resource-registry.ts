@@ -70,6 +70,8 @@ export class ResourceRegistry implements OnModuleInit {
   private readonly logger = new Logger('NestMyAdmin');
   private readonly resources = new Map<string, RegisteredResource>();
   private readonly groups = new Map<string, RegisteredGroup>();
+  /** Groups known by key alone so far: a module with that key replaces the placeholder. */
+  private readonly keyedGroups = new Set<string>();
   /** Titles of entities that have no resource (targets of relations), compiled on first use. */
   private readonly defaultTitles = new WeakMap<EntityMetadata, TitleFn>();
 
@@ -147,7 +149,8 @@ export class ResourceRegistry implements OnModuleInit {
     const baseName = moduleClass ? moduleClass.name.replace(/Module$/, '') || moduleClass.name : 'General';
     const options = moduleClass ? getAdminGroupOptions(moduleClass) : undefined;
     const key = options?.key ?? kebabCase(baseName);
-    if (!this.groups.has(key)) {
+    // A group first named by key only (`group: 'settings'`) is the module's all the same, whichever was seen first.
+    if (!this.groups.has(key) || this.keyedGroups.delete(key)) {
       this.groups.set(key, {
         key,
         label: options?.label ?? humanize(baseName),
@@ -160,7 +163,10 @@ export class ResourceRegistry implements OnModuleInit {
 
   /** A group named by key (`group: 'settings'`): created with a humanized label unless a module already formed it. */
   ensureGroup(key: string): string {
-    if (!this.groups.has(key)) this.groups.set(key, { key, label: humanize(key), order: DEFAULT_GROUP_ORDER });
+    if (!this.groups.has(key)) {
+      this.groups.set(key, { key, label: humanize(key), order: DEFAULT_GROUP_ORDER });
+      this.keyedGroups.add(key);
+    }
     return key;
   }
 

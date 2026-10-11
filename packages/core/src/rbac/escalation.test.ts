@@ -41,6 +41,13 @@ describe('anti-escalation (Review Focus 1)', () => {
     expect(escalations(role({ permissions: ['page.*'] }), manager(holder), shop)).toEqual(['grants page.sms.update, which you do not have']);
     expect(escalations(role({ permissions: ['*'] }), manager(role({ permissions: ['page.*'] })), shop)).toEqual([]);
   });
+  test('a wildcard over a custom permission does not let you grant the page of the same name', () => {
+    const shop: PolicyCatalog = { resources: new Map([['order', { fields: [], scopes: [], custom: ['export'] }]]), pages: ['export'], global: [] };
+    const exporter = role({ permissions: ['*.export'] });
+    expect(escalations(role({ permissions: ['*.export'] }), manager(exporter), shop)).toEqual([]);
+    expect(escalations(role({ permissions: ['page.export'] }), manager(exporter), shop)).toEqual(['grants page.export, which you do not have']);
+    expect(escalations(role({ permissions: ['page.*'] }), manager(exporter), shop)).toEqual(['grants page.export, which you do not have', 'grants page.export.update, which you do not have']);
+  });
   test('field levels above yours', () => {
     expect(escalations(role({ permissions: ['product.update'], scopes: { product: { update: 'drafts' } } }), manager(editor), catalog)).toEqual(['gives edit on product.price, above your view']);
     expect(escalations(role({ permissions: ['product.view', 'product.field.cost.view'] }), manager(editor), catalog)).toEqual([

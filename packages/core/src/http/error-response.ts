@@ -73,7 +73,7 @@ export function codeForStatus(status: number): AdminErrorCode {
   return 'BUSINESS_RULE';
 }
 
-export function httpExceptionMessage(error: HttpException): string {
+function httpExceptionMessage(error: HttpException): string {
   const response = error.getResponse();
   if (typeof response === 'string') return response;
   const message = (response as { message?: unknown }).message;
