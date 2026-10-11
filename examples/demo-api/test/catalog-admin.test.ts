@@ -6,8 +6,12 @@ import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import type { Repository } from 'typeorm';
 import { testDatabase, type TestDatabase } from '../../../packages/core/test/helpers/test-db.js';
 import { ProductsService } from '../src/catalog/products.service.js';
+import { OrderAdmin } from '../src/sales/order.admin.js';
+import { Order } from '../src/sales/order.entity.js';
 
 let app: INestApplication;
 let db: TestDatabase;
@@ -365,6 +369,30 @@ describe('orders (actions)', () => {
   test('the toolbar action runs without records and uses its default', async () => {
     expect((await run('cancelStaleDrafts', {})).body).toEqual({ message: 'No draft is older than 30 days' });
     expect((await run('cancelStaleDrafts', { input: { olderThanDays: 0 } })).status).toBe(422);
+  });
+
+  test('the toolbar action stays inside the row restrictions of query(): a restricted user only cancels their own drafts', async () => {
+    const admin = app.get(OrderAdmin);
+    const repository = app.get<Repository<Order>>(getRepositoryToken(Order));
+    const mine = await make('STALE-MINE');
+    const theirs = await make('STALE-THEIRS');
+    const longAgo = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000);
+    await repository.update({ number: 'STALE-MINE' }, { customer: 'Mine', createdAt: longAgo });
+    await repository.update({ number: 'STALE-THEIRS' }, { createdAt: longAgo });
+    // What a host's `query()` override does: this user sees only their own orders.
+    const restricted: OrderAdmin['query'] = (qb) => qb.andWhere(`${qb.alias}.customer = :mine`, { mine: 'Mine' });
+    Object.defineProperty(admin, 'query', { value: restricted, configurable: true });
+    try {
+      expect((await agent.get(`${orders}/${theirs._id}`)).status).toBe(404);
+      expect((await run('cancelStaleDrafts', { input: { olderThanDays: 90 } })).body).toEqual({ message: '1 stale drafts cancelled' });
+    } finally {
+      delete (admin as { query?: unknown }).query;
+    }
+    expect((await agent.get(`${orders}/${mine._id}`)).body.status).toBe('cancelled');
+    expect((await agent.get(`${orders}/${theirs._id}`)).body.status).toBe('draft');
+    // Unrestricted, the other one goes too.
+    expect((await run('cancelStaleDrafts', { input: { olderThanDays: 90 } })).body).toEqual({ message: '1 stale drafts cancelled' });
+    expect((await agent.get(`${orders}/${theirs._id}`)).body.status).toBe('cancelled');
   });
 });
 

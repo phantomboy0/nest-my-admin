@@ -53,7 +53,10 @@ function SettingsForm({ page }: { page: PageResponse }) {
 
   const save = useMutation({
     mutationFn: (changes: Record<string, unknown>) => api.savePage(schema.name, changes),
+    // The variables may hold a typed secret: nothing keeps them once the save is done (see `reset()` below).
+    gcTime: 0,
     onSuccess: (stored) => {
+      save.reset();
       // Continue from the answer: what is stored now, and for secrets only whether one is.
       const next = pageFormValues(stored);
       queryClient.setQueryData(['page', schema.name, locale], stored);
@@ -83,7 +86,14 @@ function SettingsForm({ page }: { page: PageResponse }) {
     const all = { ...validatePagePayload(payload, schema), ...errors };
     setFieldErrors(all);
     setFormError(null);
-    if (Object.keys(all).length === 0) save.mutate(payload);
+    if (Object.keys(all).length > 0) return;
+    if (Object.keys(payload).length === 0) {
+      // Nothing to send (a clean form, or only spaces typed into a secret): no request and no "saved".
+      setValues(initial);
+      setReplacing([]);
+      return;
+    }
+    save.mutate(payload);
   }
 
   // Read-only fields are shown from the answer itself, files included.

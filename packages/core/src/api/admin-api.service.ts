@@ -3,7 +3,7 @@ import type { DataSource, EntityManager } from 'typeorm';
 import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaPageSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { persianLike } from '../i18n/persian.js';
-import { toErrorResponse } from '../http/error-response.js';
+import { hostError, toErrorResponse } from '../http/error-response.js';
 import { toActionSchema } from '../decorators/admin-action.js';
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
@@ -294,7 +294,8 @@ export class AdminApiService {
         result = await run();
       } catch (error) {
         await settle(hooks.rollback, 'after-rollback');
-        throw error;
+        // Everything the host does in a write (resource methods, hooks, actions, a page's save) fails through here.
+        throw hostError(error);
       } finally {
         this.afterWrites.delete(tx);
       }

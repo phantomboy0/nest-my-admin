@@ -4,6 +4,7 @@ import { validateWrite } from '../crud/validate-write.js';
 import { AdminForbiddenError, AdminValidationError } from '../errors.js';
 import type { FileOwner } from '../files/file-owner.js';
 import type { FileChanges, FilesService } from '../files/files.service.js';
+import { hostError } from '../http/error-response.js';
 import { resolveText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { AdminPolicy } from '../policy/admin-policy.service.js';
@@ -84,7 +85,9 @@ export class PageService {
   async get(name: string, ctx: AdminContext): Promise<PageResponse> {
     const page = this.host.pages.get(name);
     this.host.policy.requirePage(page, 'view', ctx);
-    return this.respond(page, await loadPage(page, ctx), ctx);
+    // Outside a write, so the host's 401 is remapped here (a save's goes through `write()`).
+    const stored = await loadPage(page, ctx).catch((error: unknown) => Promise.reject(hostError(error)));
+    return this.respond(page, stored, ctx);
   }
 
   /**

@@ -4,12 +4,14 @@ import type { INestApplicationContext, ModuleMetadata } from '@nestjs/common';
 import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import {
   AdminError,
+  type ActionResult,
   type AdminContext,
   type AdminRecord,
   type AdminUser,
   type ListResponse,
   type MetaResponse,
   type OptionsResponse,
+  type PageResponse,
   type ResourceSchema,
   type SearchResponse,
 } from '@nest-my-admin/core';
@@ -100,6 +102,22 @@ export class AdminClient {
   /** A relation field's choices (`?search=`, `values`). */
   options(resource: string, field: string, query?: TestQuery): Promise<OptionsResponse> {
     return this.run((api, ctx) => api.fieldOptions(resource, field, toParams(query), ctx));
+  }
+  /**
+   * Runs an `@AdminAction`. With one id the answer holds the record, with several `ok` and `failed`; a resource
+   * action takes no ids. `input` is the action's form.
+   */
+  runAction(resource: string, action: string, options: { ids?: Array<string | number>; input?: object } = {}): Promise<ActionResult> {
+    const body = { ...(options.ids ? { ids: options.ids.map(String) } : {}), ...(options.input ? { input: options.input } : {}) };
+    return this.run((api, ctx) => api.runAction(resource, action, body, ctx));
+  }
+  /** A settings page: its form, its values without the secrets, and which secrets are set. */
+  page(name: string): Promise<PageResponse> {
+    return this.run((api, ctx) => api.page(name, ctx));
+  }
+  /** Saves the keys of `changes` on a settings page (a secret: text replaces it, `null` clears it). */
+  savePage(name: string, changes: object): Promise<PageResponse> {
+    return this.run((api, ctx) => api.savePage(name, changes, ctx));
   }
 }
 

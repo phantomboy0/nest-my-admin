@@ -167,8 +167,17 @@ Open after the final review of M4-1 (its fixes: octet-stream uploads and a 400 f
 - No `If-Match` on settings pages: the last save wins, and two people replacing a file at the same moment can leave one object without an owner.
 - List (`many`) file fields are not supported on settings pages (boot error): a page field is never a json column.
 - Action inputs have no upload target: file, image and rich-text fields in an input DTO are refused at boot, so import-style actions wait.
-- No host helper for actions that change file columns: an action that sets or clears a file field itself bypasses `FilesService` (no attach, no delete of the old object).
-- `expectNoLeaks` and `AdminClient` (`@nest-my-admin/testing`) know nothing about settings pages or actions.
+- No file-lifecycle helper for actions: an action that sets or clears a file field itself, or hard-deletes a record, bypasses `FilesService` (no attach, no release of the old objects and rows). Documented as a limitation in the README.
+- No `If-Match` for actions: a record action runs on the record as it is now, whatever version the user was looking at.
+- `expectNoLeaks` (`@nest-my-admin/testing`) knows nothing about settings pages or actions (`AdminClient` has `runAction`, `page` and `savePage`).
+- Action input is validated N+1 times for N records (once up front, then a fresh instance per run).
+- Resource actions are not row-scoped and there is no public helper that applies `query()` and the user's row scopes together (hosts call `this.query(qb, ctx)` and their scope methods themselves; documented).
+- A host 401 is remapped to 400 only on write paths (`AdminApiService.write()`) and a settings page's `load()`; a `findMany`/`findOne` override that throws a 401 on a read still signs the user out.
+- File sizes: `admin-api.service.ts` (705 lines), `files.service.ts` (565), `admin-policy.service.ts` (492). The write participants (files, later the audit log) are to be extracted from `AdminApiService` in M4-3.
+- `FilesService` knows settings pages by name (`page:<name>` owners) instead of through an owner registry.
+- Duplicated helpers: `isPlainObject`/`isText` (`crud/validate-write.ts`, `api/action.service.ts`, `decorators/admin-action.ts`), and the `FieldInput`/`ObjectInput` switch written out in three forms (record form, settings page, action dialog).
+- `policy/explain.ts` re-derives `_perm.actions` instead of sharing the code `records()` uses.
+- No parity test between the UI's copy of `codeMatches` (`lib/role-draft.ts`) and the server's.
 - Bulk action failures carry `code` and `message` only: a 422 on the input of one record loses its `fields` (as bulk delete does).
 - `withoutEchoes` covers only a secret's own field: a validation message on another field that quotes a secret (a DTO message using `$value` on a cross-field rule) is not replaced. The scrubber for errors leaving `save()` has a 6-character floor and finds exact, JSON-escaped and URL-encoded values only.
 - Errors thrown by `load()` outside a save are logged as thrown (unscrubbed).
@@ -179,6 +188,9 @@ Open after the final review of M4-1 (its fixes: octet-stream uploads and a 400 f
 - UI: a selection on phones is offered every bulk action (the cards' `_perm` is not read); the server answers per record, and the summary names failed records by id there.
 - UI: the action dialog's inputs take no defaults from the DTO's class initializers (the schema does not carry them): an optional input left empty gets the default on the server.
 - UI: `/p/:page` and `/g/:group` shadow the record pages of resources named `p` and `g`.
+- UI: after a partial bulk failure the selection is dropped; keeping the failed ids selected would let the user retry them.
+- UI: an action invalidates only its own resource's lists, counts and records; an action that changes other resources leaves their cached lists stale until they refetch.
+- UI: an empty secret is an open password input (`autocomplete="new-password"`), which password managers may still offer to fill; an "Add" button that opens it (as Replace does) would avoid that.
 - UI: the sidebar's pins and recents hold resources only, not settings pages; toasts are a small store of our own (no swipe, no pause on hover).
 - UI: a settings page sends a group of fields whole once one field of it changed, and then requires the group's required fields; the API itself accepts a partial group.
 - Flaky test fixed here: `products.pw.ts` two-factor sign-in now waits for the recovery codes.

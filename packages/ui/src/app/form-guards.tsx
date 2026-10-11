@@ -49,7 +49,10 @@ export function LeaveBar({ blocker }: { blocker: Blocker }) {
   );
 }
 
-/** ⌘S / Ctrl+S submits the form (after `before`, which says how this submit differs from a button's). */
+/**
+ * ⌘S / Ctrl+S submits the form (after `before`, which says how this submit differs from a button's). While a modal
+ * dialog is open over the form it does nothing (the browser's own "save page" stays suppressed).
+ */
 export function useSaveShortcut(form: RefObject<HTMLFormElement | null>, before?: () => void): void {
   const prepare = useRef(before);
   prepare.current = before;
@@ -57,6 +60,9 @@ export function useSaveShortcut(form: RefObject<HTMLFormElement | null>, before?
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 's') return;
       event.preventDefault();
+      // A modal dialog over the form (an action's dialog over the record): the shortcut is not for the page beneath.
+      const modal = document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
+      if (modal && !modal.contains(form.current)) return;
       prepare.current?.();
       form.current?.requestSubmit();
     };

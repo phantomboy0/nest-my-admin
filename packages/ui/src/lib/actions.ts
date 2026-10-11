@@ -25,9 +25,34 @@ export function resourceActions(schema: ResourceSchema): ActionSchema[] {
   return schema.actions.filter((action) => action.target === 'resource');
 }
 
+/**
+ * Whether a run is asked about first: the action says so (`confirm`), it is destructive, or it runs on more than
+ * one record. `count` is the number of records (0 for a resource action).
+ */
+export function asksFirst(action: ActionSchema, count = 0): boolean {
+  return action.confirm !== undefined || action.variant === 'destructive' || count > 1;
+}
+
 /** An action that runs on the click alone: nothing to fill in and nothing to confirm. */
-export function runsAtOnce(action: ActionSchema): boolean {
-  return !action.input && action.confirm === undefined;
+export function runsAtOnce(action: ActionSchema, count = 0): boolean {
+  return !action.input && !asksFirst(action, count);
+}
+
+/**
+ * The question of the confirmation, when there is one to ask (`asksFirst`): the host's text, or a default one that
+ * names the number of records, the record, or just the action.
+ */
+export function actionQuestion(
+  action: ActionSchema,
+  count: number,
+  subject: string | undefined,
+  t: (key: 'action.confirm' | 'action.confirmRecord' | 'action.confirmSelected', params: Record<string, string | number>) => string,
+): string | undefined {
+  if (!asksFirst(action, count)) return undefined;
+  if (typeof action.confirm === 'string') return action.confirm;
+  if (count > 1) return t('action.confirmSelected', { action: action.label, count });
+  if (subject !== undefined) return t('action.confirmRecord', { action: action.label, name: subject });
+  return t('action.confirm', { action: action.label });
 }
 
 export type ActionOutcome =

@@ -46,6 +46,8 @@ export class ActionService {
     if (!action) throw new AdminNotFoundError(`${entry.schema.label} has no action "${name}"`);
     const label = resolveText(action.label, ctx.locale ?? options.locale, options.locale);
     policy.requireAction(entry, action, label, ctx);
+    // The HTTP layer refuses writes while viewing as someone; this covers callers that are not HTTP.
+    if (ctx.viewAs) throw new AdminForbiddenError('Viewing as another user is read-only');
 
     const request = parseRequest(body);
     // Validated once up front (a 422 before anything runs); every run then gets an instance of its own.

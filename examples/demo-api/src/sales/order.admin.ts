@@ -10,7 +10,7 @@ import {
   type ListConfig,
 } from '@nest-my-admin/core';
 import { ConflictException } from '@nestjs/common';
-import { LessThan } from 'typeorm';
+import { In } from 'typeorm';
 import { CreateOrderDto, ShipOrderDto, StaleDraftsDto, UpdateOrderDto } from './order.dto.js';
 import { Order } from './order.entity.js';
 
@@ -85,7 +85,10 @@ export class OrderAdmin extends AdminResourceBase<Order> {
     return order.status === 'draft' || order.status === 'paid';
   }
 
-  /** A resource action: a button on the list's toolbar that runs once, without a selection. */
+  /**
+   * A resource action: a button on the list's toolbar that runs once, without a selection. The admin checks the
+   * permission and nothing else: which rows it touches is up to the method.
+   */
   @AdminAction({
     target: 'resource',
     label: { en: 'Cancel stale drafts', fa: 'لغو پیش‌نویس‌های قدیمی' },
@@ -96,8 +99,15 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   async cancelStaleDrafts(input: StaleDraftsDto, ctx: AdminContext): Promise<ActionOutcome> {
     const days = input.olderThanDays ?? 30;
     const before = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    const { affected } = await this.repositoryFor(ctx).update({ status: 'draft', createdAt: LessThan(before) }, { status: 'cancelled' });
-    const count = affected ?? 0;
+    // A resource action is handed no records, so nothing has applied the row restrictions of `query()` for it:
+    // it starts from them itself, or it would cancel orders the user cannot even see.
+    const repository = this.repositoryFor(ctx);
+    const stale = await this.query(repository.createQueryBuilder('entity'), ctx)
+      .andWhere('entity.status = :status', { status: 'draft' })
+      .andWhere('entity.createdAt < :before', { before })
+      .getMany();
+    if (stale.length > 0) await repository.update({ id: In(stale.map((order) => order.id)), status: 'draft' }, { status: 'cancelled' });
+    const count = stale.length;
     return count === 0
       ? { message: { en: `No draft is older than ${days} days`, fa: `هیچ پیش‌نویسی قدیمی‌تر از ${days} روز نیست` } }
       : { message: { en: `${count} stale drafts cancelled`, fa: `${count} پیش‌نویس قدیمی لغو شد` } };

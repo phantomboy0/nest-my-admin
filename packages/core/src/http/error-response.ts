@@ -1,4 +1,4 @@
-import { HttpException } from '@nestjs/common';
+import { BadRequestException, HttpException } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import type { AdminErrorBody, AdminErrorCode } from '../contract.js';
 import { AdminConflictError, AdminError } from '../errors.js';
@@ -60,6 +60,17 @@ export function toErrorResponse(error: unknown, correlationId: string, logger: E
   }
   logger.error(`[${correlationId}] ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
   return { status: 500, body: { code: 'INTERNAL', message: 'Internal error', correlationId } };
+}
+
+/**
+ * An error thrown by host code (an action, a settings page, a resource method or hook) as the admin answers it.
+ * To the admin UI a 401 means "signed out", so a host `HttpException` with status 401 (a provider that refused a
+ * key, rethrown) becomes a 400 with the host's message; the original is its `cause`. Everything else is returned
+ * as it is. The admin's own 401 is an `AdminError`, which this never touches.
+ */
+export function hostError(error: unknown): unknown {
+  if (!(error instanceof HttpException) || error.getStatus() !== 401) return error;
+  return new BadRequestException(httpExceptionMessage(error), { cause: error });
 }
 
 export function codeForStatus(status: number): AdminErrorCode {

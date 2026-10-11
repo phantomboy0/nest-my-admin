@@ -44,6 +44,8 @@ test('two orders are shipped from the list selection; the one that cannot be is 
   await bar.getByRole('button', { name: 'Ship' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Ship' });
+  // A run on several records always asks, with the count (Ship has no `confirm` of its own).
+  await expect(dialog).toContainText('Run “Ship” on 3 records?');
   await expect(dialog).toContainText('Each of the 3 records is handled on its own');
   // The input form is checked like any form, before anything is sent.
   await dialog.getByRole('button', { name: 'Ship' }).click();
@@ -91,8 +93,19 @@ test('an order is paid, shipped and another cancelled from the detail page (M4-2
   await ship.getByLabel('Tracking code').fill('TRK-TOO-EARLY');
   await ship.getByRole('button', { name: 'Ship' }).click();
   await expect(ship.getByRole('alert')).toHaveText(`Order ${prefix}-1 is not paid yet: mark it paid first`);
+  // Ctrl+S belongs to the page's form, which is under the dialog now: nothing is saved and the dialog stays.
+  let recordSaves = 0;
+  const countSaves = (request: { method(): string; url(): string }) => {
+    if (request.method() === 'PATCH' && request.url().includes(`/api/resources/order/${id}`)) recordSaves++;
+  };
+  page.on('request', countSaves);
+  await page.keyboard.press('ControlOrMeta+s');
+  await expect(ship.getByLabel('Tracking code')).toHaveValue('TRK-TOO-EARLY');
+  await expect(page.getByRole('status').filter({ hasText: 'saved' })).toHaveCount(0);
   await ship.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(ship).toBeHidden();
+  page.off('request', countSaves);
+  expect(recordSaves).toBe(0);
   expect(await order(page, id)).toMatchObject({ status: 'draft', tracking: null });
 
   // No question and no form: it runs on the click, and the host's message is the toast.
@@ -193,6 +206,8 @@ test.describe('roles and actions', () => {
       await expect(actions.getByRole('button')).toHaveText(['Ship']);
       const refused = await page.request.post('/admin/api/resources/order/actions/cancel', { data: { ids: [id] }, headers: await csrf(page) });
       expect(refused.status()).toBe(403);
+      // The permission's refusal, not the 403 of a missing CSRF token (which has the same code and another message).
+      expect(await refused.json()).toMatchObject({ code: 'FORBIDDEN', message: 'You may not run "Cancel order" on Order records' });
 
       // The list: Ship for a selection, no delete and no toolbar action.
       await page.goto(`/admin/order?search=${number}`);
@@ -214,6 +229,7 @@ test.describe('roles and actions', () => {
       await expect(page.locator('[data-secret="paymentApiKey"]').getByRole('button')).toHaveCount(0);
       const save = await page.request.patch('/admin/api/pages/shop', { data: { shopName: 'Hacked' }, headers: await csrf(page) });
       expect(save.status()).toBe(403);
+      expect(await save.json()).toMatchObject({ code: 'FORBIDDEN', message: 'You may not change Shop settings' });
     });
   });
 });

@@ -352,13 +352,15 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 - **Declaring one.** `@AdminAction(options)` on a method of the resource; the method name is the action's name.
   - `target: 'record'` (the default): the method is `(record, input, ctx)` and gets one loaded entity. The button is in the record's detail header. With `bulk: true` it is also offered for a list selection.
   - `target: 'resource'`: the method is `(input, ctx)`. The button is on the list toolbar and runs once, without records.
-  - `label` (default: the humanized name), `icon`, `variant: 'destructive'` (a red button), `confirm: true` or a question of your own (asked in a dialog before it runs).
+  - `label` (default: the humanized name), `icon`, `variant: 'destructive'` (a red button), `confirm: true` or a question of your own (asked in a dialog before it runs). A destructive action, and any run on more than one record, is always asked about first, with a default question when `confirm` is not set.
   - `input`: a DTO. Its properties become a form in the dialog, checked in the browser and validated on the server like any write (whitelisted; class-validator; `@AdminField` for labels, help and widgets). A property with a class initializer is optional and keeps its default. File, image, rich-text and secret fields are not allowed in an input.
   - Return `{ message }` (a text or `{ en, fa }`) to say what happened: the UI shows it as a toast. Returning nothing gives a default "done".
   - Names that collide with `create`, `update`, `delete`, `restore`, `purge` or a method of `AdminResourceBase`, and options that do not fit together (`bulk` on a resource action, `atomic` without `bulk`), fail at boot.
 - **Permissions.**
   - Each action has the code `{r}.action.{name}`. `{r}.*` and `*` cover it, `{r}.action.*` covers every action of the resource, and `*.update` or `{r}.update` do not.
   - A record action also needs `{r}.update`, and the record must be inside the user's view and update scopes: an action never runs on a record the user could not change. A resource action needs only its own code.
+  - **A resource action is not row-scoped.** It is handed no records, so neither `query()` nor the user's row scopes have been applied to anything: the method decides which rows it touches. Start from your restrictions yourself, `this.query(this.repositoryFor(ctx).createQueryBuilder('entity'), ctx).andWhere(…)`, and add the condition of an `@AdminScope` method by calling it, or the action changes rows the user cannot see.
+  - The code holds the method's name: renaming an action method (or removing a settings page) leaves stored roles naming the old code. Such a role no longer validates and grants nothing at all until it is fixed on the Roles page.
   - `@AdminCan('<action name>')` is a rule per record, as for update and delete: where it says no, the button is not there (`_perm.actions` lists the allowed ones) and the API answers 403. Rules apply to superusers too. `@AdminCan('update')` does not gate actions, so a record closed to edits can still be cancellable.
   - The schema lists only the actions the user may run. While viewing as someone, none can be run.
 - **Selections.** A bulk action runs on up to 100 records.
@@ -366,9 +368,11 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   - `atomic: true` runs them all in one transaction: every record is checked first, and one failure is the answer, with nothing applied. It needs the admin's transactions (boot fails with `transactions: false`). The confirmation says "all or nothing".
 - **Refusing.** Throw from the method:
   - an `HttpException` below 500 answers with its status and message (409 is `CONFLICT`, 400 is `BUSINESS_RULE`), and the UI shows the message;
+  - a 401 from host code is answered as 400, because 401 means signed out to the admin: an action, a settings page's `load`/`save`, or a resource's `create`/`update`/`delete` (and their hooks) that rethrows a provider's `UnauthorizedException` gets a 400 `BUSINESS_RULE` with its message (an `errorMapper` sees that 400, with the original as its `cause`);
   - `AdminFieldError({ tracking: 'is unknown to the courier' })` is a 422 shown on that input;
   - anything else goes through `errorMapper` and the usual error mapping (a 500 with a correlation id when nothing maps it).
 - **Transactions.** An action runs inside the admin's write transaction: pass `ctx.manager` to your services, as in `create` and `update`.
+- **Files.** An action that hard-deletes a record, or changes a file column itself, does not release the files: the objects and their `nma_file` rows stay. Only the admin's own update, delete and purge do that for now.
 - **API.** `POST /api/resources/:resource/actions/:action` with `{ ids?, input? }`. One distinct id answers `{ message?, record }` (`record` is `null` when the action took it out of the user's view), several answer the bulk result, and a resource action answers `{ message? }`.
 
 ### Settings pages
@@ -399,7 +403,7 @@ export class ShopSettingsPage implements AdminSettingsSource<ShopSettingsDto> {
 - **`load(ctx)`** returns the stored values. Keys that are not form fields are dropped.
 - **`save(changes, ctx)`** gets only the keys that were sent: a save is partial and validated like a PATCH. The UI sends what changed; a group of fields (a nested DTO) is sent whole once one of its fields changed, so `save` can store it under its key.
   - It runs in a transaction on the default DataSource, and `load` is called inside it before and after. Use `ctx.manager` when it is set: a `save` that ignores it writes outside the transaction.
-  - Throw `AdminFieldError` (422 on a field) or an `HttpException` to refuse.
+  - Throw `AdminFieldError` (422 on a field) or an `HttpException` to refuse (a 401 is answered as 400, as for actions).
 - **Secrets.** `secret: true` (text fields of the page only) makes a field write-only.
   - The value is never served: not by GET, not in the answer of a save. The API reports `secrets: { paymentApiKey: true }` when one is stored, and the form shows **Set ✓ · Replace · Clear**.
   - A save replaces it with any non-empty text, clears it with `null` (even when the DTO requires the property), and leaves it alone when the key is absent. An empty string is refused with 422: empty never means "clear".
@@ -567,6 +571,14 @@ await admin.expectNoLeaks('employee', { as: { id: 'u7', roles: ['operator'] } })
 ```
 
 - **`as(user)`** calls the API in-process as that user (meta, schema, list, get, create, update, delete, restore, purge, search, options), through the same checks as HTTP requests but without signing in.
+  - `runAction(resource, action, { ids?, input? })` runs an `@AdminAction`: one id answers `{ message?, record }`, several `{ ok, failed }`, and a resource action takes no ids.
+  - `page(name)` reads a settings page (`{ schema, values, secrets, files }`) and `savePage(name, changes)` saves the keys of `changes`.
+
+  ```ts
+  await operator.runAction('order', 'ship', { ids: [1], input: { tracking: 'TRK-1' } });
+  await expect(operator.runAction('order', 'cancel', { ids: [1] })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  await expect(operator.savePage('shop', { shopName: 'Mine' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  ```
 - **`expectNoLeaks(resource, { as })`** reads everything as a superuser, then crawls everything the user can reach:
   - meta and the schema;
   - every list page and each visible record;

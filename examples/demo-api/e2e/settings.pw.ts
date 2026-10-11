@@ -25,6 +25,12 @@ test('settings are saved; the secret is replaced and never shown again; a logo i
   page.on('response', (response) => {
     if (response.url().includes('/api/pages/shop')) void response.text().then((text) => bodies.push(text), () => undefined);
   });
+  // Every save the browser sends, as its JSON body.
+  const patches: Array<Record<string, unknown>> = [];
+  page.on('request', (request) => {
+    if (request.method() === 'PATCH' && request.url().includes('/api/pages/shop')) patches.push(request.postDataJSON() as Record<string, unknown>);
+  });
+  const nextPatch = () => page.waitForRequest((request) => request.method() === 'PATCH' && request.url().includes('/api/pages/shop'));
   const saved = page.getByRole('status').filter({ hasText: '“Shop settings” saved.' });
   const save = page.getByRole('button', { name: 'Save', exact: true });
   const secret = page.locator('[data-secret="paymentApiKey"]');
@@ -48,6 +54,7 @@ test('settings are saved; the secret is replaced and never shown again; a logo i
   await page.getByLabel('Shop name').fill('D');
   await save.click();
   await expect(page.getByText('must be at least 2 characters')).toBeVisible();
+  expect(patches).toEqual([]); // stopped in the browser
   await page.getByLabel('Shop name').fill(`Demo shop ${testInfo.project.name}`);
   await input.fill('not-a-payment-key');
   await save.click();
@@ -77,6 +84,16 @@ test('settings are saved; the secret is replaced and never shown again; a logo i
   await secret.getByRole('button', { name: 'Keep the current value' }).click();
   await expect(page.locator('input[type="password"]')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Discard changes' })).toHaveCount(0);
+  // Saving now sends nothing at all (no empty PATCH), and says nothing was saved.
+  expect(patches).toHaveLength(2);
+  await save.click();
+  // Only spaces in the input are no new value either: nothing is sent and the input closes again.
+  await secret.getByRole('button', { name: 'Replace Payment API key' }).click();
+  await input.fill('   ');
+  await save.click();
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
+  await expect(secret).toContainText('Set');
+  await expect(saved).toHaveCount(0);
 
   // Replace it for real, with Ctrl+S; a save of something else afterwards does not touch it.
   await secret.getByRole('button', { name: 'Replace Payment API key' }).click();
@@ -84,8 +101,14 @@ test('settings are saved; the secret is replaced and never shown again; a logo i
   await page.keyboard.press('ControlOrMeta+s');
   await expect(saved).toBeVisible();
   await expect(secret).toContainText('Set');
+  // The two saves of nothing above sent no request: this is the third PATCH, and it holds the key alone.
+  expect(patches).toHaveLength(3);
+  expect(patches[2]).toEqual({ paymentApiKey: nextKey });
   await page.getByRole('switch', { name: 'Maintenance mode' }).click();
+  const later = nextPatch();
   await save.click();
+  // Exactly the changed key: the secret is not sent again (the browser no longer has it).
+  expect((await later).postDataJSON()).toEqual({ maintenance: true });
   await expect(saved).toBeVisible();
   expect(await stored(page)).toMatchObject({ values: { maintenance: true }, secrets: { paymentApiKey: true } });
 
@@ -123,13 +146,19 @@ test('settings are saved; the secret is replaced and never shown again; a logo i
   await secret.getByRole('button', { name: 'Clear Payment API key' }).click();
   await page.getByRole('switch', { name: 'Maintenance mode' }).click();
   await page.getByLabel('Shop name').fill('Demo shop');
+  const clearing = nextPatch();
   await save.click();
+  // Clear is an explicit null (an absent key would keep the secret).
+  expect((await clearing).postDataJSON()).toEqual({ shopName: 'Demo shop', maintenance: false, logo: null, paymentApiKey: null });
   await expect(saved).toBeVisible();
   await expect(input).toHaveValue('');
   expect(await stored(page)).toMatchObject({ values: { shopName: 'Demo shop', logo: null, maintenance: false }, secrets: { paymentApiKey: false }, files: {} });
 
   // Nothing the browser was sent, and nothing on the page, ever held a key.
   expect(bodies.length).toBeGreaterThan(8);
+  expect(patches).toHaveLength(6);
+  // After the first two saves (which typed it) no request ever carried a key again, except the one replacing it.
+  expect(patches.filter((body) => Object.hasOwn(body, 'paymentApiKey')).map((body) => body.paymentApiKey)).toEqual(['not-a-payment-key', key, nextKey, null]);
   for (const text of [...bodies, await page.content(), JSON.stringify(await stored(page))]) {
     expect(text).not.toContain(key);
     expect(text).not.toContain(nextKey);
@@ -149,6 +178,8 @@ test('a settings page is read-only while viewing as someone, and its API refuses
   await expect(page.locator('input[type="file"], input[type="password"]')).toHaveCount(0);
   const refused = await page.request.patch('/admin/api/pages/shop', { data: { shopName: 'x' }, headers: { ...(await csrf(page)), 'X-View-As': '2' } });
   expect(refused.status()).toBe(403);
+  // Not the 403 of a missing CSRF token (same code): the refusal is the view-as one.
+  expect(await refused.json()).toMatchObject({ code: 'FORBIDDEN', message: 'Viewing as another user is read-only' });
 
   // Actions are not offered either: running one as someone else is refused.
   await page.goto('/admin/order/2');

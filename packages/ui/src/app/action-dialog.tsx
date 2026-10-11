@@ -6,6 +6,7 @@ import { FormLayout } from '@/app/form-layout';
 import { ObjectInput } from '@/app/object-input';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
+import { actionQuestion } from '@/lib/actions';
 import { shownErrors } from '@/lib/form-errors';
 import { toFormValues, toPayload, type FormValues } from '@/lib/form-values';
 import { isShown } from '@/lib/show-if';
@@ -27,7 +28,8 @@ interface ActionDialogProps {
 }
 
 /**
- * The step before an action runs (spec §5.2), mounted while it is open: its question when it wants a confirmation, its input form when it has
+ * The step before an action runs (spec §5.2), mounted while it is open: its question when it wants a confirmation (or is destructive, or runs on
+ * several records: `actionQuestion`), its input form when it has
  * one (the same inputs and client checks as record forms), and a destructive button for destructive actions. A failed
  * run keeps the dialog open: field errors go to their inputs, the host's refusal (409, 400) is shown as it was sent.
  */
@@ -54,16 +56,7 @@ export function ActionDialog({ resource, action, count, subject, running, error,
     if (Object.keys(all).length === 0) onRun(payload);
   }
 
-  const question =
-    action.confirm === undefined
-      ? undefined
-      : typeof action.confirm === 'string'
-        ? action.confirm
-        : count > 1
-          ? t('action.confirmSelected', { action: action.label, count })
-          : subject !== undefined
-            ? t('action.confirmRecord', { action: action.label, name: subject })
-            : t('action.confirm', { action: action.label });
+  const question = actionQuestion(action, count, subject, t);
 
   function renderField(name: string): ReactNode | null {
     const field = shown.find((candidate) => candidate.name === name);

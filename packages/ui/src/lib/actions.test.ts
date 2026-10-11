@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { ActionSchema, ResourceSchema } from '@nest-my-admin/core/contract';
-import { actionOutcome, bulkActions, recordActions, resourceActions, runsAtOnce, selectionResult } from './actions';
+import { actionOutcome, actionQuestion, bulkActions, recordActions, resourceActions, runsAtOnce, selectionResult } from './actions';
+import { en } from '../i18n/en';
+import { fa } from '../i18n/fa';
 
 const action = (name: string, over: Partial<ActionSchema> = {}): ActionSchema => ({ name, label: name, target: 'record', bulk: false, atomic: false, variant: 'default', ...over });
 const schema = {
@@ -36,6 +38,37 @@ describe('actions', () => {
     expect(runsAtOnce(schema.actions[1]!)).toBe(false);
     expect(runsAtOnce(schema.actions[2]!)).toBe(false);
     expect(runsAtOnce(action('x', { confirm: 'Sure?' }))).toBe(false);
+  });
+
+  test('a destructive action, or a run on more than one record, never runs on the click', () => {
+    const plain = action('markPaid', { bulk: true });
+    expect(runsAtOnce(plain, 0)).toBe(true);
+    expect(runsAtOnce(plain, 1)).toBe(true);
+    expect(runsAtOnce(plain, 2)).toBe(false);
+    expect(runsAtOnce(action('wipe', { variant: 'destructive' }))).toBe(false);
+    expect(runsAtOnce(action('wipe', { variant: 'destructive' }), 1)).toBe(false);
+    expect(runsAtOnce(action('purgeAll', { target: 'resource', variant: 'destructive' }), 0)).toBe(false);
+  });
+
+  test('the question: the host\'s own text, or a default naming the record or the count', () => {
+    const texts = (messages: Record<string, string>) => (key: string, params: Record<string, string | number> = {}) =>
+      messages[key]!.replace(/\{(\w+)\}/g, (_match, name: string) => String(params[name]));
+    const t = texts(en);
+    const plain = action('Mark paid', { bulk: true });
+    const wipe = action('Wipe', { variant: 'destructive' });
+    // Nothing to ask: one record, not destructive, no `confirm`.
+    expect(actionQuestion(plain, 1, 'SO-1', t)).toBeUndefined();
+    expect(actionQuestion(action('Recount', { target: 'resource' }), 0, undefined, t)).toBeUndefined();
+    // Asked without `confirm`.
+    expect(actionQuestion(plain, 3, undefined, t)).toBe('Run “Mark paid” on 3 records?');
+    expect(actionQuestion(wipe, 1, 'SO-1', t)).toBe('Run “Wipe” on SO-1?');
+    expect(actionQuestion(wipe, 1, undefined, t)).toBe('Run “Wipe”?');
+    expect(actionQuestion(action('Purge', { target: 'resource', variant: 'destructive' }), 0, undefined, t)).toBe('Run “Purge”?');
+    expect(actionQuestion(plain, 3, undefined, texts(fa))).toBe(fa['action.confirmSelected'].replace('{action}', 'Mark paid').replace('{count}', '3'));
+    expect(fa['action.confirmSelected']).toContain('{count}');
+    // `confirm: true` asks the same; a text of the host is used as it is.
+    expect(actionQuestion(action('Archive', { confirm: true }), 2, undefined, t)).toBe('Run “Archive” on 2 records?');
+    expect(actionQuestion(action('Archive', { confirm: 'Really archive?' }), 2, undefined, t)).toBe('Really archive?');
   });
 
   test('the answer is told apart by its shape', () => {

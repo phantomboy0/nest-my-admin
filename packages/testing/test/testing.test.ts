@@ -4,7 +4,25 @@ import { Injectable, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { fileURLToPath } from 'node:url';
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
-import { AdminModule, AdminNotFoundError, AdminResource, AdminResourceBase, AdminScope, type AdminContext, type FieldsConfig, type ListConfig, type ListParams } from '@nest-my-admin/core';
+import { IsOptional, IsString } from 'class-validator';
+import {
+  AdminAction,
+  AdminModule,
+  AdminNotFoundError,
+  AdminResource,
+  AdminResourceBase,
+  AdminScope,
+  AdminSettingsPage,
+  type ActionOutcome,
+  type AdminContext,
+  type AdminSettingsSource,
+  type FieldsConfig,
+  type ListConfig,
+  type ListParams,
+} from '@nest-my-admin/core';
+import { AdminApiService, AdminPolicy, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
+import { IncomingMessage } from 'node:http';
+import { Socket } from 'node:net';
 import { TEST_DB, testDatabase, type TestDatabase } from '../../core/test/helpers/test-db.js';
 import { AdminLeakError, createAdminTestingModule, type AdminTesting } from '../src/index.js';
 
@@ -58,14 +76,64 @@ class LeakyTaskAdmin extends AdminResourceBase<Task> {
   }
 }
 
-@Module({ providers: [ProjectAdmin, LeakyProjectAdmin, TaskAdmin, LeakyTaskAdmin] })
+@Entity('tst_parcel')
+class Parcel {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 60 }) name: string;
+  @Column({ length: 12, default: 'new' }) state: string;
+  @Column({ type: 'varchar', length: 40, nullable: true }) tracking: string | null;
+}
+
+class ShipDto {
+  @IsString() tracking: string;
+}
+
+@Injectable()
+@AdminResource(Parcel, { title: 'name' })
+class ParcelAdmin extends AdminResourceBase<Parcel> {
+  @AdminAction({ bulk: true, input: ShipDto })
+  async ship(parcel: Parcel, input: ShipDto, ctx: AdminContext): Promise<ActionOutcome> {
+    await this.repositoryFor(ctx).update(parcel.id, { state: 'shipped', tracking: input.tracking });
+    return { message: 'Shipped' };
+  }
+
+  @AdminAction({ variant: 'destructive' })
+  async cancel(parcel: Parcel, _input: unknown, ctx: AdminContext): Promise<void> {
+    await this.repositoryFor(ctx).update(parcel.id, { state: 'cancelled' });
+  }
+
+  @AdminAction({ target: 'resource' })
+  async recount(_input: unknown, ctx: AdminContext): Promise<ActionOutcome> {
+    return { message: `Counted ${await this.repositoryFor(ctx).count()}` };
+  }
+}
+
+class ShopDto {
+  @IsOptional() @IsString() shopName?: string;
+  @IsOptional() @IsString() apiKey?: string | null;
+}
+
+const shop: Record<string, unknown> = { shopName: 'Corner shop' };
+
+@Injectable()
+@AdminSettingsPage('shop', { form: ShopDto, fields: { apiKey: { secret: true } } })
+class ShopPage implements AdminSettingsSource<ShopDto> {
+  async load(): Promise<Partial<ShopDto>> {
+    return { ...shop };
+  }
+  async save(changes: Partial<ShopDto>): Promise<void> {
+    Object.assign(shop, changes);
+  }
+}
+
+@Module({ providers: [ProjectAdmin, LeakyProjectAdmin, TaskAdmin, LeakyTaskAdmin, ParcelAdmin, ShopPage] })
 class AppModule {}
 
 let db: TestDatabase;
 let admin: AdminTesting;
 
 beforeAll(async () => {
-  db = await testDatabase([Project, Task]);
+  db = await testDatabase([Project, Task, Parcel]);
   admin = await createAdminTestingModule({
     imports: [
       TypeOrmModule.forRoot({ ...db.options, retryAttempts: 0 }),
@@ -75,6 +143,8 @@ beforeAll(async () => {
           { name: 'member', permissions: ['project.view', 'project.create', 'project.update', 'task.view'], fields: { project: { secret: 'hidden' } }, scopes: { project: { view: 'own', update: 'own' } } },
           { name: 'nosy', permissions: ['project.view', 'leaky-task.view'], scopes: { project: { view: 'own' } } },
           { name: 'leaky', permissions: ['leaky-project.view'], fields: { 'leaky-project': { secret: 'hidden' } } },
+          { name: 'editor', permissions: ['parcel.view', 'parcel.update', 'parcel.action.ship', 'page.shop', 'page.shop.update'] },
+          { name: 'viewer', permissions: ['parcel.view', 'page.shop'] },
         ],
         resolveRoles: (user) => (user.attrs?.roles as string[] | undefined) ?? [],
       }),
@@ -118,6 +188,69 @@ describe(`@nest-my-admin/testing (${TEST_DB})`, () => {
     expect((await viaResolver.list('project')).items).toHaveLength(1);
     await expect(admin.as({ id: 'u1' }).meta()).resolves.toMatchObject({ groups: [] });
     await expect(admin.as({ id: 'u1', roles: ['membr'] }).meta()).rejects.toThrow('"membr" is not a role');
+  });
+
+  test('runAction(): the editor may ship but not cancel', async () => {
+    const editor = admin.as({ id: 'e1', roles: ['editor'] });
+    const make = async (name: string) => {
+      const created = await admin.superuser.create('parcel', { name });
+      return { id: created.id as number, _id: String(created._id) };
+    };
+    const one = await make('One');
+    const two = await make('Two');
+    expect((await editor.schema('parcel')).actions.map((action) => action.name)).toEqual(['ship']);
+
+    const shipped = await editor.runAction('parcel', 'ship', { ids: [one.id], input: { tracking: 'TRK-1' } });
+    expect(shipped).toMatchObject({ message: 'Shipped', record: { state: 'shipped', tracking: 'TRK-1' } });
+    await expect(editor.runAction('parcel', 'ship', { ids: [one._id], input: {} })).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(await editor.runAction('parcel', 'ship', { ids: [one._id, two._id], input: { tracking: 'TRK-2' } })).toEqual({ ok: [one._id, two._id], failed: [], message: 'Shipped' });
+
+    await expect(editor.runAction('parcel', 'cancel', { ids: [one._id] })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(editor.runAction('parcel', 'recount')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect((await admin.superuser.get('parcel', one._id)).state).toBe('shipped');
+    expect(await admin.superuser.runAction('parcel', 'recount')).toEqual({ message: 'Counted 2' });
+    expect(await admin.superuser.runAction('parcel', 'cancel', { ids: [one._id] })).toMatchObject({ record: { state: 'cancelled' } });
+    // A viewer holds no action, and someone without the resource does not learn it exists.
+    await expect(admin.as({ id: 'v1', roles: ['viewer'] }).runAction('parcel', 'ship', { ids: [two._id], input: { tracking: 'X' } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(admin.as({ id: 'u1', roles: ['member'] }).runAction('parcel', 'ship', { ids: [two._id], input: { tracking: 'X' } })).rejects.toBeInstanceOf(AdminNotFoundError);
+  });
+
+  test('page() and savePage(): the viewer reads the settings and cannot save them', async () => {
+    const viewer = admin.as({ id: 'v1', roles: ['viewer'] });
+    const editor = admin.as({ id: 'e1', roles: ['editor'] });
+    const seen = await viewer.page('shop');
+    expect(seen).toMatchObject({ values: { shopName: 'Corner shop' }, secrets: { apiKey: false } });
+    expect(seen.schema.readonly).toBe(true);
+    await expect(viewer.savePage('shop', { shopName: 'Mine' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(shop.shopName).toBe('Corner shop');
+
+    const saved = await editor.savePage('shop', { shopName: 'Main street', apiKey: 'sk_test_12345678' });
+    expect(saved).toMatchObject({ values: { shopName: 'Main street' }, secrets: { apiKey: true } });
+    expect(saved.values).not.toHaveProperty('apiKey');
+    expect((await editor.page('shop')).schema.readonly).toBe(false);
+    expect((await editor.savePage('shop', { apiKey: null })).secrets).toEqual({ apiKey: false });
+    await expect(admin.as({ id: 'u1', roles: ['member'] }).page('shop')).rejects.toBeInstanceOf(AdminNotFoundError);
+  });
+
+  test('view-as is read-only for callers that are not HTTP: no action runs, no page is saved', async () => {
+    const parcel = { _id: String((await admin.superuser.create('parcel', { name: 'Watched' }))._id) };
+    const api = admin.app.get(AdminApiService, { strict: false });
+    const request = new IncomingMessage(new Socket());
+    request.method = 'POST';
+    request.url = '/';
+    const ctx = createAdminContext(request);
+    ctx.user = { id: 'e1', displayName: 'Editor', isSuperuser: false };
+    ctx.permissions = await admin.app.get(AdminPolicy, { strict: false }).forUser({ id: 'root', displayName: 'Root', isSuperuser: true });
+    ctx.viewAs = { by: { id: 'root', displayName: 'Root', isSuperuser: true } };
+
+    const refusal = { code: 'FORBIDDEN', message: 'Viewing as another user is read-only' };
+    await expect(runInAdminContext(ctx, () => api.runAction('parcel', 'ship', { ids: [parcel._id], input: { tracking: 'TRK-9' } }, ctx))).rejects.toMatchObject(refusal);
+    await expect(runInAdminContext(ctx, () => api.runAction('parcel', 'recount', {}, ctx))).rejects.toMatchObject(refusal);
+    await expect(runInAdminContext(ctx, () => api.savePage('shop', { shopName: 'Hijacked' }, ctx))).rejects.toMatchObject(refusal);
+    expect((await admin.superuser.get('parcel', parcel._id)).state).toBe('new');
+    expect(shop.shopName).not.toBe('Hijacked');
+    delete ctx.viewAs;
+    expect(await runInAdminContext(ctx, () => api.runAction('parcel', 'recount', {}, ctx))).toMatchObject({ message: expect.stringContaining('Counted') });
   });
 
   test('expectNoLeaks passes when nothing leaks', async () => {

@@ -26,13 +26,15 @@ interface ActionButtonProps {
 
 /**
  * A custom action's button (`@AdminAction`). It opens `ActionDialog` when the action asks a question or has a form,
- * and runs on the click otherwise. The server's message is shown as a toast (a default one without a message), and
+ * is destructive or runs on several records, and runs on the click otherwise. The server's message is shown as a toast (a default one without a message), and
  * lists, counts and records of the resource reload.
  */
 export function ActionButton({ resource, action, ids, subject, size = 'default', blocked = false, describedBy, onDone }: ActionButtonProps) {
   const t = useT();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  // A destructive action, or a run on several records, asks first even when the action does not.
+  const atOnce = runsAtOnce(action, ids?.length ?? 0);
   const run = useMutation({
     mutationFn: (input: Record<string, unknown> | undefined) => api.runAction(resource, action.name, { ...(ids ? { ids } : {}), ...(input ? { input } : {}) }),
     onSuccess: (result) => {
@@ -46,7 +48,7 @@ export function ActionButton({ resource, action, ids, subject, size = 'default',
     },
     // Without a dialog there is nowhere else to say why it failed.
     onError: (error) => {
-      if (runsAtOnce(action)) toast(describeError(error), 'error');
+      if (atOnce) toast(describeError(error), 'error');
     },
   });
   const Icon = iconNamed(action.icon);
@@ -61,7 +63,7 @@ export function ActionButton({ resource, action, ids, subject, size = 'default',
         data-action={action.name}
         onClick={() => {
           run.reset();
-          if (runsAtOnce(action)) run.mutate(undefined);
+          if (atOnce) run.mutate(undefined);
           else setOpen(true);
         }}
       >
