@@ -3,7 +3,7 @@ import { Copy, ExternalLink, Lock } from 'lucide-react';
 import { Link, useBlocker, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
-import { FieldInput } from '@/app/field-input';
+import { FieldInput, RichText } from '@/app/field-input';
 import { FormLayout } from '@/app/form-layout';
 import { ObjectInput } from '@/app/object-input';
 import { DisplayValue, ValueBadge } from '@/app/widgets/badge';
@@ -56,9 +56,12 @@ export function FormPage({ mode }: { mode: Mode }) {
   );
 }
 
-/** A record's values for a copy: without keys, unique values and fields that cannot be written on create. */
+/**
+ * A record's values for a copy: without keys, unique values, fields that cannot be written on create, and files
+ * (a file belongs to one record; images inside rich text are dropped by the server for the same reason).
+ */
 function copyOf(schema: ResourceSchema, source: AdminRecord): AdminRecord {
-  const skip = new Set(schema.fields.filter((field) => field.primary || field.unique || field.readonly).map((field) => field.name));
+  const skip = new Set(schema.fields.filter((field) => field.primary || field.unique || field.readonly || field.file).map((field) => field.name));
   return Object.fromEntries(Object.entries(source).filter(([name]) => !skip.has(name) && !name.startsWith('_'))) as AdminRecord;
 }
 
@@ -115,6 +118,9 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
   }
 
   const [notice, setNotice] = useState<string | null>(saved ? t('form.savedName', { name: saved }) : null);
+  // Fields with uploads on their way: saving now would leave those files out.
+  const [uploading, setUploading] = useState<string[]>([]);
+  const setBusy = (name: string, busy: boolean) => setUploading((names) => (busy === names.includes(name) ? names : busy ? [...names, name] : names.filter((other) => other !== name)));
 
   // Unsaved changes: in-app navigation asks first (an inline bar), closing the tab asks through the browser.
   const dirty = JSON.stringify(values) !== JSON.stringify(initial);
@@ -216,6 +222,10 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
     const then: After = submitter?.value === 'new' ? 'new' : submitter ? 'list' : after.current;
     after.current = 'list';
     setNotice(null);
+    if (uploading.length > 0) {
+      setFormError(t('upload.busy')); // ⌘S while a file travels; the buttons are disabled
+      return;
+    }
     const { payload, errors } = payloadOf();
     const formMode = mode === 'create' ? 'create' : 'update';
     const constraints = Object.fromEntries(Object.entries(schema.form.constraints[formMode]).filter(([name]) => visible.some((field) => field.name === name.split('.')[0])));
@@ -245,7 +255,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
   function renderField(name: string): ReactNode | null {
     const field = allFields.find((candidate) => candidate.name === name);
     if (!field || !isShown(field, values)) return null;
-    if (locked.has(name)) return <ReadOnlyField field={field} value={record?.[name]} />;
+    if (locked.has(name)) return <ReadOnlyField resource={schema.name} field={field} record={record} />;
     const formMode = mode === 'create' ? 'create' : 'update';
     return field.type === 'object' ? (
       <ObjectInput
@@ -269,6 +279,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
         formValues={field.type === 'relation' ? dependencies : undefined}
         constraints={schema.form.constraints[formMode][field.name]}
         onChange={(value) => change(field.name, value)}
+        onBusy={(busy) => setBusy(field.name, busy)}
       />
     );
   }
@@ -321,12 +332,12 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
       <FormLayout layout={schema.form.layout} names={allFields.map((field) => field.name)} errors={fieldErrors} render={renderField} />
       <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
         {canUpdate && (
-          <Button type="submit" value="list" disabled={save.isPending} aria-keyshortcuts="Control+S Meta+S">
+          <Button type="submit" value="list" disabled={save.isPending || uploading.length > 0} aria-keyshortcuts="Control+S Meta+S">
             {t(save.isPending ? 'form.saving' : 'form.save')}
           </Button>
         )}
         {canUpdate && schema.creatable && (
-          <Button type="submit" value="new" variant="outline" disabled={save.isPending}>
+          <Button type="submit" value="new" variant="outline" disabled={save.isPending || uploading.length > 0}>
             {t('form.saveAndNew')}
           </Button>
         )}
@@ -380,9 +391,10 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
 
 const lockedOn = (record: AdminRecord | undefined): string[] => (Array.isArray(record?._readonly) ? (record._readonly as string[]) : []);
 
-/** A field shown but not editable: its value as text, with a lock. */
-function ReadOnlyField({ field, value }: { field: FieldSchema; value: unknown }) {
+/** A field shown but not editable: its value as text (files and rich text as they look), with a lock. */
+function ReadOnlyField({ resource, field, record }: { resource: string; field: FieldSchema; record: AdminRecord | undefined }) {
   const t = useT();
+  const value = record?.[field.name];
   return (
     <div className="flex flex-col gap-1.5" data-readonly={field.name}>
       <span className="flex items-center gap-1.5 text-sm font-medium">
@@ -390,7 +402,11 @@ function ReadOnlyField({ field, value }: { field: FieldSchema; value: unknown })
         <Lock className="size-3.5 text-muted-foreground" aria-label={t('form.readOnly')} role="img" />
       </span>
       <div className="min-h-8 rounded-lg bg-muted/50 px-2.5 py-1.5 text-sm break-words">
-        <DisplayValue value={value} field={field} />
+        {field.widget === 'richtext' && typeof value === 'string' && value !== '' ? (
+          <RichText id={`field-${field.name}`} resource={resource} field={field} value={value} readOnly />
+        ) : (
+          <DisplayValue value={value} field={field} record={record} detailed />
+        )}
       </div>
       {field.help && <p className="text-sm text-muted-foreground">{field.help}</p>}
     </div>

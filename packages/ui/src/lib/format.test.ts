@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import type { FieldSchema, FieldType } from '@nest-my-admin/core/contract';
-import { formatCell } from './format';
+import { formatCell, richTextExcerpt } from './format';
 import { applyDisplay } from '@/i18n';
 
 const field = (type: FieldType): FieldSchema => ({
@@ -15,6 +15,21 @@ describe('formatCell', () => {
     expect(formatCell({ a: 1 }, field('json'))).toBe('{"a":1}');
     expect(formatCell('19.90', field('decimal'))).toBe('19.90');
     expect(formatCell(7, field('number'))).toBe('7');
+  });
+
+  test('file fields show file names, rich text its text', () => {
+    const file = { accept: ['*/*'], maxBytes: 1, many: false };
+    expect(formatCell('product/pdf/ab12.pdf', { ...field('string'), widget: 'file', file })).toBe('ab12.pdf');
+    expect(formatCell(['a/1.png', 'a/2.png'], { ...field('json'), widget: 'image', file: { ...file, many: true } })).toBe('1.png, 2.png');
+    expect(formatCell([], { ...field('json'), widget: 'image', file: { ...file, many: true } })).toBe('—');
+    expect(formatCell('<h2>Hi</h2><p>a <strong>b</strong> &amp; c</p>', { ...field('text'), widget: 'richtext' })).toBe('Hi a b & c');
+    expect(formatCell('<p></p>', { ...field('text'), widget: 'richtext' })).toBe('—');
+  });
+
+  test('richTextExcerpt', () => {
+    expect(richTextExcerpt('<p>one</p><p>two&nbsp;three</p><img src="x" alt="a">')).toBe('one two three');
+    expect(richTextExcerpt('<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>')).toBe('<script>alert(1)</script>'); // text, shown as text
+    expect(richTextExcerpt(`<p>${'x'.repeat(200)}</p>`, 10)).toBe(`${'x'.repeat(10)}…`);
   });
 });
 

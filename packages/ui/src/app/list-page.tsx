@@ -302,7 +302,7 @@ export function ListPage() {
                         ) : !trash && s.list.editable.includes(column.name) && !(Array.isArray(item._readonly) && item._readonly.includes(column.name)) && (item._perm as { update?: boolean } | undefined)?.update !== false ? (
                           <EditableCell schema={s} item={item} field={column} />
                         ) : (
-                          <CellValue value={item[column.name]} field={column} />
+                          <CellValue value={item[column.name]} field={column} record={item} />
                         )}
                       </TableCell>
                     ))}
@@ -357,9 +357,9 @@ export function ListPage() {
 }
 
 /** A cell; a related record links to its own page when its resource is registered. */
-function CellValue({ value, field }: { value: unknown; field: FieldSchema }) {
+function CellValue({ value, field, record }: { value: unknown; field: FieldSchema; record: AdminRecord }) {
   const target = field.relation?.resource;
-  if (!target || value === null || value === undefined) return <DisplayValue value={value} field={field} />;
+  if (!target || value === null || value === undefined) return <DisplayValue value={value} field={field} record={record} />;
   const refs = (Array.isArray(value) ? value : [value]).filter(isRef);
   if (refs.length === 0) return <>{formatCell(value, field)}</>;
   return (

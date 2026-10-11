@@ -8,6 +8,8 @@ export function formatCell(value: unknown, field: FieldSchema): string {
     const refs = (Array.isArray(value) ? value : [value]) as Array<{ title?: unknown }>;
     return refs.length === 0 ? '—' : refs.map((ref) => String(ref.title)).join(', ');
   }
+  if (field.file) return (Array.isArray(value) ? value : [value]).map((key) => String(key).split('/').pop()).join(', ') || '—';
+  if (field.widget === 'richtext') return richTextExcerpt(String(value)) || '—';
   if (field.type === 'boolean') return tr(value ? 'common.yes' : 'common.no');
   if (field.type === 'enum') return field.enumLabels?.[String(value)] ?? String(value);
   if (field.widget === 'money') return `${formatNumberText(groupMoney(String(value), field.scale))}${field.currency ? ` ${field.currency}` : ''}`;
@@ -19,4 +21,16 @@ export function formatCell(value: unknown, field: FieldSchema): string {
     return Number.isNaN(date.getTime()) ? String(value) : formatDateTime(date);
   }
   return String(value);
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' };
+
+/** The text of rich-text HTML for lists and titles: tags dropped, blocks separated by a space, at most `max` characters. */
+export function richTextExcerpt(html: string, max = 120): string {
+  const text = html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name: string) => ENTITIES[name]!)
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
 }

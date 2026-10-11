@@ -130,3 +130,17 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - Recovery codes are shown once; there is no "download as file" yet.
 - The replay guard claims the code's 30-second step with a conditional update; recovery codes are removed with a plain read-then-write, so the same recovery code sent twice at the same moment can sign in twice.
 
+## M4-1 follow-ups
+- Two PATCHes of one record with the same upload token both succeed; with `nma_file` on another DataSource, a rollback of the second returns the shared row to `temp` although the first write holds it.
+- A custom storage whose public URLs are signed or hashed (not `publicBaseUrl` + key) loses public rich-text images on save: `keyOfSrc` cannot map such a URL back to a key.
+- `validateWrite` stores raw HTML when a caller passes no sanitizer for a rich-text field; it should throw.
+- `keyOfSrc` accepts `%2F` inside a path segment (the download route's wildcard refuses it).
+- A rejected upload drains the whole request body before answering.
+- A host `delete` override that hard-deletes an entity with a `@DeleteDateColumn` keeps the record's files (the admin only knows the schema has a trash).
+- With `nma_file` on another DataSource, a crash between the pre-commit attach and the record's commit leaves an `attached` row without a record.
+- `localStorage` keeps public and private files in one directory; serving it for `publicBaseUrl` exposes private keys to anyone who knows them (documented in the README; separate directories would fix it).
+- UI: an upload cannot be resumed or retried in place (pick the file again); Duplicate copies no files and the server drops the source's rich-text images.
+- UI: per-block direction in rich text is CSS (`unicode-bidi: plaintext`), so list markers and quote borders stay on the page's side; a `dir` attribute kept by the sanitizer would fix it.
+- UI: phone cards built from `list.mobile` show no thumbnail; the editor chunk is about 460 kB (145 kB gzip), loaded on demand.
+- The upload insert and the sweep do not go through the SQLite-family write queue (from Task 2's report).
+

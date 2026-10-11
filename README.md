@@ -243,7 +243,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   3. the resource's `fields`.
 - **Options.**
   - Texts: `label`, `help` (shown under the input, and linked to it for screen readers), `placeholder`, `enumLabels`. The values sent stay the raw enum values.
-  - `widget`: text, textarea, number, money, switch, checkbox, select, radio, date, datetime, json, color, badge, slug, password, email or url.
+  - `widget`: text, textarea, number, money, switch, checkbox, select, radio, date, datetime, json, color, badge, slug, password, email, url, file, image or richtext (the last three: [Files, images and rich text](#files-images-and-rich-text)).
     - Without one, the widget follows the type and format.
     - A widget that does not fit the type (`money` on a boolean) fails at boot.
   - `colors` for badges: gray, red, amber, green, blue, purple or pink.
@@ -267,7 +267,57 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - Leaving a form with unsaved changes asks first: an inline bar for in-app navigation, the browser's prompt for closing the tab.
   - ⌘S / Ctrl+S saves and stays on the record.
   - **Save & new** saves and opens an empty form.
-  - **Duplicate** opens `/:resource/new?from=<id>`, prefilled without primary keys, unique columns and read-only fields.
+  - **Duplicate** opens `/:resource/new?from=<id>`, prefilled without primary keys, unique columns, read-only fields and files.
+
+### Files, images and rich text
+
+```ts
+import { ADMIN_FILE_ENTITIES, AdminModule, localStorage } from '@nest-my-admin/core';
+
+TypeOrmModule.forRoot({ /* … */ entities: [Product, Article, Invoice, ...ADMIN_FILE_ENTITIES] }),
+AdminModule.forRoot({
+  files: { storage: localStorage({ dir: 'var/uploads' }), maxBytes: 10 * 1024 * 1024 },
+}),
+
+@AdminResource(Product)
+export class ProductAdmin extends AdminResourceBase<Product> {
+  fields: FieldsConfig<Product> = {
+    image: { widget: 'image', file: { visibility: 'public', maxBytes: 2 * 1024 * 1024 } }, // a string column
+    gallery: { widget: 'image', many: true },                                              // a json column: keys in order
+    manual: { widget: 'file', file: { accept: ['application/pdf'] } },                     // private by default
+    description: { widget: 'richtext' },                                                   // a text column: sanitized HTML
+  };
+}
+```
+
+- **Storage.**
+  - `localStorage({ dir, publicBaseUrl? })` writes under `dir`. Keep `dir` out of the repository and out of any folder your app serves.
+  - `s3Storage({ endpoint, region, bucket, accessKeyId, secretAccessKey, publicBaseUrl?, forcePathStyle? })` works with S3 and compatible stores (MinIO, R2), with no SDK.
+  - Anything else: implement `AdminStorage` (`put`, `get`, `delete`, `publicUrl`).
+  - Files are tracked in the `nma_file` table (`ADMIN_FILE_ENTITIES`; `files.dataSource` names another DataSource).
+- **Fields.**
+  - The column holds the storage key (`product/image/2026/10/<uuid>.png`), or the list of keys for `many`. Records carry `_files[field]` with each file's `name`, `size`, `contentType` and `url`.
+  - `file.accept` lists types (`image/*`, `application/pdf`); the image widget defaults to `image/*`. `file.maxBytes` overrides `files.maxBytes` (default 10 MiB).
+  - The form uploads as soon as a file is picked or dropped, shows progress, and waits with saving until uploads finish. Lists show thumbnails for image fields and file names for the rest. A `many` field is reordered by dragging or with its arrow buttons.
+  - Replacing or removing a file, deleting a record without a trash, and purging one delete the stored objects once the change has committed. Uploads that never reach a record are swept after 24 hours.
+  - **Duplicate** copies no files: a file belongs to one record.
+- **Your own services.** `create`/`update` overrides receive `AdminFile` objects (`key`, `name`, `contentType`, `size`, `isNew`) for file fields, already checked. Store `file.key` (the DTO property needs any class-validator decorator, such as `@IsOptional()`). The default `create`/`update` do this themselves.
+- **Rich text.**
+  - Install the sanitizer in your app: `npm install sanitize-html` (an optional peer; the admin refuses to boot with a rich-text field and without it), or pass your own `files.sanitizeHtml`.
+  - The editor offers what the sanitizer keeps: paragraphs, headings 2–4, bold, italic, strikethrough, links, lists, quotes, tables, images, line breaks and rules. Every block takes the direction of its own text, so Persian and English paragraphs share a document.
+  - Images are uploaded through the same endpoint (when `files` is configured) and belong to the record once the saved HTML refers to them; `file: { visibility, maxBytes }` applies to them.
+  - The editor is a separate chunk of the UI, loaded only by forms with a rich-text field.
+- **API.** `POST /api/uploads?resource=&field=` takes the file itself as the request body (not multipart) with its `Content-Type`, `Content-Length` and an optional percent-encoded `X-File-Name`, and answers `{ token, name, contentType, size, url? }`. A write then sends `{ token }` for a new file, `{ key }` to keep a stored one, or `null`; a `many` field sends the whole list.
+
+**Security notes**
+
+- The type of a file is read from its bytes, never from its name or the request's `Content-Type`. HTML, SVG and scripts are refused whatever they are called, and stored files get the extension of the type that was found.
+- Uploading needs create or update permission on the resource and edit access to the field; `text/plain`, `multipart/form-data` and `application/x-www-form-urlencoded` bodies are refused (a form on another site could send those), on top of the CSRF token.
+- Private files (the default) are served only by `GET /api/files/<key>`, which checks, for every request, that the user may view the record (permission, scopes, `query()`) and the field, and that the record still holds the file. Every refusal is the same 404. Responses carry `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`, and `Content-Disposition: attachment` for everything but images and PDFs.
+- `visibility: 'public'` links to the storage's `publicUrl` when it has one (`publicBaseUrl`): anyone with the link can read such a file, with no permission check. Without a public URL, public files are served by the admin like private ones.
+- `localStorage` keeps public and private files in one directory. If you serve that directory yourself for `publicBaseUrl`, private files in it are reachable by anyone who learns their key; serve only what you mean to publish, or use a bucket with its own rules.
+- Rich text is sanitized on the server at every write, whatever the browser sent. Links keep http(s), mailto and relative addresses and get `rel="noopener noreferrer nofollow"`; an `<img>` is kept only when it points at a file of this admin that belongs to the record (or that the same user just uploaded for this field). A custom `files.sanitizeHtml` is trusted to do the same.
+- An unsaved upload can be fetched only by the user who made it.
 
 ## Transactions, context and errors
 

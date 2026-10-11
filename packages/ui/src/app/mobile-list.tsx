@@ -141,7 +141,7 @@ function MobileCard({ schema, item, columns }: { schema: ResourceSchema; item: A
               <Fragment key={column.name}>
                 <dt className="text-muted-foreground">{column.label}</dt>
                 <dd className="truncate">
-                  <DisplayValue value={item[column.name]} field={column} />
+                  <DisplayValue value={item[column.name]} field={column} record={item} plain />
                 </dd>
               </Fragment>
             ))}
@@ -167,7 +167,7 @@ function MobileCard({ schema, item, columns }: { schema: ResourceSchema; item: A
             <div key={entry.name} className="flex gap-1">
               <dt className="text-muted-foreground">{entry.label}</dt>
               <dd>
-                <DisplayValue value={item[entry.name]} field={entry} />
+                <DisplayValue value={item[entry.name]} field={entry} record={item} plain />
               </dd>
             </div>
           ))}

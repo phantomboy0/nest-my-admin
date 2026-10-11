@@ -11,6 +11,11 @@ describe('widgetOf', () => {
     expect(widgetOf(field('decimal', { widget: 'money' }))).toBe('money');
     expect(widgetOf(field('boolean', { widget: 'switch' }))).toBe('switch');
   });
+  test('file, image and rich text are only ever configured', () => {
+    expect(widgetOf(field('string', { widget: 'file' }))).toBe('file');
+    expect(widgetOf(field('json', { widget: 'image' }))).toBe('image');
+    expect(widgetOf(field('text', { widget: 'richtext' }))).toBe('richtext');
+  });
   test('inferred from type and format', () => {
     expect(widgetOf(field('boolean'))).toBe('checkbox');
     expect(widgetOf(field('enum'))).toBe('select');

@@ -52,7 +52,7 @@ export function QuickView({ schema, item, onClose }: QuickViewProps) {
               <div key={field.name} className="contents">
                 <dt className="text-muted-foreground">{field.label}</dt>
                 <dd className="break-words">
-                  <DisplayValue value={record![field.name]} field={field} />
+                  <DisplayValue value={record![field.name]} field={field} record={record} detailed />
                 </dd>
               </div>
             ))}

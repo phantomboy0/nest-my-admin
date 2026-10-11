@@ -12,7 +12,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   }
 
   list: ListConfig<Product> = {
-    columns: ['id', 'name', 'sku', 'categoryId', 'price', 'cost', 'stock', 'status', 'tags'],
+    columns: ['id', 'image', 'name', 'sku', 'categoryId', 'price', 'cost', 'stock', 'status', 'tags'],
     sort: '-id',
     pageSize: 20,
     count: 'estimate', // exact while the table is small, the planner's estimate once it is big
@@ -44,6 +44,9 @@ export class ProductAdmin extends AdminResourceBase<Product> {
     releasedOn: { label: { en: 'Released on', fa: 'تاریخ عرضه' }, showIf: { status: ['active', 'archived'] }, readonlyIf: archived },
     categoryId: { label: { en: 'Category', fa: 'دسته' }, readonlyIf: archived },
     tags: { label: { en: 'Tags', fa: 'برچسب‌ها' }, readonlyIf: archived },
+    // Product pictures are not secret, but the demo's storage has no public URL, so they too are served by the admin.
+    image: { widget: 'image', label: { en: 'Image', fa: 'تصویر' }, file: { visibility: 'public', maxBytes: 2 * 1024 * 1024 }, readonlyIf: archived },
+    gallery: { widget: 'image', many: true, label: { en: 'Gallery', fa: 'گالری' }, file: { visibility: 'public', maxBytes: 2 * 1024 * 1024 }, readonlyIf: archived },
   };
   form: FormConfig = {
     create: CreateProductDto,
@@ -54,6 +57,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
         sections: [
           { section: { en: 'Details', fa: 'جزئیات' }, fields: ['name', 'slug', 'sku', 'status', 'releasedOn'], columns: 2 },
           { section: { en: 'Pricing and stock', fa: 'قیمت و موجودی' }, fields: ['price', 'cost', 'stock'], columns: 2 },
+          { section: { en: 'Pictures', fa: 'تصاویر' }, fields: ['image', 'gallery'], columns: 2 },
         ],
       },
       { tab: { en: 'Catalog', fa: 'کاتالوگ' }, sections: [{ fields: ['categoryId', 'tags'] }] },

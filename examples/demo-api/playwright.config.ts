@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // PW_CHANNEL=chrome uses the installed Google Chrome where the Playwright CDN is unreachable.
 const channel = process.env.PW_CHANNEL;
@@ -12,7 +14,8 @@ export default defineConfig({
   use: { baseURL: 'http://localhost:3310', trace: 'retain-on-failure' },
   webServer: {
     command: 'bun src/main.ts',
-    env: { PORT: '3310' },
+    // Uploads go to a directory of this run, never to the demo's own var/uploads.
+    env: { PORT: '3310', NMA_UPLOAD_DIR: join(tmpdir(), `nma-e2e-uploads-${process.pid}`) },
     url: 'http://localhost:3310/admin/api/meta',
     reuseExistingServer: false,
     timeout: 60_000,

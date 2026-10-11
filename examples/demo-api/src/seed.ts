@@ -3,10 +3,12 @@ import { NmaGroup, NmaGroupRole, NmaRole } from '@nest-my-admin/core';
 import type { INestApplication } from '@nestjs/common';
 import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import type { DataSource, Repository } from 'typeorm';
+import { Invoice } from './billing/invoice.entity.js';
 import { Category } from './catalog/category.entity.js';
 import { Product } from './catalog/product.entity.js';
 import { StockMove } from './catalog/stock-move.entity.js';
 import { Tag } from './catalog/tag.entity.js';
+import { Article } from './content/article.entity.js';
 
 export async function seedProducts(app: INestApplication): Promise<void> {
   const products = app.get<Repository<Product>>(getRepositoryToken(Product));
@@ -29,6 +31,17 @@ export async function seedProducts(app: INestApplication): Promise<void> {
   await app.get<Repository<StockMove>>(getRepositoryToken(StockMove)).save(
     Array.from({ length: 25 }, (_, i) => ({ productId: i % 2 ? lamp!.id : notebook!.id, delta: i % 3 === 0 ? -1 : 5, reason: `Move ${i + 1}` })),
   );
+}
+
+/** An article with formatted text in two languages, and an invoice waiting for its PDF. */
+export async function seedContent(app: INestApplication): Promise<void> {
+  const articles = app.get<Repository<Article>>(getRepositoryToken(Article));
+  if ((await articles.count()) > 0) return;
+  await articles.save({
+    title: 'Caring for a brass lamp',
+    body: '<h2>Cleaning</h2><p>Wipe with a <strong>dry</strong> cloth; never use water.</p><ul><li><p>Once a month</p></li><li><p>After moving it</p></li></ul><p>برنج را با پارچه‌ی خشک تمیز کنید.</p>',
+  });
+  await app.get<Repository<Invoice>>(getRepositoryToken(Invoice)).save({ number: 'INV-1001', customer: 'Ada Lovelace', total: '523.90', pdf: null });
 }
 
 /** A second, non-superuser account (editor / editor-demo-pass) next to the bootstrap superuser. */

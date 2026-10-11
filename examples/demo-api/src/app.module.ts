@@ -1,8 +1,10 @@
 import { builtinAuth } from '@nest-my-admin/auth';
-import { AdminModule } from '@nest-my-admin/core';
+import { AdminModule, localStorage } from '@nest-my-admin/core';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BillingModule } from './billing/billing.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
+import { ContentModule } from './content/content.module.js';
 import { databaseOptions } from './database.js';
 
 @Module({
@@ -29,6 +31,9 @@ import { databaseOptions } from './database.js';
       resolveRoles: (user) => (user.username === 'editor' ? ['catalog-editor'] : []),
       // Roles, groups and users are also managed in the admin (Administration section; the seed adds a Support role).
       rbac: {},
+      // Uploads of file, image and rich-text fields are kept on disk (git-ignored); tests point NMA_UPLOAD_DIR at a
+      // temporary directory. Downloads go through the admin, which checks permissions for every file.
+      files: { storage: localStorage({ dir: process.env.NMA_UPLOAD_DIR ?? 'var/uploads' }) },
       auth: builtinAuth({
         bootstrapSuperuser: { username: 'admin', password: process.env.NMA_DEMO_PASSWORD ?? 'admin-demo-pass', displayName: 'Demo Admin' },
         // Encrypts two-factor keys at rest: `openssl rand -base64 32`, kept out of the repository.
@@ -37,6 +42,8 @@ import { databaseOptions } from './database.js';
       }),
     }),
     CatalogModule,
+    ContentModule,
+    BillingModule,
   ],
 })
 export class AppModule {}

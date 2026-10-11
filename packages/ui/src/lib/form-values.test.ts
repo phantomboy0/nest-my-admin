@@ -150,3 +150,58 @@ describe('any digit set', () => {
     expect(toPayload([field('on', 'date', { nullable: true })], { on: '2024-02-30' }).errors).toEqual({ on: ['must be a valid date'] });
   });
 });
+
+describe('file fields', () => {
+  const file = { accept: ['image/*'], maxBytes: 1000, many: false };
+  const fileFields = [
+    field('image', 'string', { nullable: true, widget: 'image', file }),
+    field('manual', 'string', { widget: 'file', file }),
+    field('gallery', 'json', { nullable: true, widget: 'image', file: { ...file, many: true } }),
+  ];
+  const ref = (key: string) => ({ key, name: `${key}.png`, contentType: 'image/png', size: 3, url: `/admin/api/files/${key}` });
+  const record = { image: 'a', manual: 'm', gallery: ['g1', 'g2'], _files: { image: ref('a'), manual: ref('m'), gallery: [ref('g1'), ref('g2')] } };
+
+  test('form values come from _files', () => {
+    expect(toFormValues(fileFields, record)).toEqual({ image: ref('a'), manual: ref('m'), gallery: [ref('g1'), ref('g2')] });
+    expect(toFormValues(fileFields)).toEqual({ image: null, manual: null, gallery: [] });
+  });
+
+  test('a copy of a record (no _files) starts without files', () => {
+    expect(toFormValues(fileFields, { image: 'a', manual: 'm', gallery: ['g1'] })).toEqual({ image: null, manual: null, gallery: [] });
+  });
+
+  test('create sends tokens, and leaves out what is empty', () => {
+    const upload = { token: 't1', name: 'new.png', contentType: 'image/png', size: 9 };
+    expect(toPayload(fileFields, { image: upload, manual: null, gallery: [upload] })).toEqual({
+      payload: { image: { token: 't1' }, gallery: [{ token: 't1' }] },
+      errors: {},
+    });
+    // Nullable and empty: null; required and empty: left out so the server says "required"; an empty list: left out.
+    expect(toPayload(fileFields, { image: null, manual: null, gallery: [] }).payload).toEqual({ image: null });
+  });
+
+  test('edit sends nothing for untouched files', () => {
+    const initial = toFormValues(fileFields, record);
+    expect(toPayload(fileFields, toFormValues(fileFields, record), initial).payload).toEqual({});
+  });
+
+  test('edit sends a replaced file as its token and a cleared one as null', () => {
+    const initial = toFormValues(fileFields, record);
+    const upload = { token: 't2', name: 'new.png', contentType: 'image/png', size: 9 };
+    expect(toPayload(fileFields, { ...initial, image: upload, manual: null }, initial).payload).toEqual({ image: { token: 't2' }, manual: null });
+  });
+
+  test('edit sends a changed list whole, in order: kept files by key, uploads by token', () => {
+    const initial = toFormValues(fileFields, record);
+    const upload = { token: 't3', name: 'new.png', contentType: 'image/png', size: 9 };
+    expect(toPayload(fileFields, { ...initial, gallery: [ref('g2'), upload, ref('g1')] }, initial).payload).toEqual({
+      gallery: [{ key: 'g2' }, { token: 't3' }, { key: 'g1' }],
+    });
+    expect(toPayload(fileFields, { ...initial, gallery: [ref('g2'), ref('g1')] }, initial).payload).toEqual({ gallery: [{ key: 'g2' }, { key: 'g1' }] });
+    expect(toPayload(fileFields, { ...initial, gallery: [] }, initial).payload).toEqual({ gallery: [] });
+  });
+
+  test('files are never part of the relation-option values', () => {
+    expect(dependencyValues(fileFields, toFormValues(fileFields, record))).toBe('{}');
+  });
+});

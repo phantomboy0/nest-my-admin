@@ -1,4 +1,4 @@
-import { AdminField } from '@nest-my-admin/core';
+import { AdminField, type AdminFile } from '@nest-my-admin/core';
 import { ArrayMaxSize, IsArray, IsDateString, IsDecimal, IsIn, IsInt, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
 import { PRODUCT_STATUSES, type ProductStatus } from './product.entity.js';
 
@@ -14,6 +14,9 @@ export class CreateProductDto {
   @IsOptional() @IsDateString({ strict: true }) releasedOn?: string | null;
   @IsOptional() @IsInt() categoryId?: number | null;
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsInt({ each: true }) tags?: number[];
+  /** Uploads: the admin checks them itself and hands the service `AdminFile`s (key, name, size, type). */
+  @IsOptional() image?: AdminFile | null;
+  @IsOptional() gallery?: AdminFile[] | null;
 }
 
 /** SKU is fixed after creation, so it is not part of the update DTO. */
@@ -27,4 +30,6 @@ export class UpdateProductDto {
   @IsOptional() @IsDateString({ strict: true }) releasedOn?: string | null;
   @IsOptional() @IsInt() categoryId?: number | null;
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsInt({ each: true }) tags?: number[];
+  @IsOptional() image?: AdminFile | null;
+  @IsOptional() gallery?: AdminFile[] | null;
 }

@@ -1,4 +1,6 @@
-import type { FieldSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, FieldSchema } from '@nest-my-admin/core/contract';
+import { FileDisplay } from '@/app/file-display';
+import { fileRefsOf } from '@/lib/form-values';
 import { formatCell } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -25,7 +27,11 @@ export function ValueBadge({ value, field, className }: { value: unknown; field:
   );
 }
 
-/** A value for display: a badge for badge fields, else the formatted text. */
-export function DisplayValue({ value, field }: { value: unknown; field: FieldSchema }) {
+/**
+ * A value for display: a badge for badge fields, thumbnails and file names for file fields (from the `record`'s
+ * `_files`), else the formatted text.
+ */
+export function DisplayValue({ value, field, record, detailed, plain }: { value: unknown; field: FieldSchema; record?: AdminRecord; detailed?: boolean; plain?: boolean }) {
+  if (field.file && record) return <FileDisplay field={field} files={fileRefsOf(record, field.name)} detailed={detailed} plain={plain} />;
   return field.widget === 'badge' ? <ValueBadge value={value} field={field} /> : <>{formatCell(value, field)}</>;
 }

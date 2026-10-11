@@ -4,10 +4,20 @@ import type { EntityManager, Repository } from 'typeorm';
 import type { CreateProductDto, UpdateProductDto } from './product.dto.js';
 import { Product } from './product.entity.js';
 
-/** The admin sends tag ids; TypeORM saves references. Without `tags` the product's tags are left alone. */
-function withTags<T extends { tags?: number[] }>(dto: T): Omit<T, 'tags'> & { tags?: Array<{ id: number }> } {
-  const { tags, ...rest } = dto;
-  return tags === undefined ? rest : { ...rest, tags: tags.map((id) => ({ id })) };
+type ProductInput = Pick<CreateProductDto, 'tags' | 'image' | 'gallery'>;
+
+/**
+ * What the entity stores for what the admin sends: tag ids become references, uploaded files their storage keys.
+ * A property the DTO does not have is left alone.
+ */
+function toColumns<T extends ProductInput>(dto: T): Omit<T, keyof ProductInput> & { tags?: Array<{ id: number }>; image?: string | null; gallery?: string[] | null } {
+  const { tags, image, gallery, ...rest } = dto;
+  return {
+    ...rest,
+    ...(tags === undefined ? {} : { tags: tags.map((id) => ({ id })) }),
+    ...(image === undefined ? {} : { image: image?.key ?? null }),
+    ...(gallery === undefined ? {} : { gallery: gallery?.map((file) => file.key) ?? null }),
+  };
 }
 
 /** The app's own business logic. The admin calls it instead of writing to the table directly. */
@@ -22,7 +32,7 @@ export class ProductsService {
 
   async create(dto: CreateProductDto, manager?: EntityManager): Promise<Product> {
     const products = this.repo(manager);
-    const product = products.create({ ...withTags(dto), sku: dto.sku.toUpperCase() });
+    const product = products.create({ ...toColumns(dto), sku: dto.sku.toUpperCase() });
     this.assertSellable(product);
     return products.save(product);
   }
@@ -32,7 +42,9 @@ export class ProductsService {
     const product = await products.findOneByOrFail({ id });
     // An archived product can only be brought back (a status change on its own).
     if (product.status === 'archived' && Object.keys(dto).some((key) => key !== 'status')) throw new ConflictException('Archived products are read-only');
-    products.merge(product, withTags(dto));
+    const { gallery, ...columns } = toColumns(dto);
+    products.merge(product, columns);
+    if (gallery !== undefined) product.gallery = gallery; // merge() would combine the old list with the new one
     this.assertSellable(product);
     return products.save(product);
   }

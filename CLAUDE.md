@@ -113,6 +113,21 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - `AdminPolicy.forUser` unions `resolveRoles`, adapter roles and stored assignments.
   - `rbac/rbac-routes.ts` holds `/api/rbac/*`; users go through the adapter's optional methods.
   - UI: `app/admin/*` pages under `/-/users|groups|roles`; `lib/role-draft.ts` expands wildcards when a matrix box is unticked.
+- Files and rich text (M4-1):
+  - Server: `files/storage.ts` (`AdminStorage`, `localStorage`), `files/s3-storage.ts` + `sigv4.ts`, `files/sniff.ts` (types from bytes), `files/entities.ts` (`nma_file`, `ADMIN_FILE_ENTITIES`), `files/file-routes.ts` (`POST /api/uploads` with a raw body, `GET /api/files/*key`).
+  - `FilesService` (files/files.service.ts) does the rest, called from `AdminApiService`:
+    - `upload` (permission, sniff, `accept`, size, temp row);
+    - `resolve` → `attach` → `afterCommit`/`rollback` around a write (`{ token }`/`{ key }` become `AdminFile`s; objects are deleted only after commit);
+    - `refs` (`_files` on records), `download` (same 404 for every refusal), `release` (hard delete, purge), `sweep` (temp rows after 24 h).
+  - Rich text: `files/rich-text.ts` sanitizes in `validateWrite` (`sanitize-html` is an optional peer, loaded at boot only when a field needs it) and attaches `<img>` uploads by the keys in the saved HTML. The sanitizer keeps no `dir`, so per-block direction is CSS (`styles/rich-text.css`, `unicode-bidi: plaintext`).
+  - UI:
+    - `lib/upload.ts` is the XHR uploader (pure, environment passed in; `api.upload` fills it);
+    - `lib/form-values.ts` keeps `FileValue`s, read from `_files` (so Duplicate starts without files) and sent as `{ token }`/`{ key }`;
+    - `app/file-input.tsx` holds `useFileField`, `useReorder` and `DropZone`, shared with `app/image-input.tsx`;
+    - `app/rich-text-input.tsx` (Tiptap) is a lazy chunk behind `RichText` in `field-input.tsx`; its toolbar must offer only what the sanitizer keeps, and read-only rich text goes through the same editor (never `dangerouslySetInnerHTML`);
+    - `app/file-display.tsx` renders `_files` in lists, quick view and read-only fields (`plain` inside phone cards, which are links);
+    - a form does not save while a field reports `onBusy`.
+  - The demo keeps uploads in `var/uploads` (git-ignored); tests and Playwright set `NMA_UPLOAD_DIR` to a temporary directory.
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.
 - `packages/core/src/contract.ts` is the JSON contract with the UI. It is types only; the UI imports it from source through a tsconfig path.
 - `packages/ui` is a Vite + React + shadcn SPA published as static `dist/` only (all its deps are devDependencies). The shadcn primitives and theme tokens were copied from crm-next (`radix-nova`, neutral).

@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Screenshot matrix (spec §13): desktop/mobile × en/fa × light/dark, on a fresh demo database so the data never
 // differs. `bun run e2e:screens -- --update-snapshots` rewrites the baselines after a deliberate UI change.
@@ -16,7 +18,8 @@ export default defineConfig({
   use: { baseURL: 'http://localhost:3320', trace: 'retain-on-failure' },
   webServer: {
     command: 'bun src/main.ts',
-    env: { PORT: '3320' },
+    // Uploads go to a directory of this run, never to the demo's own var/uploads.
+    env: { PORT: '3320', NMA_UPLOAD_DIR: join(tmpdir(), `nma-screens-uploads-${process.pid}`) },
     url: 'http://localhost:3320/admin/api/meta',
     reuseExistingServer: false,
     timeout: 60_000,

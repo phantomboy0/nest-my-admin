@@ -1,9 +1,12 @@
-import type { ReactNode } from 'react';
+import { Suspense, lazy, type ReactNode } from 'react';
 import type { FieldConstraints, FieldSchema } from '@nest-my-admin/core/contract';
 import { DateInput, DateTimeInput } from '@/app/date-input';
+import { FileInput } from '@/app/file-input';
+import { ImageInput } from '@/app/image-input';
 import { RelationInput, type RelationValue } from '@/app/relation-input';
 import { ColorInput, JsonInput, MoneyInput, PlainTextarea, RadioInput, SwitchInput, TextInput } from '@/app/widgets/inputs';
 import { Label } from '@/components/ui/label';
+import { useT } from '@/i18n';
 import type { FormValue } from '@/lib/form-values';
 import { enumLabel, widgetOf } from '@/lib/widgets';
 
@@ -18,13 +21,28 @@ interface FieldInputProps {
   /** The form's current values as JSON, for relation pickers whose options depend on them. */
   formValues?: string;
   onChange: (value: FormValue) => void;
+  /** Told while the field is uploading files, so the form waits with saving. */
+  onBusy?: (busy: boolean) => void;
+}
+
+// Tiptap is only downloaded by forms that have a rich-text field.
+const RichTextInput = lazy(() => import('@/app/rich-text-input'));
+
+/** The rich-text editor, loaded on demand; `readOnly` shows stored HTML through the same (safe) document model. */
+export function RichText(props: Parameters<typeof RichTextInput>[0]) {
+  const t = useT();
+  return (
+    <Suspense fallback={<p className="text-sm text-muted-foreground">{t('editor.loading')}</p>}>
+      <RichTextInput {...props} />
+    </Suspense>
+  );
 }
 
 const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive';
 
 /** One field of a form: its label, the widget (`field.widget`, else inferred from the type), help and errors. */
-export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange }: FieldInputProps) {
+export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange, onBusy }: FieldInputProps) {
   const id = `field-${field.name}`;
   const errorId = `${id}-error`;
   const helpId = `${id}-help`;
@@ -108,6 +126,15 @@ export function FieldInput({ resource, field, value, required, errors, constrain
     );
   } else {
     switch (widget) {
+      case 'file':
+        control = <FileInput id={id} resource={resource} field={field} value={value} onChange={onChange} onBusy={onBusy} aria={aria} />;
+        break;
+      case 'image':
+        control = <ImageInput id={id} resource={resource} field={field} value={value} onChange={onChange} onBusy={onBusy} aria={aria} />;
+        break;
+      case 'richtext':
+        control = <RichText id={id} resource={resource} field={field} value={text} onChange={onChange} onBusy={onBusy} invalid={invalid} describedBy={describedBy} />;
+        break;
       case 'money':
         control = <MoneyInput {...widgetProps} />;
         break;

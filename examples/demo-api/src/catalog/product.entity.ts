@@ -22,6 +22,9 @@ export class Product {
   @Column({ type: 'int', nullable: true }) categoryId: number | null;
   @ManyToOne(() => Category, { nullable: true, onDelete: 'RESTRICT' }) @JoinColumn({ name: 'categoryId' }) category: Category | null;
   @ManyToMany(() => Tag) @JoinTable() tags: Tag[];
+  /** Storage keys of uploaded files (the admin's image widget): the main picture, and more pictures in order. */
+  @Column({ type: 'varchar', length: 500, nullable: true }) image: string | null;
+  @Column({ type: 'simple-json', nullable: true }) gallery: string[] | null;
   @CreateDateColumn() createdAt: Date;
   @UpdateDateColumn() updatedAt: Date;
   /** Two people editing one product: the second save gets a conflict dialog instead of overwriting. */

@@ -22,6 +22,7 @@ import { activeLocale, translate as tr } from '@/i18n';
 import { runtimeConfig } from './config';
 import { ApiError } from './api-error';
 import { currentCsrfToken, signedOut, viewingAs } from './session';
+import { uploadFile, type Upload, type UploadTarget } from './upload';
 import { readOnlySchema, readOnlySession } from './view-as';
 
 export { ApiError, describeError } from './api-error';
@@ -112,6 +113,9 @@ export const api = {
     explain: (query: { user: string; resource: string; record?: string }) =>
       request<PermissionExplanation>(`/rbac/explain?${new URLSearchParams(Object.entries(query).filter(([, value]) => value !== undefined && value !== '') as Array<[string, string]>)}`),
   },
+  /** Sends a file for a file, image or rich-text field; the answer's `token` goes into the record's field. */
+  upload: (file: File, target: UploadTarget, onProgress?: (fraction: number) => void): Upload =>
+    uploadFile(file, target, { apiBase: runtimeConfig.apiBase, csrfToken: currentCsrfToken(), viewAs: viewingAs(), locale: activeLocale(), onSignedOut: signedOut }, onProgress),
   search: (q: string) => request<SearchResponse>(`/search?${new URLSearchParams({ q })}`),
   schema: async (resource: string) => {
     const schema = await request<ResourceSchema>(`/meta/resources/${enc(resource)}`);

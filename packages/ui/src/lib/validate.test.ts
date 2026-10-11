@@ -87,3 +87,17 @@ describe('validatePayload with nested constraints', () => {
     expect(validatePayload({}, rules, 'update')).toEqual({});
   });
 });
+
+describe('validatePayload with file fields', () => {
+  // The DTO describes the column (a string key), the payload holds an upload reference: only `required` applies.
+  const rules = { image: { required: true, maxLength: 3, pattern: { source: '^x', flags: '' } }, gallery: { maxLength: 1 } };
+
+  test('string rules are not applied to upload references', () => {
+    expect(validatePayload({ image: { token: 'a-long-token' }, gallery: [{ key: 'a/b.png' }, { token: 't' }] }, rules, 'create')).toEqual({});
+  });
+
+  test('a required file that is missing or cleared is reported', () => {
+    expect(validatePayload({}, rules, 'create')).toEqual({ image: ['is required'] });
+    expect(validatePayload({ image: null }, rules, 'update')).toEqual({ image: ['is required'] });
+  });
+});

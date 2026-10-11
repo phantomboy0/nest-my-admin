@@ -1,11 +1,12 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
-import { seedProducts, seedRbac, seedUsers } from './seed.js';
+import { seedContent, seedProducts, seedRbac, seedUsers } from './seed.js';
 
 const app = await NestFactory.create(AppModule);
 await app.init(); // module init first: the built-in auth creates its bootstrap superuser there, before other users exist
 await seedProducts(app);
+await seedContent(app);
 await seedUsers(app);
 await seedRbac(app);
 const port = Number(process.env.PORT ?? 3000);

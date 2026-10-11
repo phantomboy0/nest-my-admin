@@ -1,13 +1,26 @@
-import type { AdminRecord, FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
+import type { AdminFileRef, AdminRecord, FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
 import { translate as tr } from '@/i18n';
 import { toLatinDigits, toLatinNumber } from '@/lib/digits';
 import { groupMoney } from '@/lib/money';
 
 /**
- * What an input edits: text, a checkbox, a picked record (to-one relation), picked records (to-many), or the values
- * of a sub-form (object field) or of a list of sub-forms (`many`).
+ * A file in a form: one the record already has (`key`, from `_files`) or a finished upload (`token`). `url` is where
+ * it can be shown from (a new private upload has none until the record is saved).
  */
-export type FormValue = string | boolean | RelationRef | null | RelationRef[] | FormValues | FormValues[];
+export interface FileValue {
+  key?: string;
+  token?: string;
+  name: string;
+  size: number;
+  contentType: string;
+  url?: string;
+}
+
+/**
+ * What an input edits: text, a checkbox, a picked record (to-one relation), picked records (to-many), the values
+ * of a sub-form (object field) or of a list of sub-forms (`many`), or a file or a list of files.
+ */
+export type FormValue = string | boolean | RelationRef | null | RelationRef[] | FormValues | FormValues[] | FileValue | FileValue[];
 export interface FormValues {
   [name: string]: FormValue;
 }
@@ -19,6 +32,25 @@ const asGroups = (value: FormValue | undefined): FormValues[] => (Array.isArray(
 export function isRef(value: unknown): value is RelationRef {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && 'id' in value && 'title' in value;
 }
+
+export function isFileValue(value: unknown): value is FileValue {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && 'name' in value && 'size' in value && ('key' in value || 'token' in value);
+}
+
+/** The files of a file field's form value, one or many. */
+export function fileValuesOf(value: unknown): FileValue[] {
+  return (Array.isArray(value) ? value : [value]).filter(isFileValue);
+}
+
+/** A record's files for `field` (from `_files`), always as a list. */
+export function fileRefsOf(record: AdminRecord | undefined, field: string): AdminFileRef[] {
+  const refs = (record?._files as Record<string, AdminFileRef | AdminFileRef[]> | undefined)?.[field];
+  return refs === undefined || refs === null ? [] : Array.isArray(refs) ? refs : [refs];
+}
+
+const fileId = (file: FileValue) => (file.token !== undefined ? `token:${file.token}` : `key:${file.key}`);
+/** What a write sends for a file: the upload's token, or the key of a file the record keeps. */
+const fileReference = (file: FileValue) => (file.token !== undefined ? { token: file.token } : { key: file.key });
 
 const sameIds = (a: RelationRef[], b: RelationRef[]) => {
   const ids = new Set(a.map((ref) => String(ref.id)));
@@ -44,7 +76,11 @@ export function toFormValues(fields: FieldSchema[], record?: AdminRecord): FormV
   const values: FormValues = {};
   for (const field of fields) {
     const value = record?.[field.name];
-    if (field.type === 'object') {
+    if (field.file) {
+      // From `_files`, never from the stored keys: a copy of a record (Duplicate) has no `_files`, so it starts without files.
+      const files = fileRefsOf(record, field.name).map(({ key, name, size, contentType, url }): FileValue => ({ key, name, size, contentType, url }));
+      values[field.name] = field.file.many ? files : (files[0] ?? null);
+    } else if (field.type === 'object') {
       const children = field.fields ?? [];
       values[field.name] = field.many
         ? (Array.isArray(value) ? value : []).map((item) => toFormValues(children, item as AdminRecord))
@@ -98,6 +134,17 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
       const group = toPayload(children, asGroup(raw), initial ? asGroup(initial[field.name]) : undefined, `${path}.`);
       Object.assign(errors, group.errors);
       if (Object.keys(group.payload).length > 0 || (!initial && !field.nullable)) payload[field.name] = group.payload;
+      continue;
+    }
+    if (field.file) {
+      const files = fileValuesOf(raw);
+      const before = initial ? fileValuesOf(initial[field.name]) : undefined;
+      if (before && files.map(fileId).join('\n') === before.map(fileId).join('\n')) continue;
+      // A list is sent whole and in order; one file as its reference, or null to clear it.
+      if (field.file.many) {
+        if (before || files.length > 0) payload[field.name] = files.map(fileReference);
+      } else if (files[0]) payload[field.name] = fileReference(files[0]);
+      else if (field.nullable || initial) payload[field.name] = null;
       continue;
     }
     if (field.relation?.kind === 'to-many') {

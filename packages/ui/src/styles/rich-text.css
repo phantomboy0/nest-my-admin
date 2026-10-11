@@ -1,0 +1,104 @@
+/* The rich-text editor's content (loaded with the editor chunk). Tailwind's reset strips headings and lists bare. */
+.nma-richtext {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Each block takes the direction of its own text (what dir="auto" does), so Persian and English paragraphs can
+ * share one document. It is CSS because the server's sanitizer keeps no `dir` attribute.
+ */
+.nma-richtext :is(p, h2, h3, h4, li, th, td) {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+.nma-richtext > * + * {
+  margin-block-start: 0.6em;
+}
+
+.nma-richtext h2 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.nma-richtext h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.nma-richtext h4 {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.nma-richtext :is(ul, ol) {
+  padding-inline-start: 1.5em;
+}
+
+.nma-richtext ul {
+  list-style: disc;
+}
+
+.nma-richtext ol {
+  list-style: decimal;
+}
+
+.nma-richtext li > * + * {
+  margin-block-start: 0.3em;
+}
+
+.nma-richtext blockquote {
+  border-inline-start: 3px solid var(--border);
+  padding-inline-start: 0.9em;
+  color: var(--muted-foreground);
+}
+
+.nma-richtext a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.nma-richtext hr {
+  border: 0;
+  border-block-start: 1px solid var(--border);
+  margin-block: 1em;
+}
+
+.nma-richtext img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md, 0.5rem);
+}
+
+.nma-richtext img.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.nma-richtext table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.nma-richtext :is(th, td) {
+  position: relative;
+  border: 1px solid var(--border);
+  padding: 0.3em 0.5em;
+  vertical-align: top;
+}
+
+.nma-richtext th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+.nma-richtext .selectedCell {
+  background: color-mix(in oklch, var(--primary) 12%, transparent);
+}

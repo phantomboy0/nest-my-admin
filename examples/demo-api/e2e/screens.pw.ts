@@ -5,6 +5,7 @@ const PAGES: Array<[string, string]> = [
   ['home', '/admin'],
   ['product-list', '/admin/product'],
   ['product-form', '/admin/product/1'],
+  ['article-form', '/admin/article/1'], // the rich-text editor: each block takes the direction of its own text
 ];
 
 for (const locale of ['en', 'fa']) {

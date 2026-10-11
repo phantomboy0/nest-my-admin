@@ -1,14 +1,18 @@
 import 'reflect-metadata';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { testDatabase, type TestDatabase } from '../../../packages/core/test/helpers/test-db.js';
-import { AppModule } from '../src/app.module.js';
 import { ProductsService } from '../src/catalog/products.service.js';
 
 let app: INestApplication;
 let db: TestDatabase;
+/** Uploads of this run (the demo's own `var/uploads` is never touched). */
+const uploads = mkdtempSync(join(tmpdir(), 'nma-demo-test-'));
 /** Signed in as the bootstrap superuser; sends the session's CSRF token with every request. */
 let agent: ReturnType<typeof request.agent>;
 const base = '/admin/api/resources/product';
@@ -17,7 +21,10 @@ const post = (body: object) => agent.post(base).send(body);
 beforeAll(async () => {
   db = await testDatabase([]); // entities come from the demo's own databaseOptions()
   if (db.url) process.env.DATABASE_URL = db.url;
+  process.env.NMA_UPLOAD_DIR = uploads;
   try {
+    // Imported here: the module reads NMA_UPLOAD_DIR when it is loaded.
+    const { AppModule } = await import('../src/app.module.js');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication({ logger: false });
     await app.init();
@@ -38,6 +45,8 @@ afterAll(async () => {
     await app?.close();
   } finally {
     delete process.env.DATABASE_URL;
+    delete process.env.NMA_UPLOAD_DIR;
+    rmSync(uploads, { recursive: true, force: true });
     await db.drop();
   }
 });
@@ -46,8 +55,8 @@ describe('product admin (service-first)', () => {
   test('the form comes from the DTOs', async () => {
     const res = await agent.get('/admin/api/meta/resources/product');
     expect(res.body.form).toMatchObject({
-      create: ['name', 'slug', 'sku', 'price', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
-      update: ['name', 'slug', 'price', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags'],
+      create: ['name', 'slug', 'sku', 'price', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery'],
+      update: ['name', 'slug', 'price', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery'],
       requiredOnCreate: ['name', 'sku', 'price'],
     });
     expect(res.body.form.constraints.create.name).toEqual({ required: true, minLength: 1, maxLength: 120 });
@@ -62,6 +71,23 @@ describe('product admin (service-first)', () => {
     expect(res.body).toMatchObject({ name: 'Lamp', sku: 'LAMP-1', price: '19.90', stock: 4, status: 'active' });
     const read = await agent.get(`${base}/${res.body.id}`);
     expect(read.body.price).toBe('19.90');
+  });
+
+  test('uploaded pictures reach the service as files and are stored as keys', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    const upload = async (field: string) => (await agent.post(`/admin/api/uploads?resource=product&field=${field}`).set('Content-Type', 'image/png').set('X-File-Name', 'lamp.png').send(png)).body as { token: string };
+    const [image, first, second] = [await upload('image'), await upload('gallery'), await upload('gallery')];
+    const created = await post({ name: 'Pictured', sku: 'pic-1', price: '5', image: { token: image.token }, gallery: [{ token: first.token }, { token: second.token }] });
+    expect(created.status).toBe(201);
+    expect(created.body.image).toMatch(/^product\/image\/.+\.png$/);
+    expect(created.body._files.image).toMatchObject({ name: 'lamp.png', contentType: 'image/png', url: `/admin/api/files/${created.body.image}` });
+    const [one, two] = created.body.gallery as string[];
+    // The list is replaced, not merged: the second picture first, the first one gone.
+    const updated = await agent.patch(`${base}/${created.body.id}`).send({ gallery: [{ key: two }], image: null });
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ image: null, gallery: [two] });
+    expect((await agent.get(`/admin/api/files/${two}`)).status).toBe(200);
+    expect((await agent.get(`/admin/api/files/${one}`)).status).toBe(404);
   });
 
   test('a rule enforced by the service surfaces as BUSINESS_RULE', async () => {
@@ -102,7 +128,7 @@ describe('product admin (service-first)', () => {
   test('archived products are locked except their status (readonlyIf)', async () => {
     const { body } = await post({ name: 'Old', sku: 'old-1', price: '2' });
     const archived = await agent.patch(`${base}/${body.id}`).send({ status: 'archived' });
-    expect(archived.body._readonly).toEqual(['name', 'slug', 'cost', 'price', 'stock', 'releasedOn', 'categoryId', 'tags']);
+    expect(archived.body._readonly).toEqual(['name', 'slug', 'cost', 'price', 'stock', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery']);
     const res = await agent.patch(`${base}/${body.id}`).send({ name: 'Renamed', price: '1' });
     expect(res.status).toBe(422);
     expect(res.body).toMatchObject({ code: 'VALIDATION', fields: { name: ['is read-only'], price: ['is read-only'] } });
@@ -253,7 +279,7 @@ describe('the catalog-editor role (editor)', () => {
   test('sees the catalog without suppliers, and no cost', async () => {
     const meta = (await editor.get('/admin/api/meta')).body;
     const names = meta.groups.flatMap((group: { resources: Array<{ name: string }> }) => group.resources.map((resource) => resource.name)).sort();
-    expect(names).toEqual(['category', 'product', 'stock-move', 'tag']);
+    expect(names).toEqual(['category', 'product', 'stock-move', 'tag']); // no articles, no invoices
     const schema = (await editor.get('/admin/api/meta/resources/product')).body;
     expect(schema.list.columns).not.toContain('cost');
     expect(schema.permissions).toEqual({ create: false, update: true, delete: false, purge: false });
