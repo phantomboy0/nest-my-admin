@@ -133,7 +133,8 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * Replaces what the form sent for each file field of `dto` (`{ token }`, `{ key }`, null, or a list) by `AdminFile`s,
    * before the resource method runs. A token must be this user's own unsaved upload to this resource and field, less
-   * than 24 hours old; a key must be one the record already holds in that field. Anything else is a 422 on the field.
+   * than 24 hours old (or, for a retried write, the upload this user already attached to this record in this field,
+   * which is then a keep); a key must be one the record already holds in that field. Anything else is a 422 on the field.
    */
   async resolve(entry: RegisteredResource, dto: object, existing: object | undefined, ctx: AdminContext): Promise<FileChanges | undefined> {
     const values = dto as Record<string, unknown>;
@@ -158,6 +159,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     const user = userIdOf(ctx);
     const oldest = Date.now() - TEMP_TTL_MS;
     const taken = new Set<string>();
+    const recordId = existing ? recordIdOf(existing, entry.schema.primaryKeys) : undefined;
     if (richNames.length > 0) {
       const images = await resolveImages({
         repo,
@@ -165,7 +167,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
         fields: richNames,
         values,
         existing: existing as Record<string, unknown> | undefined,
-        recordId: existing ? recordIdOf(existing, entry.schema.primaryKeys) : undefined,
+        recordId,
         user,
         oldest,
         urls: this.imageUrls()!,
@@ -181,6 +183,14 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
       for (const item of items(name)) {
         if (item.token !== undefined) {
           const row = byToken.get(item.token);
+          // A retry of a write whose answer was lost sends the token again: the upload is already this record's file
+          // in this field, attached by this user, so it is kept. For any other record, field, resource or user it is refused.
+          const kept = row && row.status === 'attached' && existing !== undefined && row.recordId === recordId && row.createdBy === user && row.resource === entry.schema.name && row.field === name && held.includes(row.key);
+          if (row && kept && !taken.has(row.id) && !taken.has(row.key)) {
+            taken.add(row.id).add(row.key);
+            files.push(markAdminFile({ key: row.key, name: row.name, contentType: row.contentType, size: row.size, url: this.url(row), isNew: false }));
+            continue;
+          }
           const valid = row && row.status === 'temp' && row.createdBy === user && row.resource === entry.schema.name && row.field === name && row.createdAt.getTime() > oldest && !taken.has(row.id);
           if (!valid) {
             errors[name] = [INVALID_UPLOAD];
@@ -413,6 +423,13 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     const visibility = config.file?.visibility ?? 'private';
     const declared = declaredLength(req);
     if (declared > limit) throw new AdminPayloadTooLargeError(`The file is larger than the ${limit} byte limit`);
+    // A body parser of the host app (Nest's default JSON parser, for one) reads the bodies of the types it knows before
+    // the admin handler runs. Nothing is left to store then, and an "empty file" answer would hide the reason.
+    if (bodyAlreadyRead(req)) {
+      throw new AdminBadRequestError(
+        `The upload body was already read by a body parser of the host app (Content-Type: ${declaredType}) before the admin received it. Send the file as Content-Type: application/octet-stream`,
+      );
+    }
 
     // Decide the type from the first bytes before a single byte is stored.
     const iterator = req[Symbol.asyncIterator]() as AsyncIterator<Buffer | string>;
@@ -496,6 +513,15 @@ const richFieldsOf = (...entries: RegisteredResource[]): string[] =>
 function keysOf(value: unknown): string[] {
   if (typeof value === 'string') return value === '' ? [] : [value];
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item !== '') : [];
+}
+
+/** Whether something before the admin consumed the request stream: it ended unread by us, or a parser left its result in `req.body`. */
+function bodyAlreadyRead(req: AdminRequest): boolean {
+  if (req.readableEnded) return true;
+  const body = req.body;
+  // body-parser 1.x sets `{}` on requests it skips, so only a body with content counts.
+  if (Buffer.isBuffer(body) || typeof body === 'string') return true;
+  return typeof body === 'object' && body !== null && Object.keys(body).length > 0;
 }
 
 function declaredLength(req: AdminRequest): number {

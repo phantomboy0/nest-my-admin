@@ -5,7 +5,7 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import request from 'supertest';
 import type { IncomingMessage } from 'node:http';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Column, DeleteDateColumn, Entity, In, LessThan, PrimaryGeneratedColumn, type DataSource } from 'typeorm';
@@ -262,6 +262,25 @@ describe('POST /api/uploads', () => {
     }
   });
 
+  test('a body the host JSON parser already read is a clear 400; the same bytes as octet-stream are stored', async () => {
+    // Nest's default express.json() reads every application/json body before the admin handler runs: the stream is spent.
+    const data = Buffer.from('{"rows":[1,2,3]}\n');
+    const before = { objects: (await stored()).length, rows: (await rows()).length };
+    const parsed = await post('resource=product&field=frozen').set('Content-Type', 'application/json').set('X-File-Name', 'data.json').send(data);
+    expect(parsed.status).toBe(400);
+    expect(parsed.body.code).toBe('BAD_REQUEST');
+    expect(parsed.body.message).toContain('already read');
+    expect(parsed.body.message).toContain('application/octet-stream');
+    expect(parsed.body.fields).toBeUndefined();
+    expect({ objects: (await stored()).length, rows: (await rows()).length }).toEqual(before);
+
+    const raw = await post('resource=product&field=frozen').set('Content-Type', 'application/octet-stream').set('X-File-Name', 'data.json').send(data);
+    expect(raw.status).toBe(201);
+    expect(raw.body).toMatchObject({ name: 'data.json', contentType: 'text/plain', size: data.length });
+    const row = await db.getRepository(NmaFile).findOneByOrFail({ id: raw.body.token });
+    expect(await readFile(join(dir, row.key))).toEqual(data);
+  });
+
   test('users without create/update, or without edit access to the field, get 403', async () => {
     const viewer = await post('resource=product&field=logo', 'viewer').set('Content-Type', 'image/png').send(PNG);
     expect(viewer.status).toBe(403);
@@ -450,6 +469,77 @@ describe(`file fields in writes and reads (${TEST_DB})`, () => {
     const stored = await db.getRepository(Product).findOneByOrFail({ id: Number(target) });
     expect([stored.logo, stored.manual, stored.gallery]).toEqual([null, null, null]);
     expect(await db.getRepository(Product).countBy({ name: 'Steal' })).toBe(0);
+  });
+
+  test('a retried write (its answer was lost) may send the token it already attached: it is a keep', async () => {
+    // Single field, default update.
+    const logo = await upload('logo', PNG, 'editor');
+    const id = (await json('editor').post('/resources/product', { name: 'Retry' })).body._id as string;
+    const first = await json('editor').patch(`/resources/product/${id}`, { name: 'Retry 1', logo: { token: logo.token } });
+    expect(first.status).toBe(200);
+    const again = await json('editor').patch(`/resources/product/${id}`, { name: 'Retry 1', logo: { token: logo.token } });
+    expect(again.status).toBe(200);
+    expect(again.body.logo).toBe(logo.key);
+    expect(again.body._files.logo.key).toBe(logo.key);
+    expect(await rowOf(logo.key)).toMatchObject({ status: 'attached', recordId: id, field: 'logo' });
+    expect(has(logo.key)).toBe(true);
+    expect(await db.getRepository(NmaFile).countBy({ key: logo.key })).toBe(1);
+
+    // A list: the retry keeps both, in the order sent, next to a key.
+    const [a, b] = [await upload('gallery', PNG, 'editor'), await upload('gallery', PNG, 'editor')];
+    expect((await json('editor').patch(`/resources/product/${id}`, { gallery: [{ token: a.token }, { token: b.token }] })).status).toBe(200);
+    const list = await json('editor').patch(`/resources/product/${id}`, { gallery: [{ token: b.token }, { key: a.key }] });
+    expect(list.status).toBe(200);
+    expect(list.body.gallery).toEqual([b.key, a.key]);
+    expect([has(a.key), has(b.key)]).toEqual([true, true]);
+
+    // A host update override gets it as a kept file, not a new one.
+    const page = await upload('attachment', PDF, 'root', 'doc');
+    const doc = (await json().post('/resources/doc', { title: 'Retry doc' })).body._id as string;
+    expect((await json().patch(`/resources/doc/${doc}`, { attachment: { token: page.token } })).status).toBe(200);
+    expect((host.dto!.attachment as AdminFile).isNew).toBe(true);
+    expect((await json().patch(`/resources/doc/${doc}`, { attachment: { token: page.token } })).status).toBe(200);
+    expect(host.dto!.attachment).toMatchObject({ key: page.key, isNew: false });
+    expect(await rowOf(page.key)).toMatchObject({ status: 'attached', recordId: doc });
+  });
+
+  test('an attached token is still refused for another record, field, resource or user, and once the record let it go', async () => {
+    const invalid = async (res: request.Response, field: string) => {
+      expect(res.status).toBe(422);
+      expect(res.body.fields[field]).toEqual(['is not a valid upload']);
+    };
+    const manual = await upload('manual', PDF, 'editor');
+    const owner = (await json('editor').post('/resources/product', { name: 'Owner of retry', manual: { token: manual.token } })).body._id as string;
+    const otherRecord = (await json('editor').post('/resources/product', { name: 'Other record' })).body._id as string;
+    // Another record (an update, and a create: a retried create is a new record).
+    await invalid(await json('editor').patch(`/resources/product/${otherRecord}`, { manual: { token: manual.token } }), 'manual');
+    await invalid(await json('editor').post('/resources/product', { name: 'Again', manual: { token: manual.token } }), 'manual');
+    // Another field of the same record.
+    await invalid(await json('editor').patch(`/resources/product/${owner}`, { frozen: { token: manual.token } }), 'frozen');
+    await invalid(await json('editor').patch(`/resources/product/${owner}`, { gallery: [{ token: manual.token }] }), 'gallery');
+    // Another user, on the very record (a peer and the superuser).
+    await invalid(await json('other').patch(`/resources/product/${owner}`, { manual: { token: manual.token } }), 'manual');
+    await invalid(await json('root').patch(`/resources/product/${owner}`, { manual: { token: manual.token } }), 'manual');
+    // Another resource with a field of the same name, and a record with the same id.
+    const doc = (await json().post('/resources/doc', { title: 'Same name' })).body._id as string;
+    await db.getRepository(NmaFile).update({ key: manual.key }, { createdBy: 'root' });
+    await db.getRepository(NmaFile).update({ key: manual.key }, { recordId: doc });
+    await invalid(await json().patch(`/resources/doc/${doc}`, { manual: { token: manual.token } }), 'manual');
+    await db.getRepository(NmaFile).update({ key: manual.key }, { createdBy: 'editor', recordId: owner });
+    // The same token twice, or next to its own key.
+    const page = await upload('gallery', PNG, 'editor');
+    expect((await json('editor').patch(`/resources/product/${owner}`, { gallery: [{ token: page.token }] })).status).toBe(200);
+    await invalid(await json('editor').patch(`/resources/product/${owner}`, { gallery: [{ token: page.token }, { token: page.token }] }), 'gallery');
+    expect((await json('editor').patch(`/resources/product/${owner}`, { gallery: [{ token: page.token }, { key: page.key }] })).status).toBe(422);
+
+    expect(await rowOf(manual.key)).toMatchObject({ status: 'attached', recordId: owner, field: 'manual' });
+    expect((await db.getRepository(Product).findOneByOrFail({ id: Number(otherRecord) })).manual).toBeNull();
+    expect((await db.getRepository(Product).findOneByOrFail({ id: Number(owner) })).frozen).toBeNull();
+    expect(await db.getRepository(Product).countBy({ name: 'Again' })).toBe(0);
+
+    // The record held it once, but no longer: the token is spent.
+    expect((await json('editor').patch(`/resources/product/${owner}`, { manual: null })).status).toBe(200);
+    await invalid(await json('editor').patch(`/resources/product/${owner}`, { manual: { token: manual.token } }), 'manual');
   });
 
   test('a key that is not on this record, and values of the wrong shape, are 422', async () => {
@@ -795,5 +885,35 @@ describe('boot checks', () => {
     @Module({ providers: [BadAdmin] })
     class BadModule {}
     await expect(createTestApp({ entities: [Bad], imports: [BadModule] })).rejects.toThrow('the "file" widget does not fit number fields');
+  });
+  test('a limit the nma_file.size column (int) cannot hold fails at boot', async () => {
+    await expect(createTestApp({ entities: [...ADMIN_FILE_ENTITIES], admin: { files: { storage: localStorage({ dir }), maxBytes: 2_147_483_648 } } })).rejects.toThrow('files.maxBytes must be at most 2147483647 bytes');
+    @Entity('fu_big')
+    class Big {
+      @PrimaryGeneratedColumn() id: number;
+      @Column({ type: 'varchar', length: 300, nullable: true }) video: string | null;
+    }
+    @AdminResource(Big)
+    class BigAdmin extends AdminResourceBase<Big> {
+      override fields: FieldsConfig<Big> = { video: { widget: 'file', file: { maxBytes: 5_000_000_000 } } };
+    }
+    @Module({ providers: [BigAdmin] })
+    class BigModule {}
+    await expect(createTestApp({ entities: [Big], imports: [BigModule] })).rejects.toThrow('fields.video.file.maxBytes: must be at most 2147483647 bytes');
+  });
+  test('file and image fields cannot be edited in a list cell', async () => {
+    @Entity('fu_cell')
+    class Cell {
+      @PrimaryGeneratedColumn() id: number;
+      @Column({ type: 'varchar', length: 300, nullable: true }) logo: string | null;
+    }
+    @AdminResource(Cell)
+    class CellAdmin extends AdminResourceBase<Cell> {
+      override fields: FieldsConfig<Cell> = { logo: { widget: 'image' } };
+      override list = { editable: ['logo' as const] };
+    }
+    @Module({ providers: [CellAdmin] })
+    class CellModule {}
+    await expect(createTestApp({ entities: [Cell], imports: [CellModule] })).rejects.toThrow('list.editable: "logo" is an image field and cannot be edited in a cell');
   });
 });

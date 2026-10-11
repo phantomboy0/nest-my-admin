@@ -68,6 +68,11 @@ describe('file fields', () => {
     expect(check({ logo: { widget: 'file', many: true } })).toThrow('`many` needs a json column');
     expect(check({ name: { many: true } })).toThrow('`many` needs the "file" or "image" widget');
     expect(check({ logo: { widget: 'file', file: { maxBytes: 0 } } })).toThrow('maxBytes: must be a positive number of bytes');
+    // nma_file.size is an int column.
+    expect(check({ logo: { widget: 'file', file: { maxBytes: 2_147_483_647 } } })).not.toThrow();
+    expect(check({ logo: { widget: 'file', file: { maxBytes: 2_147_483_648 } } })).toThrow('fields.logo.file.maxBytes: must be at most 2147483647 bytes');
+    expect(check({ logo: { widget: 'image', file: { maxBytes: 2 ** 40 } } })).toThrow('fields.logo.file.maxBytes: must be at most 2147483647 bytes');
+    expect(check({ name: { widget: 'richtext', file: { maxBytes: 2_147_483_648 } } })).toThrow('fields.name.file.maxBytes: must be at most 2147483647 bytes');
     expect(check({ logo: { widget: 'file', file: { visibility: 'secret' as 'public' } } })).toThrow('visibility: must be "public" or "private"');
     expect(check({ logo: { widget: 'file', file: { accept: ['png'] } } })).toThrow('file.accept');
     expect(check({ logo: { widget: 'file', file: { accept: ['*/*'] } }, gallery: { widget: 'file', file: { accept: ['*', 'image/*', 'application/pdf'] } } })).not.toThrow();

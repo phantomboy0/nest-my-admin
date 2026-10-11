@@ -13,7 +13,7 @@ export interface WriteRules {
   partial?: boolean;
   /** The resource's fields: without a DTO, keys inside object fields are checked against their children. */
   fields?: FieldSchema[];
-  /** Cleans the HTML of `richtext` fields; sent values pass through it before anything else looks at them. */
+  /** Cleans the HTML of `richtext` fields; sent values pass through it before anything else looks at them. Required when `fields` has one. */
   sanitizeHtml?: (html: string) => string;
 }
 
@@ -97,16 +97,18 @@ export async function validateWrite(body: unknown, rules: WriteRules): Promise<o
   for (const field of fileFields) checkFile(input[field.name], field, fileErrors);
   if (Object.keys(fileErrors).length > 0) throw new AdminValidationError(fileErrors);
 
+  // Fails closed: without a sanitizer the HTML would be stored as sent. That is a caller's mistake, not the client's.
+  const unsanitized = rules.sanitizeHtml ? undefined : (rules.fields ?? []).find((field) => field.widget === 'richtext');
+  if (unsanitized) throw new Error(`nest-my-admin: validateWrite needs \`sanitizeHtml\` for the rich-text field "${unsanitized.name}"`);
+
   // Rich text is cleaned first, so the DTO's rules (length, ...) judge what will be stored.
   const richText = (rules.fields ?? []).filter((field) => field.widget === 'richtext' && Object.hasOwn(input, field.name) && input[field.name] !== null);
   if (richText.length > 0) {
-    const sanitize = rules.sanitizeHtml;
+    const sanitize = rules.sanitizeHtml!;
     const bad = richText.filter((field) => typeof input[field.name] !== 'string');
     if (bad.length > 0) throw new AdminValidationError(Object.fromEntries(bad.map((field) => [field.name, ['must be text']])));
-    if (sanitize) {
-      input = { ...input };
-      for (const field of richText) input[field.name] = sanitize(input[field.name] as string);
-    }
+    input = { ...input };
+    for (const field of richText) input[field.name] = sanitize(input[field.name] as string);
   }
 
   if (!rules.dto) {

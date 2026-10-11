@@ -57,6 +57,17 @@ const sameIds = (a: RelationRef[], b: RelationRef[]) => {
   return a.length === b.length && b.every((ref) => ids.has(String(ref.id)));
 };
 
+/** An `<img ...>` tag as the server writes it (and as its own image scan reads it): quoted attributes may hold `>`. */
+const IMG_TAG = /<img\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi;
+
+/**
+ * Rich-text HTML without its images, for a copy of a record (Duplicate): the images are files of the original record,
+ * so the server would remove them from the copy when it is saved.
+ */
+export function withoutImages(html: string): string {
+  return html.replace(IMG_TAG, '');
+}
+
 export interface PayloadResult {
   payload: Record<string, unknown>;
   errors: Record<string, string[]>;

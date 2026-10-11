@@ -46,3 +46,13 @@ describe('locales and branding', () => {
     for (const logo of ['https://cdn.example/logo.png', 'assets/logo.png', '../logo.png']) expect(() => resolveAdminOptions({ branding: { logo } })).not.toThrow();
   });
 });
+
+describe('files', () => {
+  const storage = { put: async () => undefined, get: async () => null, delete: async () => undefined, publicUrl: () => undefined };
+  test('maxBytes defaults to 10 MiB and must fit the nma_file.size column (int)', () => {
+    expect(resolveAdminOptions({ files: { storage } }).files!.maxBytes).toBe(10_485_760);
+    expect(resolveAdminOptions({ files: { storage, maxBytes: 2_147_483_647 } }).files!.maxBytes).toBe(2_147_483_647);
+    expect(() => resolveAdminOptions({ files: { storage, maxBytes: 2_147_483_648 } })).toThrow('nest-my-admin: files.maxBytes must be at most 2147483647 bytes');
+    expect(() => resolveAdminOptions({ files: { storage, maxBytes: 0 } })).toThrow('files.maxBytes must be a positive number of bytes');
+  });
+});

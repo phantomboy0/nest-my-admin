@@ -424,4 +424,23 @@ describe('list.editable', () => {
     }
     expect(() => schemaFor(new JsonAdmin(), Tool)).toThrow('list.editable: "extra" (json) cannot be edited in a cell');
   });
+
+  test('file, image and rich-text fields fail at boot, whatever their column type', () => {
+    for (const widget of ['file', 'image', 'richtext'] as const) {
+      @AdminResource(Tool)
+      class WidgetAdmin extends AdminResourceBase<Tool> {
+        fields = { title: { widget } };
+        list: ListConfig<Tool> = { editable: ['title'] };
+      }
+      const kind = { file: 'a file', image: 'an image', richtext: 'a rich-text' }[widget];
+      expect(() => schemaFor(new WidgetAdmin(), Tool), widget).toThrow(`WidgetAdmin: list.editable: "title" is ${kind} field and cannot be edited in a cell`);
+    }
+    // The same column with a plain widget is fine.
+    @AdminResource(Tool)
+    class PlainAdmin extends AdminResourceBase<Tool> {
+      fields = { title: { widget: 'textarea' as const } };
+      list: ListConfig<Tool> = { editable: ['title'] };
+    }
+    expect(schemaFor(new PlainAdmin(), Tool).list.editable).toEqual(['title']);
+  });
 });

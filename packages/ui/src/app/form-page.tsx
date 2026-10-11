@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
 import { useT } from '@/i18n';
 import { formatCell } from '@/lib/format';
-import { dependencyValues, toFormValues, toPayload, type FormValue, type FormValues } from '@/lib/form-values';
+import { dependencyValues, toFormValues, toPayload, withoutImages, type FormValue, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { isShown } from '@/lib/show-if';
@@ -58,11 +58,17 @@ export function FormPage({ mode }: { mode: Mode }) {
 
 /**
  * A record's values for a copy: without keys, unique values, fields that cannot be written on create, and files
- * (a file belongs to one record; images inside rich text are dropped by the server for the same reason).
+ * (a file belongs to one record; for the same reason rich text is copied without its images, which the server would
+ * drop from the copy anyway).
  */
 function copyOf(schema: ResourceSchema, source: AdminRecord): AdminRecord {
   const skip = new Set(schema.fields.filter((field) => field.primary || field.unique || field.readonly || field.file).map((field) => field.name));
-  return Object.fromEntries(Object.entries(source).filter(([name]) => !skip.has(name) && !name.startsWith('_'))) as AdminRecord;
+  const rich = new Set(schema.fields.filter((field) => field.widget === 'richtext').map((field) => field.name));
+  return Object.fromEntries(
+    Object.entries(source)
+      .filter(([name]) => !skip.has(name) && !name.startsWith('_'))
+      .map(([name, value]) => [name, rich.has(name) && typeof value === 'string' ? withoutImages(value) : value]),
+  ) as AdminRecord;
 }
 
 type After = 'list' | 'new' | 'stay';

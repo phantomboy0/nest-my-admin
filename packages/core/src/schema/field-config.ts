@@ -51,6 +51,9 @@ const WIDGET_TYPES: Record<WidgetName, readonly FieldType[]> = {
 /** Default for `files.maxBytes`: 10 MiB. */
 export const DEFAULT_MAX_FILE_BYTES = 10_485_760;
 
+/** The largest `maxBytes` (module or field): `nma_file.size` is an `int` column. */
+export const MAX_FILE_BYTES = 2_147_483_647;
+
 /**
  * The options of each field, merged in spec §5.3 order: `@AdminField` on the entity, then on the create and update
  * DTOs, then the resource's `fields` config (later layers win, option by option).
@@ -103,6 +106,7 @@ function checkFileOptions(name: string, field: FieldSchema, options: FieldConfig
       fail(`fields.${name}.file.accept: use types such as "image/*" or "application/pdf"`);
     }
     if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)) fail(`fields.${name}.file.maxBytes: must be a positive number of bytes`);
+    if (maxBytes !== undefined && maxBytes > MAX_FILE_BYTES) fail(`fields.${name}.file.maxBytes: must be at most ${MAX_FILE_BYTES} bytes (2 GiB - 1)`);
     if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') fail(`fields.${name}.file.visibility: must be "public" or "private"`);
   }
   if (options.many !== undefined) {

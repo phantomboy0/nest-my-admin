@@ -57,14 +57,14 @@ const png = (name = 'cat.png', type = 'image/png') => new File([new Uint8Array([
 const target = { resource: 'product', field: 'image' };
 
 describe('uploadFile', () => {
-  test('posts the raw file with its type, name, CSRF token and language', () => {
+  test('posts the raw file as octet-stream, with its name, CSRF token and language', () => {
     const { xhr, env } = setup();
     const file = png('عکس من.png');
     void uploadFile(file, target, env).promise.catch(() => {});
     expect(xhr.method).toBe('POST');
     expect(xhr.url).toBe('/admin/api/uploads?resource=product&field=image');
     expect(xhr.body).toBe(file);
-    expect(xhr.headers['Content-Type']).toBe('image/png');
+    expect(xhr.headers['Content-Type']).toBe('application/octet-stream');
     expect(xhr.headers['X-File-Name']).toBe(encodeURIComponent('عکس من.png'));
     expect(xhr.headers['X-CSRF-Token']).toBe('csrf-1');
     expect(xhr.headers['Accept-Language']).toBe('fa');
@@ -73,10 +73,10 @@ describe('uploadFile', () => {
     expect(xhr.withCredentials).toBe(false); // same origin: cookies go anyway
   });
 
-  test('a file without a type, or with one the server refuses as a body type, goes as octet-stream', () => {
-    for (const type of ['', 'text/plain', 'TEXT/PLAIN;charset=utf-8', 'multipart/form-data', 'application/x-www-form-urlencoded']) {
+  test("the file's own type is never sent: a host body parser would read a JSON, text or form body before the admin does", () => {
+    for (const type of ['', 'application/json', 'application/ld+json', 'text/plain', 'TEXT/PLAIN;charset=utf-8', 'multipart/form-data', 'application/x-www-form-urlencoded', 'application/pdf']) {
       const { xhr, env } = setup();
-      void uploadFile(png('notes.txt', type), target, env).promise.catch(() => {});
+      void uploadFile(png('data.json', type), target, env).promise.catch(() => {});
       expect(xhr.headers['Content-Type'], type).toBe('application/octet-stream');
     }
   });

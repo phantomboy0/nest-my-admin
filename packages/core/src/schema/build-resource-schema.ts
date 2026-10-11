@@ -15,6 +15,8 @@ export const DEFAULT_PAGE_SIZE = 25;
 
 /** Field types a list cell can edit in place. */
 const INLINE_EDITABLE: readonly string[] = ['string', 'number', 'decimal', 'bigint', 'boolean', 'enum', 'date'];
+/** Widgets `list.editable` refuses whatever the column type, as the boot error names them. */
+const UPLOAD_WIDGETS: Record<string, string | undefined> = { file: 'a file', image: 'an image', richtext: 'a rich-text' };
 export const MAX_PAGE_SIZE = 100;
 
 /** The subset of TypeORM's EntityMetadata the builder reads. */
@@ -279,6 +281,11 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const fieldConfig = mergeFieldConfig([definition.entity, createDto, updateDto], resource.fields as Record<string, FieldConfig | undefined>);
   const allFields = [...entityFields, ...dtoOnly, ...paths.values()];
   checkFieldConfig(allFields, fieldConfig, fail);
+  // A cell edits a plain value: files are uploaded and attached, and rich text is HTML that needs its editor.
+  for (const name of editable) {
+    const kind = UPLOAD_WIDGETS[fieldConfig.get(name)?.widget ?? ''];
+    if (kind) fail(`list.editable: "${name}" is ${kind} field and cannot be edited in a cell`);
+  }
   const readonlyNames = [...fieldConfig].filter(([, options]) => options.readonly).map(([name]) => name);
   const writableUpdate = update.filter((name) => !readonlyNames.includes(name));
   const formReadonly = readonlyNames.filter((name) => update.includes(name) || byName.has(name));

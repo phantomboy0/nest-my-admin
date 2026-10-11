@@ -32,14 +32,11 @@ export class UploadAbortedError extends Error {
   }
 }
 
-/** Body types the server refuses for uploads (a plain HTML form can send them across sites). */
-const SIMPLE_TYPES = new Set(['text/plain', 'multipart/form-data', 'application/x-www-form-urlencoded']);
-
-function contentTypeOf(file: File): string {
-  const type = file.type.split(';')[0]!.trim().toLowerCase();
-  // The server decides the real type from the bytes; this header only has to be a non-form type.
-  return type === '' || SIMPLE_TYPES.has(type) ? 'application/octet-stream' : file.type;
-}
+/**
+ * Every upload goes as `application/octet-stream`. The server decides the real type from the bytes, and the file's own
+ * type would let a body parser of the host app (JSON, text, forms) read the body before the admin sees it.
+ */
+const UPLOAD_CONTENT_TYPE = 'application/octet-stream';
 
 function isErrorBody(value: unknown): value is AdminErrorBody {
   return typeof value === 'object' && value !== null && 'code' in value && 'message' in value;
@@ -65,7 +62,7 @@ export function uploadFile(file: File, target: UploadTarget, env: UploadEnvironm
     xhr.open('POST', `${env.apiBase}/uploads?${new URLSearchParams({ resource: target.resource, field: target.field })}`);
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.setRequestHeader('Accept-Language', env.locale);
-    xhr.setRequestHeader('Content-Type', contentTypeOf(file));
+    xhr.setRequestHeader('Content-Type', UPLOAD_CONTENT_TYPE);
     xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
     if (env.csrfToken) xhr.setRequestHeader('X-CSRF-Token', env.csrfToken);
     if (env.viewAs) xhr.setRequestHeader('X-View-As', env.viewAs);

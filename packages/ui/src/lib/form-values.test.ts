@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { FieldSchema, FieldType } from '@nest-my-admin/core/contract';
-import { dependencyValues, toFormValues, toPayload } from './form-values';
+import { dependencyValues, toFormValues, toPayload, withoutImages } from './form-values';
 
 process.env.TZ = 'UTC';
 
@@ -203,5 +203,21 @@ describe('file fields', () => {
 
   test('files are never part of the relation-option values', () => {
     expect(dependencyValues(fileFields, toFormValues(fileFields, record))).toBe('{}');
+  });
+});
+
+describe('withoutImages (Duplicate)', () => {
+  test('drops every <img> of rich-text HTML and keeps the rest as it is', () => {
+    const html = '<h2>Title</h2><p>before</p><img src="/admin/api/files/post/body/2026/10/a.png" alt="A cat"><p>after <strong>bold</strong></p><img src="https://cdn.example.com/f/post/body/b.png">';
+    expect(withoutImages(html)).toBe('<h2>Title</h2><p>before</p><p>after <strong>bold</strong></p>');
+  });
+  test('quoted attributes may hold ">" and other quotes; case and self-closing forms do not matter', () => {
+    expect(withoutImages('<p>a<IMG alt="1 > 0" src=\'x.png\' />b</p>')).toBe('<p>ab</p>');
+    expect(withoutImages(`<p><img alt='say "hi" >' src="x.png">c</p>`)).toBe('<p>c</p>');
+    expect(withoutImages('<img src="a.png"><img src="b.png">')).toBe('');
+  });
+  test('text that only looks like a tag, and other tags, stay', () => {
+    expect(withoutImages('<p>&lt;img src="x"&gt; <imgx> <picture></picture></p>')).toBe('<p>&lt;img src="x"&gt; <imgx> <picture></picture></p>');
+    expect(withoutImages('')).toBe('');
   });
 });

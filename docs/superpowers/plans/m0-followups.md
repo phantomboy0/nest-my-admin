@@ -131,15 +131,14 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - The replay guard claims the code's 30-second step with a conditional update; recovery codes are removed with a plain read-then-write, so the same recovery code sent twice at the same moment can sign in twice.
 
 ## M4-1 follow-ups
-- Two PATCHes of one record with the same upload token both succeed; with `nma_file` on another DataSource, a rollback of the second returns the shared row to `temp` although the first write holds it.
+- Two PATCHes of one record with the same upload token both succeed (one after the other this is by design since the final review: a retried write keeps the file it already attached; at the same moment both take the `temp` row); with `nma_file` on another DataSource, a rollback of the second returns the shared row to `temp` although the first write holds it.
 - A custom storage whose public URLs are signed or hashed (not `publicBaseUrl` + key) loses public rich-text images on save: `keyOfSrc` cannot map such a URL back to a key.
-- `validateWrite` stores raw HTML when a caller passes no sanitizer for a rich-text field; it should throw.
 - `keyOfSrc` accepts `%2F` inside a path segment (the download route's wildcard refuses it).
 - A rejected upload drains the whole request body before answering.
 - A host `delete` override that hard-deletes an entity with a `@DeleteDateColumn` keeps the record's files (the admin only knows the schema has a trash).
 - With `nma_file` on another DataSource, a crash between the pre-commit attach and the record's commit leaves an `attached` row without a record.
 - `localStorage` keeps public and private files in one directory; serving it for `publicBaseUrl` exposes private keys to anyone who knows them (documented in the README; separate directories would fix it).
-- UI: an upload cannot be resumed or retried in place (pick the file again); Duplicate copies no files and the server drops the source's rich-text images.
+- UI: an upload cannot be resumed or retried in place (pick the file again); Duplicate copies no files and no rich-text images (the UI removes the `<img>` tags; the server would drop them anyway).
 - UI: per-block direction in rich text is CSS (`unicode-bidi: plaintext`), so list markers and quote borders stay on the page's side; a `dir` attribute kept by the sanitizer would fix it.
 - UI: phone cards built from `list.mobile` show no thumbnail; the editor chunk is about 460 kB (145 kB gzip), loaded on demand.
 - The upload insert and the sweep do not go through the SQLite-family write queue (from Task 2's report).
@@ -149,3 +148,17 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - PDFs are served `inline` under `Content-Security-Policy: sandbox`, which Chrome's PDF viewer may refuse; verify by opening one in a tab in M4-2's E2E.
 - Flaky test from before M4-1: `products.pw.ts` two-factor sign-in reads the recovery codes right after the click, without waiting.
 - A paste that carries text or HTML next to a picture inserts the text or HTML; pictures inside pasted HTML that point at other sites are dropped on save.
+
+Open after the final review of M4-1 (its fixes: octet-stream uploads and a 400 for a body a host parser already read, `validateWrite` failing closed without a sanitizer, boot checks for `list.editable` and `maxBytes`, retry-safe tokens, Duplicate without rich-text images):
+- An owner abstraction for `FilesService`: settings pages and action inputs need upload targets other than resource + field (today `nma_file` rows, permissions and keys all assume a resource, a field and a record).
+- A write-participant interface (before / after / commit / rollback) that files implement and audit can join, instead of `AdminApiService.write()` calling `resolve`/`attach`/`afterCommit`/`rollback` by hand.
+- A stable `nma-file:<key>` form for images in stored HTML, resolved to URLs on read: today the HTML embeds each image's URL, so changing the admin `path` or `publicBaseUrl` breaks existing images (documented in the README).
+- `files.sanitizeHtml` cannot be given without `files.storage`: an app with rich text, its own sanitizer and no uploads has nowhere to put it.
+- The `IMG` regex (`rich-text.ts`, and its copy in the UI's `withoutImages`) is quadratic on input such as many unclosed `<img` starts; the built-in sanitizer's output never has that shape, a lax host `sanitizeHtml` can let it through (bodies are capped at 1 MiB).
+- S3 edge cases: an object reported with size 0 when the answer has no `Content-Length`; error bodies that are not drained; a path inside `endpoint` is dropped.
+- No per-user cap on `temp` uploads: a user with upload permission can fill the storage for 24 hours at a time.
+- A crash between `storage.put` and the `nma_file` insert leaves an object no row points at; the sweep only walks rows, so it is never removed.
+- Downloads answer no `Range` and no `HEAD` (video seeking, resumable downloads).
+- `files.service.ts` is over 500 lines: split uploads, the write cycle and downloads.
+- A `removed` status with a retention period instead of deleting rows and objects at commit, so record history (M4) can show and restore earlier files.
+- Uploads must be sent as `application/octet-stream`; a host parser that reads that type too (`express.raw()` on the admin path) still leaves nothing to store, and the 400 says so. Mounting the admin before the host's body parsers would remove the limit.

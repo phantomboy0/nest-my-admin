@@ -112,3 +112,31 @@ describe('file fields', () => {
     }
   });
 });
+
+describe('rich text', () => {
+  const body = { name: 'body', type: 'text', widget: 'richtext' } as never;
+  const title = { name: 'title', type: 'string' } as never;
+  const rules = { allowed: ['title', 'body'], fields: [title, body] };
+
+  test('sent HTML goes through the sanitizer before it is returned', async () => {
+    const dto = await validateWrite({ title: 'T', body: '<p>a</p><script>x</script>' }, { ...rules, sanitizeHtml: (html) => html.replace(/<script>.*<\/script>/, '') });
+    expect(dto).toEqual({ title: 'T', body: '<p>a</p>' });
+  });
+
+  test('fails closed: a schema with a rich-text field and no sanitizer is a programming error, never stored raw', async () => {
+    const raw = validateWrite({ title: 'T', body: '<script>x</script>' }, rules).then(
+      () => 'stored',
+      (error: unknown) => error,
+    );
+    const error = await raw;
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(AdminValidationError);
+    expect(error).not.toBeInstanceOf(AdminBadRequestError);
+    expect((error as Error).message).toBe('nest-my-admin: validateWrite needs `sanitizeHtml` for the rich-text field "body"');
+    // Also when the body leaves the field out or clears it: the caller is wrong either way.
+    await expect(validateWrite({ title: 'T' }, rules)).rejects.toThrow('needs `sanitizeHtml`');
+    await expect(validateWrite({ body: null }, rules)).rejects.toThrow('needs `sanitizeHtml`');
+    // Schemas without rich text need none.
+    expect(await validateWrite({ title: 'T' }, { allowed: ['title'], fields: [title] })).toEqual({ title: 'T' });
+  });
+});
