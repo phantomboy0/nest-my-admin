@@ -1,9 +1,8 @@
-import type { DataSource } from 'typeorm';
+import type { WriteRunner } from '../api/write-runner.js';
 import type { FieldSchema, MetaPageSummary, PageResponse, PageSchema } from '../contract.js';
 import { validateWrite } from '../crud/validate-write.js';
 import { AdminForbiddenError, AdminValidationError } from '../errors.js';
-import type { FileOwner } from '../files/file-owner.js';
-import type { FileChanges, FilesService } from '../files/files.service.js';
+import type { FilesService } from '../files/files.service.js';
 import { hostError } from '../http/error-response.js';
 import { resolveText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
@@ -13,14 +12,14 @@ import { localizeDtoForm } from '../schema/dto-form.js';
 import { localizeLayout } from '../schema/field-config.js';
 import { loadPage, type PageRegistry, type RegisteredPage } from './page-registry.js';
 
-/** What the page service borrows from `AdminApiService`: the write transaction and the file lifecycle of a write. */
+/** What the page service borrows from `AdminApiService`: its write transaction with the participants of a change. */
 export interface PageHost {
   pages: PageRegistry;
   policy: AdminPolicy;
   options: ResolvedAdminOptions;
   files: FilesService;
-  write<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (tx: AdminContext) => Promise<T>): Promise<T>;
-  saveFiles(owner: FileOwner, changes: FileChanges | undefined, saved: object, tx: AdminContext): Promise<void>;
+  /** `AdminApiService`'s write transaction (`run`) and the participants of each change in it (`change`). */
+  writes: WriteRunner;
 }
 
 const EMPTY_SECRET = 'must not be empty: send null to clear it, or leave it out to keep it';
@@ -100,7 +99,7 @@ export class PageService {
     // The HTTP layer refuses writes while viewing as someone; this covers callers that are not HTTP.
     if (ctx.viewAs) throw new AdminForbiddenError('Viewing as another user is read-only');
     const { dto, sent } = await this.validate(page, body, ctx);
-    return this.host.write(page, ctx, async (tx) => {
+    return this.host.writes.run(page, ctx, async (tx) => {
       const { after } = await this.apply(page, dto, sent, tx);
       return this.respond(page, after, tx);
     });
@@ -150,20 +149,18 @@ export class PageService {
   }
 
   /**
-   * One save, inside the write's transaction: what was stored, the files of the change resolved against it, the
-   * host's `save()`, what is stored now, and the files attached to it (replaced objects are deleted after the
-   * commit). Everything that changes a page goes through here, so the audit log (M4-3) can wrap it with
-   * `before` and `after`.
+   * One save, inside the write's transaction: what was stored, then one change (`WriteRunner.change`) made of the
+   * host's `save()` and what is stored afterwards. The participants see both: files resolve the uploads against
+   * `before` and attach them to `after` (replaced objects are deleted after the commit).
    */
   private async apply(page: RegisteredPage, dto: Record<string, unknown>, sent: string[], tx: AdminContext): Promise<{ before: Record<string, unknown>; after: Record<string, unknown> }> {
     const before = await loadPage(page, tx);
     const secrets = [...sent, ...page.secrets.map((secret) => before[secret]).filter((value): value is string => typeof value === 'string')];
     try {
-      const owner = this.host.files.ownerOf(page);
-      const files = await this.host.files.resolve(owner, dto, before, tx);
-      await page.source.save(dto, tx);
-      const after = await loadPage(page, tx);
-      await this.host.saveFiles(owner, files, after, tx);
+      const after = await this.host.writes.change({ kind: 'page', target: page, existing: before, dto }, tx, async () => {
+        await page.source.save(dto, tx);
+        return loadPage(page, tx);
+      });
       return { before, after };
     } catch (error) {
       throw scrubSecrets(error, secrets);

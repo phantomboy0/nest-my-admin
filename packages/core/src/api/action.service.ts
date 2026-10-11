@@ -12,14 +12,15 @@ import type { AdminPolicy } from '../policy/admin-policy.service.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import type { RecordId } from '../resource/admin-resource-base.js';
+import type { WriteRunner } from './write-runner.js';
 
 /** What running actions needs from `AdminApiService`: its write transaction and its record serializer. */
 export interface ActionHost {
   policy: AdminPolicy;
   options: ResolvedAdminOptions;
   logger: Logger;
-  /** `AdminApiService.write`: one transaction, `ctx.manager` set, after-commit work. */
-  write<T>(entry: RegisteredResource, ctx: AdminContext, work: (tx: AdminContext) => Promise<T>): Promise<T>;
+  /** `AdminApiService`'s write transaction (`run`) and the participants of each change in it (`change`). */
+  writes: WriteRunner;
   /** One record as the user sees it (`_perm` included). */
   record(entry: RegisteredResource, entity: object, ctx: AdminContext): Promise<AdminRecord>;
 }
@@ -64,12 +65,12 @@ export class ActionService {
   }
 
   private async runOnResource(entry: RegisteredResource, action: RegisteredAction, input: InputFactory, ctx: AdminContext): Promise<ActionResourceResult> {
-    const outcome = await this.host.write(entry, ctx, async (tx) => methodOf(entry, action).call(entry.resource, await input(), tx));
+    const outcome = await this.host.writes.run(entry, ctx, async (tx) => methodOf(entry, action).call(entry.resource, await input(), tx));
     return withMessage({}, messageOf(outcome, ctx, this.host.options));
   }
 
   private runOnOne(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: InputFactory, ctx: AdminContext): Promise<ActionRecordResult> {
-    return this.host.write(entry, ctx, async (tx) => {
+    return this.host.writes.run(entry, ctx, async (tx) => {
       const { message, after } = await this.runOnRecord(entry, action, label, rawId, input, tx);
       return withMessage({ record: after ? await this.host.record(entry, after, tx) : null }, message);
     });
@@ -81,7 +82,7 @@ export class ActionService {
     const messages: Array<string | undefined> = [];
     for (const id of ids) {
       try {
-        const { message } = await this.host.write(entry, ctx, (tx) => this.runOnRecord(entry, action, label, id, input, tx));
+        const { message } = await this.host.writes.run(entry, ctx, (tx) => this.runOnRecord(entry, action, label, id, input, tx));
         result.ok.push(id);
         messages.push(message);
       } catch (error) {
@@ -98,7 +99,7 @@ export class ActionService {
    * that throws is the answer and undoes the ones before it (the registry refuses `atomic` without transactions).
    */
   private runTogether(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: InputFactory, ctx: AdminContext): Promise<ActionBulkResult> {
-    return this.host.write(entry, ctx, async (tx) => {
+    return this.host.writes.run(entry, ctx, async (tx) => {
       for (const id of ids) await this.loadAllowed(entry, action, label, id, tx);
       const messages: Array<string | undefined> = [];
       for (const id of ids) messages.push((await this.runOnRecord(entry, action, label, id, input, tx)).message);
