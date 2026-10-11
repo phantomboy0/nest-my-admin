@@ -68,8 +68,14 @@ export function mergeFieldConfig(sources: Array<Function | undefined>, resourceF
   return merged;
 }
 
-/** Boot-time checks: known fields, widgets that fit, and references (`showIf`, `slugFrom`) to real fields. */
-export function checkFieldConfig(fields: FieldSchema[], config: Map<string, FieldConfig>, fail: (message: string) => never): void {
+/** Widgets a `secret` field can use: anything else would show, upload or format its value. */
+const SECRET_WIDGETS: readonly WidgetName[] = ['text', 'password'];
+
+/**
+ * Boot-time checks: known fields, widgets that fit, and references (`showIf`, `slugFrom`) to real fields.
+ * `secret` is refused unless `allow.secrets` (the form of a settings page).
+ */
+export function checkFieldConfig(fields: FieldSchema[], config: Map<string, FieldConfig>, fail: (message: string) => never, allow: { secrets?: boolean } = {}): void {
   const names = fields.map((field) => field.name);
   for (const [name, options] of config) {
     const field = fields.find((candidate) => candidate.name === name);
@@ -79,6 +85,11 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
       if (!WIDGET_TYPES[options.widget].includes(field!.type)) fail(`fields.${name}: the "${options.widget}" widget does not fit ${field!.type} fields`);
     }
     checkFileOptions(name, field!, options, fail);
+    if (options.secret) {
+      if (!allow.secrets) fail(`fields.${name}: \`secret\` is for the fields of a settings page (@AdminSettingsPage)`);
+      if (field!.type !== 'string' && field!.type !== 'text') fail(`fields.${name}: a \`secret\` field must be text, got ${field!.type}`);
+      if (options.widget !== undefined && !SECRET_WIDGETS.includes(options.widget)) fail(`fields.${name}: a \`secret\` field cannot use the "${options.widget}" widget`);
+    }
     for (const color of Object.values(options.colors ?? {})) {
       if (!BADGE_COLORS.includes(color)) fail(`fields.${name}: unknown badge colour "${color}" (use ${BADGE_COLORS.join(', ')})`);
     }
@@ -136,6 +147,7 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
       many: options.many === true,
     };
   }
+  if (options.secret) out.secret = true;
   if (options.widget === 'richtext') out.richtext = { images: filesEnabled, maxBytes: options.file?.maxBytes ?? defaultMaxBytes };
   return out;
 }

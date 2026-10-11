@@ -1,4 +1,4 @@
-import { codeMatches, type ResourceOperation, type RoleDefinition, type ScopedOperation } from './roles.js';
+import { codeMatches, pageCode, type ResourceOperation, type RoleDefinition, type ScopedOperation } from './roles.js';
 
 /** How much of a field a user gets: not at all, shown read-only, or editable. */
 export type FieldLevel = 'hidden' | 'view' | 'edit';
@@ -36,6 +36,12 @@ export class EffectivePermissions {
 
   canOn(resource: string, operation: ResourceOperation): boolean {
     return this.superuser || this.roles.some((role) => this.roleCan(role, resource, operation));
+  }
+
+  /** A settings page: `page.{name}` to view, `page.{name}.update` to save; as for records, whoever may save may view. */
+  canPage(page: string, operation: 'view' | 'update'): boolean {
+    if (this.superuser) return true;
+    return this.roles.some((role) => this.grants(role, pageCode(page, 'update')) || (operation === 'view' && this.grants(role, pageCode(page))));
   }
 
   /** The user can reach the resource at all (view or create). */

@@ -8,8 +8,8 @@ const meta: MetaResponse = {
   locale: 'en',
   locales: ['en'],
   groups: [
-    { key: 'catalog', label: 'Catalog', resources: [{ name: 'product', label: 'Product', creatable: true, searchable: true }, { name: 'stock-move', label: 'Stock move', creatable: false, searchable: false }] },
-    { key: 'sales', label: 'Sales', resources: [{ name: 'order', label: 'سفارش', creatable: true, searchable: true }] },
+    { key: 'catalog', label: 'Catalog', resources: [{ name: 'product', label: 'Product', creatable: true, searchable: true }, { name: 'stock-move', label: 'Stock move', creatable: false, searchable: false }], pages: [] },
+    { key: 'sales', label: 'Sales', resources: [{ name: 'order', label: 'سفارش', creatable: true, searchable: true }], pages: [] },
   ],
 };
 const newLabel = (name: string) => `New ${name}`;

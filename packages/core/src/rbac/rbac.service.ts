@@ -9,6 +9,7 @@ import type { ResolvedAdminOptions } from '../options.js';
 import { buildCatalog } from '../policy/catalog.js';
 import type { EffectivePermissions } from '../policy/effective.js';
 import { checkRoles, type PolicyCatalog, type RoleDefinition } from '../policy/roles.js';
+import { PageRegistry } from '../pages/page-registry.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './entities.js';
 import { escalations } from './escalation.js';
@@ -50,6 +51,7 @@ export class AdminRbac implements OnApplicationBootstrap {
   constructor(
     private readonly moduleRef: ModuleRef,
     private readonly registry: ResourceRegistry,
+    private readonly pages: PageRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {}
 
@@ -63,7 +65,7 @@ export class AdminRbac implements OnApplicationBootstrap {
   }
 
   catalog(): PolicyCatalog {
-    return buildCatalog(this.registry, this.options);
+    return buildCatalog(this.registry, this.options, this.pages.list().map((page) => page.name));
   }
 
   async onApplicationBootstrap(): Promise<void> {

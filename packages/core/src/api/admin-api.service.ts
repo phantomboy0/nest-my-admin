@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaResponse, OptionsResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
+import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaPageSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { persianLike } from '../i18n/persian.js';
 import { toErrorResponse } from '../http/error-response.js';
@@ -23,6 +23,8 @@ import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
 import { AdminResourceBase, type ListParams, type RecordId, type RecordLinkConfig } from '../resource/admin-resource-base.js';
+import { PageRegistry } from '../pages/page-registry.js';
+import { PageService } from '../pages/page.service.js';
 import { ActionService } from './action.service.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
@@ -42,7 +44,16 @@ export class AdminApiService {
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
     private readonly policy: AdminPolicy,
     private readonly files: FilesService,
+    pages: PageRegistry,
   ) {
+    this.pages = new PageService({
+      pages,
+      policy,
+      options,
+      files,
+      write: (target, ctx, work) => this.write(target, ctx, work),
+      saveFiles: (owner, changes, saved, tx) => this.saveFiles(owner, changes, saved, tx),
+    });
     this.actions = new ActionService({
       policy,
       options,
@@ -54,6 +65,9 @@ export class AdminApiService {
 
   /** Runs `@AdminAction`s; it writes and serializes through this service. */
   private readonly actions: ActionService;
+
+  /** Settings pages; they save through this service's write transaction. */
+  private readonly pages: PageService;
 
   /** The resource as this request's user sees it (cached per request). */
   private readonly views = new WeakMap<AdminContext, Map<string, ResourceView>>();
@@ -70,6 +84,7 @@ export class AdminApiService {
     const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
     // Only resources the user may view (spec §6.5: meta is filtered per user).
     const resources = this.registry.list().filter((entry) => !ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view'));
+    const pages = this.pages.summaries(locale, ctx);
     const groups = this.registry
       .groupList()
       .map((group) => ({
@@ -83,14 +98,20 @@ export class AdminApiService {
             return { name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}), creatable: seen.creatable, searchable: seen.list.search.length > 0 };
           })
           .sort((a, b) => a.label.localeCompare(b.label, locale)),
+        pages: pages
+          .filter((page) => page.group === group.key)
+          .map(({ group: _group, ...page }): MetaPageSummary => page)
+          .sort((a, b) => a.label.localeCompare(b.label, locale)),
       }))
-      .filter((entry) => entry.resources.length > 0)
+      // A group may hold only settings pages.
+      .filter((entry) => entry.resources.length > 0 || entry.pages.length > 0)
       .sort((a, b) => a.group.order - b.group.order || a.label.localeCompare(b.label, locale))
-      .map(({ group, label, resources: items }) => ({
+      .map(({ group, label, resources: items, pages: groupPages }) => ({
         key: group.key,
         label,
         ...(group.icon ? { icon: group.icon } : {}),
         resources: items,
+        pages: groupPages,
       }));
     return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups };
   }
@@ -255,11 +276,11 @@ export class AdminApiService {
   }
 
   /**
-   * Runs a write in one transaction (unless disabled) with ctx.manager set and AdminContext.current() pointing at it.
+   * Runs a write in one transaction on the target's DataSource (unless disabled) with ctx.manager set and AdminContext.current() pointing at it.
    * `afterWrite(tx).commit` callbacks run once the transaction has committed and never when it rolls back;
    * `.rollback` callbacks run only when it fails. A failing callback is logged, never thrown.
    */
-  private async write<T>(entry: RegisteredResource, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
+  private async write<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
     const settle = async (callbacks: Array<() => Promise<void>>, what: string) => {
       for (const callback of callbacks) {
         await callback().catch((error: unknown) => this.logger.warn(`${what} work failed: ${error instanceof Error ? error.message : String(error)}`));
@@ -284,7 +305,7 @@ export class AdminApiService {
       // Nothing to commit: the callbacks run when the outermost write on this context is done.
       return this.afterWrites.has(ctx) ? work(ctx) : committed(ctx, () => work(ctx));
     }
-    const { dataSource } = entry;
+    const { dataSource } = target;
     // Re-entrant write (host code inside a write calls the API again on the same DataSource): join the outer
     // transaction; queueing behind it would deadlock. There is no savepoint: if host code catches a failed nested
     // write and carries on, the nested rows commit with the outer transaction. `manager.connection` is deprecated
@@ -560,6 +581,21 @@ export class AdminApiService {
    */
   runAction(name: string, action: string, body: unknown, ctx: AdminContext): Promise<ActionResult> {
     return this.actions.run(this.registry.get(name), action, body, ctx);
+  }
+
+  /** Every settings page with its group, labelled in `locale` (the roles catalog). */
+  pageSummaries(locale = this.options.locale): Array<MetaPageSummary & { group: string }> {
+    return this.pages.summaries(locale);
+  }
+
+  /** `GET /pages/:name`: a settings page's form, its values without the secrets, and which secrets are set. */
+  page(name: string, ctx: AdminContext): Promise<PageResponse> {
+    return this.pages.get(name, ctx);
+  }
+
+  /** `PATCH /pages/:name`: saves the keys that were sent (see `PageService.save`) and answers like GET. */
+  savePage(name: string, body: unknown, ctx: AdminContext): Promise<PageResponse> {
+    return this.pages.save(name, body, ctx);
   }
 
   /** Takes a record out of the trash. */

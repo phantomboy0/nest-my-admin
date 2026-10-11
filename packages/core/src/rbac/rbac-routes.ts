@@ -91,6 +91,7 @@ export function addRbacRoutes<S extends State>(
             actions: schema.actions.map((action) => ({ name: action.name, label: action.label, target: action.target })),
           };
         }),
+        pages: api.pageSummaries(ctx.locale).map((page) => ({ name: page.name, label: page.label, group: page.group })),
         global: catalog.global,
       };
       sendJson(res, 200, body);

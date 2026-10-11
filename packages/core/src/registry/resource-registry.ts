@@ -142,7 +142,8 @@ export class ResourceRegistry implements OnModuleInit {
     return [...this.groups.values()];
   }
 
-  private registerModuleGroup(moduleClass: Function | undefined): string {
+  /** The sidebar group of a Nest module (`@AdminGroup` customises it), created on first use; answers its key. */
+  registerModuleGroup(moduleClass: Function | undefined): string {
     const baseName = moduleClass ? moduleClass.name.replace(/Module$/, '') || moduleClass.name : 'General';
     const options = moduleClass ? getAdminGroupOptions(moduleClass) : undefined;
     const key = options?.key ?? kebabCase(baseName);
@@ -154,6 +155,12 @@ export class ResourceRegistry implements OnModuleInit {
         order: options?.order ?? DEFAULT_GROUP_ORDER,
       });
     }
+    return key;
+  }
+
+  /** A group named by key (`group: 'settings'`): created with a humanized label unless a module already formed it. */
+  ensureGroup(key: string): string {
+    if (!this.groups.has(key)) this.groups.set(key, { key, label: humanize(key), order: DEFAULT_GROUP_ORDER });
     return key;
   }
 
@@ -193,9 +200,7 @@ export class ResourceRegistry implements OnModuleInit {
         `Duplicate admin resource name "${schema.name}" (${existing.className} and ${className}); set a unique @AdminResource({ name })`,
       );
     }
-    if (!this.groups.has(schema.group)) {
-      this.groups.set(schema.group, { key: schema.group, label: humanize(schema.group), order: DEFAULT_GROUP_ORDER });
-    }
+    this.ensureGroup(schema.group);
     const title = compileTitle(definition.title, metadata, (message) => {
       throw new Error(`${className}: ${message}`);
     });

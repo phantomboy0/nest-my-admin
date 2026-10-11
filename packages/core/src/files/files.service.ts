@@ -10,6 +10,8 @@ import { AdminBadRequestError, AdminForbiddenError, AdminNotFoundError, AdminPay
 import type { AdminRequest } from '../http/http-io.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
+import { PAGE_OWNER_PREFIX, pageFileOwner } from '../pages/page-file-owner.js';
+import { PageRegistry, unknownPage, type RegisteredPage } from '../pages/page-registry.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import { markAdminFile, type AdminFile } from './admin-file.js';
@@ -62,6 +64,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
   constructor(
     private readonly moduleRef: ModuleRef,
     private readonly registry: ResourceRegistry,
+    private readonly pages: PageRegistry,
     private readonly policy: AdminPolicy,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {}
@@ -113,34 +116,40 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     this.timer = undefined;
   }
 
-  private readonly resourceOwners = new WeakMap<RegisteredResource, FileOwner>();
+  private readonly ownerCache = new WeakMap<RegisteredResource | RegisteredPage, FileOwner>();
 
-  /** A resource as the owner of its records' files. */
-  ownerOf(entry: RegisteredResource): FileOwner {
-    let owner = this.resourceOwners.get(entry);
-    if (!owner) this.resourceOwners.set(entry, (owner = resourceFileOwner(entry, this.policy)));
+  /** A resource as the owner of its records' files, or a settings page as the owner of its own (`page:<name>`). */
+  ownerOf(entry: RegisteredResource | RegisteredPage): FileOwner {
+    let owner = this.ownerCache.get(entry);
+    if (!owner) this.ownerCache.set(entry, (owner = 'schema' in entry ? resourceFileOwner(entry, this.policy) : pageFileOwner(entry, this.policy)));
     return owner;
   }
 
   /** Every owner: what the sanitizer is loaded for. */
   private owners(): FileOwner[] {
-    return this.registry.list().map((entry) => this.ownerOf(entry));
+    return [...this.registry.list(), ...this.pages.list()].map((entry) => this.ownerOf(entry));
   }
 
-  /** The owner an upload names (`?resource=`); unknown names are a 404. */
+  /** The owner an upload names (`?resource=`: a resource, or `page:<name>`); unknown names are a 404. */
   private ownerNamed(name: string): FileOwner {
-    return this.ownerOf(this.registry.get(name));
+    const owner = this.findOwner(name);
+    if (!owner) throw name.startsWith(PAGE_OWNER_PREFIX) ? unknownPage(name.slice(PAGE_OWNER_PREFIX.length)) : new AdminNotFoundError(`Unknown resource "${name}"`);
+    return owner;
   }
 
-  /** The owner a stored file names, if it still exists. */
+  /**
+   * The owner a stored file names, if it still exists. `page:<name>` is a page; an admin with pages refuses resource
+   * names that start with `page:` at boot, so the two never mix.
+   */
   private findOwner(name: string): FileOwner | undefined {
-    const entry = this.registry.find(name);
+    const page = name.startsWith(PAGE_OWNER_PREFIX) ? this.pages.find(name.slice(PAGE_OWNER_PREFIX.length)) : undefined;
+    const entry = page ?? this.registry.find(name);
     return entry ? this.ownerOf(entry) : undefined;
   }
 
   /** The HTML a `richtext` field may store. */
   sanitizeHtml(html: string): string {
-    if (!this.sanitizer) throw new Error('nest-my-admin: no HTML sanitizer is loaded (no resource has a richtext field)');
+    if (!this.sanitizer) throw new Error('nest-my-admin: no HTML sanitizer is loaded (no resource or page has a richtext field)');
     const clean = this.sanitizer(html);
     if (typeof clean !== 'string') throw new Error('nest-my-admin: files.sanitizeHtml must return a string');
     return clean;
@@ -406,7 +415,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * `POST /api/uploads?resource=&field=`: the body is the raw file. The type is sniffed from its first bytes and checked
+   * `POST /api/uploads?resource=&field=` (`resource` is a resource's name, or `page:<name>`): the body is the raw file. The type is sniffed from its first bytes and checked
    * against the field's `accept` before anything is written; the object is streamed to storage under a byte limit.
    */
   async upload(req: AdminRequest, resource: string, field: string, ctx: AdminContext): Promise<UploadResponse> {
@@ -458,7 +467,7 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
 
     const now = new Date();
     const id = randomUUID();
-    const key = `${owner.name}/${field}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}${extensionOf(type)}`;
+    const key = `${owner.keyPrefix}/${field}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}${extensionOf(type)}`;
     let overflow: Error | undefined;
     async function* rest(): AsyncGenerator<Buffer> {
       yield* head;

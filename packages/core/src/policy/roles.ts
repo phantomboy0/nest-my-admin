@@ -18,6 +18,7 @@ export interface RoleDefinition {
    * Permission codes: `product.view`, `product.update`, `product.field.cost.view`, `product.view_all` (custom),
    * `order.action.ship` (an `@AdminAction`), `reports.run` (global custom). Wildcards: `*` (everything), `product.*`
    * (everything on product, its actions included), `order.action.*` (every action on order), `*.view`.
+   * Settings pages: `page.payments` (view), `page.payments.update` (save), `page.*` (every page).
    */
   permissions: string[];
   /** Per resource, per field: `hidden`, `readonly` (= `view`) or `edit` (spec §6.2). */
@@ -29,6 +30,15 @@ export interface RoleDefinition {
 /** The permission code of an `@AdminAction`: `order.action.ship`. */
 export function actionCode(resource: string, action: string): string {
   return `${resource}.action.${action}`;
+}
+
+/**
+ * The permission codes of a settings page: `page.payments` to view it, `page.payments.update` to save it.
+ * `page.*` grants both for every page, `page.*.update` saving every page, and `*` everything; `page.payments.*` grants
+ * only `page.payments.update` (which lets its holder view the page too).
+ */
+export function pageCode(page: string, operation: 'view' | 'update' = 'view'): string {
+  return operation === 'update' ? `page.${page}.update` : `page.${page}`;
 }
 
 /** Whether `pattern` grants `code`: `*` as the last segment matches the rest, elsewhere exactly one segment. */
@@ -44,9 +54,11 @@ export function codeMatches(pattern: string, code: string): boolean {
   return wanted.length === actual.length;
 }
 
-/** What the roles are checked against: every resource's fields, scopes, custom codes and action names. */
+/** What the roles are checked against: every resource's fields, scopes, custom codes and action names; the settings pages. */
 export interface PolicyCatalog {
   resources: Map<string, { fields: string[]; scopes: string[]; custom: string[]; restricted?: string[]; actions?: string[] }>;
+  /** Names of the settings pages. */
+  pages?: string[];
   /** Codes declared in `forRoot({ permissions })`. */
   global: string[];
 }
@@ -60,6 +72,7 @@ export function knownCodes(catalog: PolicyCatalog): string[] {
     for (const action of resource.actions ?? []) codes.push(actionCode(name, action));
     for (const field of resource.fields) codes.push(`${name}.field.${field}.view`, `${name}.field.${field}.edit`);
   }
+  for (const page of catalog.pages ?? []) codes.push(pageCode(page), pageCode(page, 'update'));
   return codes;
 }
 

@@ -57,6 +57,11 @@ export interface FieldSchema {
   file?: { accept: string[]; maxBytes: number; many: boolean };
   /** Set for the `richtext` widget: whether the editor can upload images (`files` is configured) and their largest size. */
   richtext?: { images: boolean; maxBytes: number };
+  /**
+   * A write-only field of a settings page: its value is never served. `PageResponse.secrets` says whether one is
+   * stored; a save replaces it with a non-empty string, clears it with `null`, and leaves it alone when the key is absent.
+   */
+  secret?: true;
 }
 
 /**
@@ -230,11 +235,50 @@ export interface MetaResourceSummary {
   searchable: boolean;
 }
 
+/** A settings page (`@AdminSettingsPage`) in the sidebar. */
+export interface MetaPageSummary {
+  name: string;
+  label: string;
+  icon?: string;
+}
+
 export interface MetaGroup {
   key: string;
   label: string;
   icon?: string;
+  /** May be empty: a group can hold only pages. */
   resources: MetaResourceSummary[];
+  /** The settings pages of the group this user may view. */
+  pages: MetaPageSummary[];
+}
+
+/**
+ * A settings page: one form backed by host code (`@AdminSettingsPage`). Its permission codes are `page.<name>` (view)
+ * and `page.<name>.update` (save; whoever may save may view).
+ */
+export interface PageSchema {
+  name: string;
+  label: string;
+  icon?: string;
+  fields: FieldSchema[];
+  layout?: FormLayoutNode[];
+  /** Keyed like `ResourceSchema.form.constraints`; every rule applies to what is sent (a save is partial). */
+  constraints: Record<string, FieldConstraints>;
+  /** Top-level fields the DTO requires. A save is partial, so this is for marking inputs, not for refusing a submit. */
+  required: string[];
+  /** The user may not save: no `page.<name>.update`, or viewing as another user. */
+  readonly: boolean;
+}
+
+/** `GET /api/pages/:name`, and the answer of `PATCH /api/pages/:name`. */
+export interface PageResponse {
+  schema: PageSchema;
+  /** Every field that is not a secret; `null` when nothing is stored. File fields hold keys. */
+  values: Record<string, unknown>;
+  /** Per secret field: whether a value is stored. The value itself is never sent. */
+  secrets: Record<string, boolean>;
+  /** A ref for every file the file fields hold (as `_files` of a record). */
+  files: Record<string, AdminFileRef | AdminFileRef[]>;
 }
 
 export interface MetaResponse {
@@ -478,6 +522,8 @@ export interface RbacCatalog {
     /** `@AdminAction`s: the permission code of each is `<resource>.action.<name>`. */
     actions: Array<{ name: string; label: string; target: 'record' | 'resource' }>;
   }>;
+  /** Settings pages: the codes of each are `page.<name>` and `page.<name>.update`. */
+  pages: Array<{ name: string; label: string; group: string }>;
   global: string[];
 }
 
@@ -527,6 +573,15 @@ export interface PermissionExplanation {
     byRole: Array<{ role: string; scopes: 'all' | string[] }>;
     /** Global scopes that also apply (ANDed). */
     global: string[];
+  }>;
+  /** Every settings page (they belong to no resource): what the user may do, and the patterns that grant it. */
+  pages: Array<{
+    name: string;
+    label: string;
+    view: boolean;
+    update: boolean;
+    /** `code` is the page code the pattern matches: `page.<name>` or `page.<name>.update` (which also gives view). */
+    grantedBy: Array<{ role: string; pattern: string; code: string }>;
   }>;
   record?: {
     id: string;

@@ -4,7 +4,7 @@ import type { AdminUser } from '../auth/auth-adapter.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
 import { runInAdminContext, type AdminContext } from '../resource/admin-context.js';
 import { EffectivePermissions, type FieldLevel } from './effective.js';
-import { RESOURCE_OPERATIONS, actionCode, codeMatches, type RoleDefinition, type ScopedOperation } from './roles.js';
+import { RESOURCE_OPERATIONS, actionCode, codeMatches, pageCode, type RoleDefinition, type ScopedOperation } from './roles.js';
 import type { AdminPolicy } from './admin-policy.service.js';
 
 const SCOPED: ScopedOperation[] = ['view', 'update', 'delete'];
@@ -14,6 +14,8 @@ export interface ExplainInput {
   entry: RegisteredResource;
   /** The resource's full schema in the viewer's language (labels only). */
   labels: ResourceSchema;
+  /** Every settings page, labelled in the viewer's language. */
+  pages: Array<{ name: string; label: string }>;
   /** The target user's context: their permissions, as a request of theirs would have. */
   ctx: AdminContext & { permissions: EffectivePermissions };
   /** Role names and where they come from. */
@@ -84,6 +86,18 @@ export async function explainPermissions(policy: AdminPolicy, input: ExplainInpu
     global: policy.globalScopeNames(entry, perms),
   }));
 
+  // Pages belong to no resource; the answers are the ones the page routes enforce with (`EffectivePermissions.canPage`).
+  const pages = input.pages.map((page) => ({
+    ...page,
+    view: perms.canPage(page.name, 'view'),
+    update: perms.canPage(page.name, 'update'),
+    grantedBy: perms.superuser
+      ? []
+      : roles.flatMap((role) =>
+          role.permissions.flatMap((pattern) => [pageCode(page.name), pageCode(page.name, 'update')].filter((code) => codeMatches(pattern, code)).map((code) => ({ role: role.name, pattern, code }))),
+        ),
+  }));
+
   const result: Omit<PermissionExplanation, 'user'> = {
     superuser: perms.superuser,
     roles: [...sources.entries()].map(([name, from]) => {
@@ -95,6 +109,7 @@ export async function explainPermissions(policy: AdminPolicy, input: ExplainInpu
     actions,
     fields,
     scopes,
+    pages,
   };
   if (input.record !== undefined) result.record = await runInAdminContext(ctx, () => explainRecord(policy, entry, input.record!, ctx));
   return result;

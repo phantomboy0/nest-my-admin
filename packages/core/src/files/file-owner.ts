@@ -14,6 +14,8 @@ import type { FieldConfig } from '../schema/field-config.js';
 export interface FileOwner {
   /** What `nma_file.resource` holds, and the `resource` of `POST /api/uploads`: a resource's name, or `page:<name>`. */
   readonly name: string;
+  /** What the storage keys of its uploads start with (`<keyPrefix>/<field>/<year>/<month>/<uuid>.<ext>`). */
+  readonly keyPrefix: string;
   /** Where the owner's writes run: `nma_file` rows share their transaction when it is the files' DataSource too. */
   readonly dataSource: DataSource;
   /** The options of every configured field (`widget`, `file`). */
@@ -44,6 +46,7 @@ export function resourceFileOwner(entry: RegisteredResource, policy: AdminPolicy
   };
   return {
     name,
+    keyPrefix: name,
     dataSource: entry.dataSource,
     fieldConfig: entry.fieldConfig,
     hasField: (field) => !field.includes('.') && entry.schema.fields.some((candidate) => candidate.name === field),

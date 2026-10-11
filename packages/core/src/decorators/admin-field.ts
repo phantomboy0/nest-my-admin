@@ -53,6 +53,11 @@ export interface AdminFieldOptions {
    * in their `fields` rules (spec §6.2).
    */
   restricted?: boolean;
+  /**
+   * Settings pages only (`@AdminSettingsPage`): a write-only text field, such as an API key. Its value is never
+   * served: the form shows whether one is stored, replaces it with what is typed, and clears it on request.
+   */
+  secret?: boolean;
 }
 
 /** Customises how a property appears in the admin (spec §5.3 layer 3). Later layers (resource `fields`) win. */

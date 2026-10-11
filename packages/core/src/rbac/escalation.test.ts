@@ -33,6 +33,14 @@ describe('anti-escalation (Review Focus 1)', () => {
     expect(escalations(role({ permissions: ['product.view', 'product.action.*'] }), manager(publisher), shop)).toEqual(['grants product.action.recount, which you do not have']);
     expect(escalations(role({ permissions: ['product.*'] }), manager(role({ permissions: ['product.*'] })), shop)).toEqual([]);
   });
+  test('settings pages you may not open or save yourself', () => {
+    const shop: PolicyCatalog = { resources: new Map(), pages: ['payments', 'sms'], global: [] };
+    const holder = role({ permissions: ['page.payments', 'page.payments.update', 'page.sms'] });
+    expect(escalations(role({ permissions: ['page.payments', 'page.payments.update'] }), manager(holder), shop)).toEqual([]);
+    expect(escalations(role({ permissions: ['page.sms.update'] }), manager(holder), shop)).toEqual(['grants page.sms.update, which you do not have']);
+    expect(escalations(role({ permissions: ['page.*'] }), manager(holder), shop)).toEqual(['grants page.sms.update, which you do not have']);
+    expect(escalations(role({ permissions: ['*'] }), manager(role({ permissions: ['page.*'] })), shop)).toEqual([]);
+  });
   test('field levels above yours', () => {
     expect(escalations(role({ permissions: ['product.update'], scopes: { product: { update: 'drafts' } } }), manager(editor), catalog)).toEqual(['gives edit on product.price, above your view']);
     expect(escalations(role({ permissions: ['product.view', 'product.field.cost.view'] }), manager(editor), catalog)).toEqual([

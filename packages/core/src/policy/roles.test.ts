@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { actionCode, checkRoles, codeMatches, knownCodes, type PolicyCatalog, type RoleDefinition } from './roles.js';
+import { actionCode, checkRoles, codeMatches, knownCodes, pageCode, type PolicyCatalog, type RoleDefinition } from './roles.js';
 import { EffectivePermissions } from './effective.js';
 
 const catalog: PolicyCatalog = {
@@ -50,6 +50,32 @@ describe('permission codes', () => {
     expect(check({ permissions: ['product.action.publish', 'product.action.*'] })).not.toThrow();
     expect(check({ permissions: ['product.action.publsh'] })).toThrow('unknown permission "product.action.publsh" (did you mean "product.action.publish"?)');
     expect(check({ permissions: ['category.action.*'] })).toThrow('unknown permission "category.action.*"');
+  });
+  test('page codes: `page.{name}` to view, `page.{name}.update` to save; `*` and `page.*` cover them', () => {
+    const shop: PolicyCatalog = { ...catalog, pages: ['payments', 'sms'] };
+    expect(pageCode('payments')).toBe('page.payments');
+    expect(pageCode('payments', 'update')).toBe('page.payments.update');
+    expect(knownCodes(shop)).toEqual(expect.arrayContaining(['page.payments', 'page.payments.update', 'page.sms', 'page.sms.update']));
+    expect(knownCodes(catalog).some((code) => code.startsWith('page.'))).toBe(false);
+    const perms = (pattern: string) => new EffectivePermissions([{ name: 'r', permissions: [pattern] }], false);
+    const both = (pattern: string) => [perms(pattern).canPage('payments', 'view'), perms(pattern).canPage('payments', 'update')];
+    expect(both('page.payments')).toEqual([true, false]);
+    expect(both('page.payments.update')).toEqual([true, true]); // whoever may save may view
+    expect(both('page.payments.*')).toEqual([true, true]); // the wildcard matches only the save code
+    expect(both('page.*')).toEqual([true, true]);
+    expect(both('*')).toEqual([true, true]);
+    expect(both('page.*.update')).toEqual([true, true]);
+    expect(both('page.sms')).toEqual([false, false]);
+    // Resource wildcards never reach a page: no page is called view, update… (a boot check).
+    expect(both('*.view')).toEqual([false, false]);
+    expect(both('*.update')).toEqual([false, false]);
+    expect(both('product.*')).toEqual([false, false]);
+    expect(new EffectivePermissions([], true).canPage('payments', 'update')).toBe(true);
+    expect(new EffectivePermissions([], false).canPage('payments', 'view')).toBe(false);
+    const checkShop = (permissions: string[]) => () => checkRoles([{ name: 'r', permissions }], shop, fail);
+    expect(checkShop(['page.payments', 'page.sms.update', 'page.*', 'page.*.update', 'page.payments.*'])).not.toThrow();
+    expect(checkShop(['page.payment'])).toThrow('unknown permission "page.payment" (did you mean "page.payments"?)');
+    expect(checkShop(['page.payments.view'])).toThrow('unknown permission "page.payments.view"');
   });
 });
 

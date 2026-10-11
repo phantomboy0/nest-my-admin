@@ -22,6 +22,8 @@ export function catalogCodes(catalog: RbacCatalog): string[] {
     // Without these, unticking one box under `product.*` would silently drop every action the wildcard granted.
     for (const action of resource.actions) codes.push(`${resource.name}.action.${action.name}`);
   }
+  // Likewise for `page.*` and `*`: a settings page has a view code and a save code.
+  for (const page of catalog.pages) codes.push(`page.${page.name}`, `page.${page.name}.update`);
   return codes;
 }
 

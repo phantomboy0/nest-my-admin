@@ -20,6 +20,7 @@ import { AdminAuthService } from '../auth/auth.service.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
 import { addFileRoutes, UPLOAD_ROUTE } from '../files/file-routes.js';
 import { FilesService } from '../files/files.service.js';
+import { addPageRoutes } from '../pages/page-routes.js';
 import { addRbacRoutes } from '../rbac/rbac-routes.js';
 import { AdminRbac } from '../rbac/rbac.service.js';
 import type { ResolvedAdminOptions } from '../options.js';
@@ -214,6 +215,7 @@ export class AdminHttpServer implements OnModuleInit {
         res.end();
       });
     addFileRoutes(this.router, { files: this.files });
+    addPageRoutes(this.router, { api: this.api });
     addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry });
   }
 

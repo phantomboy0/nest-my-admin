@@ -10,6 +10,8 @@ import { AdminForbiddenError, AdminForbiddenFieldsError, AdminNotFoundError } fr
 import type { AdminUser } from '../auth/auth-adapter.js';
 import { AdminAuthService } from '../auth/auth.service.js';
 import type { GlobalScope, ResolvedAdminOptions } from '../options.js';
+import { resolveText } from '../i18n/localized-text.js';
+import { PageRegistry, unknownPage, type RegisteredPage } from '../pages/page-registry.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { createAdminContext, type AdminContext } from '../resource/admin-context.js';
 import type { RecordId } from '../resource/admin-resource-base.js';
@@ -42,6 +44,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
     private readonly registry: ResourceRegistry,
     private readonly auth: AdminAuthService,
     private readonly rbac: AdminRbac,
+    private readonly pages: PageRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {}
 
@@ -59,7 +62,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
       }
       entry.resource.attachScoper((qb, ctx) => this.applyScopes(qb, entry, 'view', ctx));
     }
-    checkRoles(this.options.roles, buildCatalog(this.registry, this.options), (message) => {
+    checkRoles(this.options.roles, buildCatalog(this.registry, this.options, this.pages.list().map((page) => page.name)), (message) => {
       throw new Error(`nest-my-admin: ${message}`);
     });
     if (this.auth.adapter && this.options.roles.length === 0 && !this.options.rbac) {
@@ -114,7 +117,8 @@ export class AdminPolicy implements OnApplicationBootstrap {
     ctx.locale = locale;
     const permissions = await this.forUser(user);
     ctx.permissions = permissions;
-    return explainPermissions(this, { user, entry, labels, ctx: ctx as AdminContext & { permissions: EffectivePermissions }, sources: await this.roleSources(user), record });
+    const pages = this.pages.list().map((page) => ({ name: page.name, label: resolveText(page.label, locale ?? this.options.locale, this.options.locale) }));
+    return explainPermissions(this, { user, entry, labels, pages, ctx: ctx as AdminContext & { permissions: EffectivePermissions }, sources: await this.roleSources(user), record });
   }
 
   permissionsOf(ctx: AdminContext): EffectivePermissions {
@@ -149,6 +153,19 @@ export class AdminPolicy implements OnApplicationBootstrap {
   requireAction(entry: RegisteredResource, action: Pick<RegisteredAction, 'name' | 'target'>, label: string, ctx: AdminContext): void {
     this.requireReach(entry, ctx);
     if (!this.canRunAction(entry, action, ctx)) throw new AdminForbiddenError(`You may not run "${label}" on ${entry.schema.label} records`);
+  }
+
+  /** Whether the user may view (`page.{name}`) or save (`page.{name}.update`, which includes viewing) a settings page. */
+  canPage(page: RegisteredPage, operation: 'view' | 'update', ctx: AdminContext): boolean {
+    return this.permissionsOf(ctx).canPage(page.name, operation);
+  }
+
+  /** 404 when the user may not view the page (it is not in their meta either), 403 when they may view but not save it. */
+  requirePage(page: RegisteredPage, operation: 'view' | 'update', ctx: AdminContext): void {
+    if (!this.canPage(page, 'view', ctx)) throw unknownPage(page.name);
+    if (operation === 'update' && !this.canPage(page, 'update', ctx)) {
+      throw new AdminForbiddenError(`You may not change ${resolveText(page.label, ctx.locale ?? this.options.locale, this.options.locale)}`);
+    }
   }
 
   /** Levels of every field and path of the resource, for this user. */

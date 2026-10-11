@@ -21,9 +21,10 @@ export interface DtoForm {
 
 /**
  * Builds the form of `dto`. `fieldsConfig` adds labels, help, widgets, `showIf`… per field, like a resource's
- * `fields`. Configuration mistakes go to `fail` (default: an Error naming the DTO).
+ * `fields`. Configuration mistakes go to `fail` (default: an Error naming the DTO). `secret` fields are a mistake
+ * unless `allow.secrets` (settings pages).
  */
-export function buildDtoForm(dto: DtoClass, fieldsConfig?: Record<string, FieldConfig | undefined>, fail?: (message: string) => never): DtoForm {
+export function buildDtoForm(dto: DtoClass, fieldsConfig?: Record<string, FieldConfig | undefined>, fail?: (message: string) => never, allow: { secrets?: boolean } = {}): DtoForm {
   const failed =
     fail ??
     ((message: string): never => {
@@ -47,7 +48,7 @@ export function buildDtoForm(dto: DtoClass, fieldsConfig?: Record<string, FieldC
   }
 
   const config = mergeFieldConfig([dto], fieldsConfig);
-  checkFieldConfig(fields, config, failed);
+  checkFieldConfig(fields, config, failed, allow);
   return { fields, constraints, required: names.filter((name) => constraints[name]!.required === true), config };
 }
 

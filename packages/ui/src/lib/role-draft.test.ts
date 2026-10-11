@@ -8,6 +8,7 @@ const catalog: RbacCatalog = {
     { name: 'product', label: 'Product', group: 'catalog', fields: [], scopes: [], custom: ['approve'], actions: [{ name: 'ship', label: 'Ship', target: 'record' }] },
     { name: 'tag', label: 'Tag', group: 'catalog', fields: [], scopes: [], custom: [], actions: [] },
   ],
+  pages: [{ name: 'payments', label: 'Payments', group: 'settings' }],
   global: ['rbac.view'],
 };
 const known = catalogCodes(catalog);
@@ -25,6 +26,10 @@ describe('role drafts', () => {
     expect(grants(fromStar, 'tag.view')).toBe(false);
     expect(grants(fromStar, 'rbac.view')).toBe(true);
     expect(grants(fromStar, 'product.approve')).toBe(true);
+    // Settings pages are codes of the catalog too: `*` and `page.*` keep them when another box is unticked.
+    expect(grants(fromStar, 'page.payments')).toBe(true);
+    expect(grants(fromStar, 'page.payments.update')).toBe(true);
+    expect(togglePermission(['page.*'], 'page.payments.update', false, known)).toEqual(['page.payments']);
   });
   test('unticking a plain code removes it', () => {
     expect(togglePermission(['product.view', 'tag.view'], 'tag.view', false, known)).toEqual(['product.view']);
