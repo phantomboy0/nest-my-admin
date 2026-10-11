@@ -15,6 +15,7 @@ const schema: ResourceSchema = {
   creatable: true,
   related: [],
   softDelete: false,
+  actions: [],
   fields: [
     f('id', 'number', { primary: true, readonly: true }),
     f('name', 'string'),

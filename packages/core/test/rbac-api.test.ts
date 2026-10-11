@@ -110,7 +110,7 @@ describe(`RBAC API (${TEST_DB})`, () => {
   test('the catalog lists what roles can name', async () => {
     const catalog = (await as('reader').get('/catalog')).body;
     expect(catalog.operations).toEqual(['view', 'create', 'update', 'delete', 'purge']);
-    expect(catalog.resources.find((resource: { name: string }) => resource.name === 'widget')).toMatchObject({ label: 'Widget', fields: expect.arrayContaining([{ name: 'price', label: 'Price', restricted: false }]) });
+    expect(catalog.resources.find((resource: { name: string }) => resource.name === 'widget')).toMatchObject({ label: 'Widget', fields: expect.arrayContaining([{ name: 'price', label: 'Price', restricted: false }]), actions: [] });
     expect(catalog.global).toEqual(['rbac.view', 'rbac.manage']);
   });
 

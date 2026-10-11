@@ -19,6 +19,8 @@ export function catalogCodes(catalog: RbacCatalog): string[] {
   for (const resource of catalog.resources) {
     for (const operation of catalog.operations) codes.push(`${resource.name}.${operation}`);
     for (const custom of resource.custom) codes.push(`${resource.name}.${custom}`);
+    // Without these, unticking one box under `product.*` would silently drop every action the wildcard granted.
+    for (const action of resource.actions) codes.push(`${resource.name}.action.${action.name}`);
   }
   return codes;
 }

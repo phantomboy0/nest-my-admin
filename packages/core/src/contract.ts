@@ -158,6 +158,68 @@ export interface FieldConstraints {
   oneOf?: string[];
 }
 
+/** A form described by a DTO alone: an action's input, a settings page. */
+export interface DtoFormSchema {
+  fields: FieldSchema[];
+  /** Keyed like `ResourceSchema.form.constraints`. */
+  constraints: Record<string, FieldConstraints>;
+  /** Top-level fields that must be sent. */
+  required: string[];
+}
+
+/**
+ * A custom action of a resource (`@AdminAction`), run with `POST /resources/:resource/actions/:name` and the body
+ * `ActionRequest`. Its permission code is `<resource>.action.<name>`; record actions also need `<resource>.update`.
+ */
+export interface ActionSchema {
+  name: string;
+  label: string;
+  /** `record`: runs on records (`ids`); `resource`: runs once, without ids (a list toolbar button). */
+  target: 'record' | 'resource';
+  /** A record action that also takes a selection of several records. */
+  bulk: boolean;
+  /** Bulk: all records in one transaction (one failure undoes everything and is the answer) instead of one each. */
+  atomic: boolean;
+  /** Ask before running: `true` for the default question, or the question itself. */
+  confirm?: string | true;
+  variant: 'default' | 'destructive';
+  icon?: string;
+  /** The form to fill in before running; its values are sent as `input`. */
+  input?: DtoFormSchema;
+}
+
+/** Body of `POST /resources/:resource/actions/:name`. Record actions need `ids` (encoded record ids); resource actions refuse them. */
+export interface ActionRequest {
+  ids?: string[];
+  /** Values of the action's input form; leave out (or `{}`) for an action without one. */
+  input?: Record<string, unknown>;
+}
+
+/**
+ * The answer for one record (one distinct id): the record after the action, or `null` when the user can no longer
+ * see it (the action deleted it or moved it out of their scopes).
+ */
+export interface ActionRecordResult {
+  message?: string;
+  record: AdminRecord | null;
+}
+
+/**
+ * The answer for several records. Not atomic: each id succeeds or fails on its own. Atomic: either every id is in
+ * `ok`, or the request fails as a whole with the first error. `message` is set when every record that ran gave the
+ * same one.
+ */
+export interface ActionBulkResult extends BulkResult {
+  message?: string;
+}
+
+/** The answer of a resource action. */
+export interface ActionResourceResult {
+  message?: string;
+}
+
+export type ActionResult = ActionRecordResult | ActionBulkResult | ActionResourceResult;
+
 export interface MetaResourceSummary {
   name: string;
   label: string;
@@ -225,6 +287,11 @@ export interface ResourceSchema {
   /** What the signed-in user may do (spec §6.1); records may narrow update/delete in `_perm`. */
   permissions?: { create: boolean; update: boolean; delete: boolean; purge: boolean };
   /**
+   * The custom actions (`@AdminAction`) the signed-in user may run, in declaration order. Record actions are narrowed
+   * per record by `_perm.actions`.
+   */
+  actions: ActionSchema[];
+  /**
    * Other resources whose relation fields point at this one (spec §9.4 Related): a record's related records are
    * `/<resource>?filter[<field>][<operator>]=<id>`.
    */
@@ -254,12 +321,24 @@ export interface ResourceSchema {
 /**
  * A record: field name → value, dotted list paths (`'customer.name'`) as flat keys, `_id` (the encoded record id used
  * in URLs: key values in primary-key order, `~` as `~0` and `,` as `~1`, joined by `,`; `new` is `~new`), `_title`,
- * the record's display name (spec §5.2 `title`), and when configured `_readonly` (fields `readonlyIf` locks on this
+ * the record's display name (spec §5.2 `title`), `_perm` (`RecordPermissions`, absent when nothing narrows what the
+ * schema allows), and when configured `_readonly` (fields `readonlyIf` locks on this
  * record) and `_links` (`RecordLink[]`). File and image fields hold their key (a list of keys with `file.many`), and
  * resources with such fields add `_files`: field name → `AdminFileRef` (`AdminFileRef[]` with `file.many`) for every
  * field that holds a file.
  */
 export type AdminRecord = Record<string, unknown>;
+
+/**
+ * `_perm` of a record: what the user may do with this one (permission, row scopes and `@AdminCan` rules together).
+ * `actions` is there on resources with record actions: the names of those the user may run on this record. A record
+ * without `_perm` allows everything its schema does.
+ */
+export interface RecordPermissions {
+  update: boolean;
+  delete: boolean;
+  actions?: string[];
+}
 
 /** `POST /resources/:resource/bulk-delete` with `{ ids }` (encoded record ids): each id succeeds or fails on its own. */
 export interface BulkResult {
@@ -396,6 +475,8 @@ export interface RbacCatalog {
     fields: Array<{ name: string; label: string; restricted: boolean }>;
     scopes: string[];
     custom: string[];
+    /** `@AdminAction`s: the permission code of each is `<resource>.action.<name>`. */
+    actions: Array<{ name: string; label: string; target: 'record' | 'resource' }>;
   }>;
   global: string[];
 }
@@ -418,6 +499,17 @@ export interface PermissionExplanation {
     allowed: boolean;
     /** The patterns that grant it; `via: 'update'` when view comes from holding update. */
     grantedBy: Array<{ role: string; pattern: string; via?: 'update' }>;
+  }>;
+  /** The resource's `@AdminAction`s. `allowed` is what the schema offers the user; records narrow it (`record.actions`). */
+  actions: Array<{
+    name: string;
+    label: string;
+    target: 'record' | 'resource';
+    allowed: boolean;
+    /** Granted, but not allowed: a record action also needs `update` on the resource. */
+    needsUpdate?: true;
+    /** The patterns that grant `<resource>.action.<name>`. */
+    grantedBy: Array<{ role: string; pattern: string }>;
   }>;
   fields: Array<{
     name: string;
@@ -442,6 +534,8 @@ export interface PermissionExplanation {
     view: boolean;
     update: boolean;
     delete: boolean;
+    /** The record actions the user may run on it (as in the record's `_perm.actions`); absent without record actions. */
+    actions?: string[];
     /** Why each answer is no: `permission`, `scope`, `rule` (an `@AdminCan` method), `missing`. */
     reasons: Partial<Record<'view' | 'update' | 'delete', 'permission' | 'scope' | 'rule' | 'missing'>>;
   };

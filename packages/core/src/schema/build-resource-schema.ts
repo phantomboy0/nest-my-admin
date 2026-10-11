@@ -307,6 +307,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     primaryKeys,
     creatable: children.length === 0,
     related: [], // filled in by the registry once every resource is known
+    actions: [], // filled in by the registry from the resource's @AdminAction methods
     softDelete: metadata.columns.some((column) => column.isDeleteDate),
     ...(versionField ? { version: versionField } : {}),
     // Texts in the first language given; AdminApiService localizes per request.

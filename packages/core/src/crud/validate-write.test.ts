@@ -76,6 +76,12 @@ describe('validateWrite', () => {
     const result = await validateWrite({ name: 'x' }, { allowed: ['name', 'active'], dto: DefaultsDto, partial: true });
     expect(Object.keys(result)).toEqual(['name']);
   });
+
+  test('keepDefaults keeps them (an action input has nothing stored to overwrite)', async () => {
+    const result = await validateWrite({ name: 'x' }, { allowed: ['name', 'active'], dto: DefaultsDto, keepDefaults: true });
+    expect(Object.keys(result).sort()).toEqual(['active', 'name']);
+    expect(result).toBeInstanceOf(DefaultsDto);
+  });
 });
 
 describe('file fields', () => {

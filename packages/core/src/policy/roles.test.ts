@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { checkRoles, codeMatches, knownCodes, type PolicyCatalog, type RoleDefinition } from './roles.js';
+import { actionCode, checkRoles, codeMatches, knownCodes, type PolicyCatalog, type RoleDefinition } from './roles.js';
+import { EffectivePermissions } from './effective.js';
 
 const catalog: PolicyCatalog = {
   resources: new Map([
-    ['product', { fields: ['name', 'price', 'cost'], scopes: ['drafts', 'own'], custom: ['view_all'] }],
+    ['product', { fields: ['name', 'price', 'cost'], scopes: ['drafts', 'own'], custom: ['view_all'], actions: ['publish', 'recount'] }],
     ['category', { fields: ['name'], scopes: [], custom: [] }],
   ]),
   global: ['reports.run'],
@@ -31,6 +32,24 @@ describe('permission codes', () => {
     expect(codes).toContain('product.view_all');
     expect(codes).toContain('product.field.cost.edit');
     expect(codes).toContain('reports.run');
+  });
+  test('action codes: `{resource}.action.{name}`, covered by the resource wildcard', () => {
+    expect(actionCode('product', 'publish')).toBe('product.action.publish');
+    expect(knownCodes(catalog)).toEqual(expect.arrayContaining(['product.action.publish', 'product.action.recount']));
+    expect(knownCodes(catalog).some((code) => code.startsWith('category.action.'))).toBe(false);
+    const can = (pattern: string) => new EffectivePermissions([{ name: 'r', permissions: [pattern] }], false).can('product.action.publish');
+    expect(can('product.action.publish')).toBe(true);
+    expect(can('product.action.*')).toBe(true);
+    expect(can('product.*')).toBe(true); // everything on product, as for field and custom codes
+    expect(can('*')).toBe(true);
+    expect(can('*.action.publish')).toBe(true);
+    expect(can('product.action.recount')).toBe(false);
+    expect(can('product.update')).toBe(false);
+    expect(can('*.update')).toBe(false);
+    expect(can('product.action')).toBe(false);
+    expect(check({ permissions: ['product.action.publish', 'product.action.*'] })).not.toThrow();
+    expect(check({ permissions: ['product.action.publsh'] })).toThrow('unknown permission "product.action.publsh" (did you mean "product.action.publish"?)');
+    expect(check({ permissions: ['category.action.*'] })).toThrow('unknown permission "category.action.*"');
   });
 });
 

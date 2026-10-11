@@ -4,7 +4,7 @@ import type { AdminUser } from '../auth/auth-adapter.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
 import { runInAdminContext, type AdminContext } from '../resource/admin-context.js';
 import { EffectivePermissions, type FieldLevel } from './effective.js';
-import { RESOURCE_OPERATIONS, codeMatches, type RoleDefinition, type ScopedOperation } from './roles.js';
+import { RESOURCE_OPERATIONS, actionCode, codeMatches, type RoleDefinition, type ScopedOperation } from './roles.js';
 import type { AdminPolicy } from './admin-policy.service.js';
 
 const SCOPED: ScopedOperation[] = ['view', 'update', 'delete'];
@@ -48,6 +48,15 @@ export async function explainPermissions(policy: AdminPolicy, input: ExplainInpu
     return { operation, allowed, grantedBy };
   });
 
+  // The same answer the schema cut gives (`AdminPolicy.canRunAction`); the patterns say where the code comes from.
+  const actions = [...entry.actions.values()].map((action) => {
+    const code = actionCode(r, action.name);
+    const grantedBy = perms.superuser ? [] : roles.flatMap((role) => role.permissions.filter((pattern) => codeMatches(pattern, code)).map((pattern) => ({ role: role.name, pattern })));
+    const allowed = policy.canRunAction(entry, action, ctx);
+    const label = labels.actions.find((candidate) => candidate.name === action.name)?.label ?? action.name;
+    return { name: action.name, label, target: action.target, allowed, ...(!allowed && action.target === 'record' && perms.can(code) && !perms.canOn(r, 'update') ? { needsUpdate: true as const } : {}), grantedBy };
+  });
+
   const levels = policy.levels(entry, ctx);
   const fields = entry.schema.fields
     .filter((field) => !field.name.includes('.'))
@@ -83,6 +92,7 @@ export async function explainPermissions(policy: AdminPolicy, input: ExplainInpu
     }),
     resource: { name: r, label: labels.label },
     operations,
+    actions,
     fields,
     scopes,
   };
@@ -126,5 +136,9 @@ async function explainRecord(policy: AdminPolicy, entry: RegisteredResource, raw
   };
   const update = await write('update');
   const del = await write('delete');
-  return { id: key, exists, view, update, delete: del, reasons };
+  // As `_perm.actions`: the action's own rules decide, not the rule for update.
+  const recordActions = [...entry.actions.values()].filter((action) => action.target === 'record');
+  const updatable = update || reasons.update === 'rule';
+  const actions = recordActions.filter((action) => updatable && policy.canRunAction(entry, action, ctx) && policy.recordRule(entry, action.name, found!, ctx)).map((action) => action.name);
+  return { id: key, exists, view, update, delete: del, ...(recordActions.length > 0 ? { actions } : {}), reasons };
 }

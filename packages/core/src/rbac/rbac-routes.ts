@@ -88,6 +88,7 @@ export function addRbacRoutes<S extends State>(
             fields: info.fields.map((field) => ({ name: field, label: schema.fields.find((candidate) => candidate.name === field)?.label ?? field, restricted: (info.restricted ?? []).includes(field) })),
             scopes: info.scopes,
             custom: info.custom,
+            actions: schema.actions.map((action) => ({ name: action.name, label: action.label, target: action.target })),
           };
         }),
         global: catalog.global,

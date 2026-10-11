@@ -25,6 +25,14 @@ describe('anti-escalation (Review Focus 1)', () => {
     expect(star).toContain('grants category.view, which you do not have');
     expect(star).toContain('grants rbac.view, which you do not have');
   });
+  test('actions you may not run yourself', () => {
+    const shop: PolicyCatalog = { resources: new Map([['product', { fields: ['name'], scopes: [], custom: [], actions: ['publish', 'recount'] }]]), global: [] };
+    const publisher = role({ permissions: ['product.view', 'product.update', 'product.action.publish'] });
+    expect(escalations(role({ permissions: ['product.view', 'product.action.publish'] }), manager(publisher), shop)).toEqual([]);
+    expect(escalations(role({ permissions: ['product.view', 'product.action.recount'] }), manager(publisher), shop)).toEqual(['grants product.action.recount, which you do not have']);
+    expect(escalations(role({ permissions: ['product.view', 'product.action.*'] }), manager(publisher), shop)).toEqual(['grants product.action.recount, which you do not have']);
+    expect(escalations(role({ permissions: ['product.*'] }), manager(role({ permissions: ['product.*'] })), shop)).toEqual([]);
+  });
   test('field levels above yours', () => {
     expect(escalations(role({ permissions: ['product.update'], scopes: { product: { update: 'drafts' } } }), manager(editor), catalog)).toEqual(['gives edit on product.price, above your view']);
     expect(escalations(role({ permissions: ['product.view', 'product.field.cost.view'] }), manager(editor), catalog)).toEqual([

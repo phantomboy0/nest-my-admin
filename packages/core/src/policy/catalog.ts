@@ -13,7 +13,7 @@ export function customCodes(entry: RegisteredResource): string[] {
   return definition?.permissions ?? [];
 }
 
-/** Everything roles may name: resources with their fields, scopes, restricted fields and custom codes; global codes. */
+/** Everything roles may name: resources with their fields, scopes, restricted fields, custom codes and actions; global codes. */
 export function buildCatalog(registry: ResourceRegistry, options: ResolvedAdminOptions): PolicyCatalog {
   const resources: PolicyCatalog['resources'] = new Map();
   for (const entry of registry.list()) {
@@ -22,6 +22,7 @@ export function buildCatalog(registry: ResourceRegistry, options: ResolvedAdminO
       fields,
       scopes: Object.keys(getScopes(entry.resource.constructor)),
       custom: customCodes(entry),
+      actions: [...entry.actions.keys()],
       restricted: fields.filter((name) => entry.fieldConfig.get(name)?.restricted === true),
     });
   }

@@ -1,9 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { AdminRecord, BulkResult, FieldSchema, ListResponse, MetaResponse, OptionsResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
+import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaResponse, OptionsResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { persianLike } from '../i18n/persian.js';
 import { toErrorResponse } from '../http/error-response.js';
+import { toActionSchema } from '../decorators/admin-action.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
 import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
@@ -21,12 +22,10 @@ import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
 import { AdminResourceBase, type ListParams, type RecordId, type RecordLinkConfig } from '../resource/admin-resource-base.js';
+import { ActionService, MAX_BULK } from './action.service.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
 const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
-
-/** Most ids one bulk request may name (a list page). */
-const MAX_BULK = 100;
 
 @Injectable()
 export class AdminApiService {
@@ -42,7 +41,18 @@ export class AdminApiService {
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
     private readonly policy: AdminPolicy,
     private readonly files: FilesService,
-  ) {}
+  ) {
+    this.actions = new ActionService({
+      policy,
+      options,
+      logger: this.logger,
+      write: (entry, ctx, work) => this.write(entry, ctx, work),
+      record: (entry, entity, ctx) => this.record(entry, entity, ctx),
+    });
+  }
+
+  /** Runs `@AdminAction`s; it writes and serializes through this service. */
+  private readonly actions: ActionService;
 
   /** The resource as this request's user sees it (cached per request). */
   private readonly views = new WeakMap<AdminContext, Map<string, ResourceView>>();
@@ -97,7 +107,8 @@ export class AdminApiService {
     const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes, this.files.enabled));
     const layout = entry.resource.form?.layout;
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale) } : entry.schema.form;
-    const localized = { ...entry.schema, label: text(entry.label), related, fields, form };
+    const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
+    const localized = { ...entry.schema, label: text(entry.label), related, fields, form, actions };
     return ctx ? this.policy.view(entry, localized, ctx).schema : localized;
   }
 
@@ -539,6 +550,14 @@ export class AdminApiService {
       }
     }
     return result;
+  }
+
+  /**
+   * `POST /resources/:name/actions/:action` with `{ ids?, input? }`: runs an `@AdminAction` (see `ActionService`).
+   * One record answers `{ message?, record }`, several `{ ok, failed, message? }`, a resource action `{ message? }`.
+   */
+  runAction(name: string, action: string, body: unknown, ctx: AdminContext): Promise<ActionResult> {
+    return this.actions.run(this.registry.get(name), action, body, ctx);
   }
 
   /** Takes a record out of the trash. */

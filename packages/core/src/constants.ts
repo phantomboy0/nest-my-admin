@@ -14,3 +14,6 @@ export const ADMIN_OPTIONS = 'NEST_MY_ADMIN_OPTIONS';
 export const ADMIN_FIELD_METADATA = 'nest-my-admin:fields';
 export const ADMIN_SCOPES_METADATA = 'nest-my-admin:scopes';
 export const ADMIN_CAN_METADATA = 'nest-my-admin:can';
+
+/** Reflect-metadata key holding the @AdminAction definitions of a resource class, by method name. */
+export const ADMIN_ACTIONS_METADATA = 'nest-my-admin:actions';

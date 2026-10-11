@@ -1,8 +1,9 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { Brackets, type EntityManager, type SelectQueryBuilder, type WhereExpressionBuilder } from 'typeorm';
 import { ADMIN_OPTIONS, ADMIN_RESOURCE_METADATA } from '../constants.js';
-import type { AdminRecord, ExplainRoleSource, FieldSchema, PermissionExplanation, ResourceSchema } from '../contract.js';
+import type { AdminRecord, ExplainRoleSource, FieldSchema, PermissionExplanation, RecordPermissions, ResourceSchema } from '../contract.js';
 import { recordIdOf } from '../crud/record-id.js';
+import type { RegisteredAction } from '../decorators/admin-action.js';
 import { getCanRules, getScopes, type RecordOperation, type ScopeCondition } from '../decorators/admin-scope.js';
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import { AdminForbiddenError, AdminForbiddenFieldsError, AdminNotFoundError } from '../errors.js';
@@ -16,7 +17,7 @@ import { AdminRbac } from '../rbac/rbac.service.js';
 import { buildCatalog, customCodes } from './catalog.js';
 import { EffectivePermissions, type FieldLevel } from './effective.js';
 import { explainPermissions } from './explain.js';
-import { RESOURCE_OPERATIONS, checkRoles, type ResourceOperation, type RoleDefinition, type ScopedOperation } from './roles.js';
+import { RESOURCE_OPERATIONS, actionCode, checkRoles, type ResourceOperation, type RoleDefinition, type ScopedOperation } from './roles.js';
 
 const RANK: Record<FieldLevel, number> = { hidden: 0, view: 1, edit: 2 };
 const OPEN: EffectivePermissions = new EffectivePermissions([], true);
@@ -48,8 +49,8 @@ export class AdminPolicy implements OnApplicationBootstrap {
     for (const entry of this.registry.list()) {
       const custom = customCodes(entry);
       for (const code of custom) {
-        if (!/^[a-z][a-z0-9_]*$/i.test(code) || (RESOURCE_OPERATIONS as readonly string[]).includes(code) || code === 'field') {
-          throw new Error(`${entry.className}: permission "${code}" must be a word (letters, digits, _) other than ${RESOURCE_OPERATIONS.join(', ')} and field`);
+        if (!/^[a-z][a-z0-9_]*$/i.test(code) || (RESOURCE_OPERATIONS as readonly string[]).includes(code) || code === 'field' || code === 'action') {
+          throw new Error(`${entry.className}: permission "${code}" must be a word (letters, digits, _) other than ${RESOURCE_OPERATIONS.join(', ')}, field and action`);
         }
       }
       const scopes = getScopes(entry.resource.constructor);
@@ -133,6 +134,23 @@ export class AdminPolicy implements OnApplicationBootstrap {
     }
   }
 
+  /**
+   * Whether the user is offered an action at all: they can reach the resource, hold `{resource}.action.{name}`
+   * (`{resource}.*` covers it), and for a record action `{resource}.update` too, since it changes records. Records
+   * narrow it (`_perm.actions`).
+   */
+  canRunAction(entry: RegisteredResource, action: Pick<RegisteredAction, 'name' | 'target'>, ctx: AdminContext): boolean {
+    const perms = this.permissionsOf(ctx);
+    if (!perms.canReach(entry.schema.name) || !perms.can(actionCode(entry.schema.name, action.name))) return false;
+    return action.target === 'resource' || perms.canOn(entry.schema.name, 'update');
+  }
+
+  /** 404 without any access to the resource, 403 without the action (or, for a record action, without `update`). */
+  requireAction(entry: RegisteredResource, action: Pick<RegisteredAction, 'name' | 'target'>, label: string, ctx: AdminContext): void {
+    this.requireReach(entry, ctx);
+    if (!this.canRunAction(entry, action, ctx)) throw new AdminForbiddenError(`You may not run "${label}" on ${entry.schema.label} records`);
+  }
+
   /** Levels of every field and path of the resource, for this user. */
   levels(entry: RegisteredResource, ctx: AdminContext): Map<string, FieldLevel> {
     const perms = this.permissionsOf(ctx);
@@ -191,6 +209,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
       permissions,
       fields: schema.fields.filter((field) => visible(field.name)),
       related: schema.related.filter((related) => perms.canOn(related.resource, 'view')),
+      actions: schema.actions.filter((action) => this.canRunAction(entry, action, ctx)),
       list: {
         ...schema.list,
         columns: keep(schema.list.columns, visible),
@@ -336,8 +355,8 @@ export class AdminPolicy implements OnApplicationBootstrap {
     if ((await this.allowedIds(entry, [id], operation, ctx, withDeleted)).size === 0) throw new AdminNotFoundError(`${entry.schema.label} "${rawId}" not found`);
   }
 
-  /** `@AdminCan` rules for one record: all must agree; a rule that throws says no. */
-  recordRule(entry: RegisteredResource, operation: RecordOperation, entity: object, ctx: AdminContext): boolean {
+  /** `@AdminCan` rules for one record (`operation`: update, delete or a record action's name): all must agree; a rule that throws says no. */
+  recordRule(entry: RegisteredResource, operation: RecordOperation | (string & {}), entity: object, ctx: AdminContext): boolean {
     const methods = entry.resource as unknown as Record<string | symbol, (record: object, ctx: AdminContext) => unknown>;
     for (const key of getCanRules(entry.resource.constructor, operation)) {
       try {
@@ -355,23 +374,34 @@ export class AdminPolicy implements OnApplicationBootstrap {
     if (!this.recordRule(entry, operation, entity, ctx)) throw new AdminForbiddenError(`You may not ${operation} this ${entry.schema.label} record`);
   }
 
-  /** `_perm` of each record (skipped for superusers): permission, scope and `@AdminCan` together. */
-  async recordPermissions(entry: RegisteredResource, entities: object[], ctx: AdminContext): Promise<Map<string, { update: boolean; delete: boolean }> | undefined> {
+  /**
+   * `_perm` of each record: permission, scope and `@AdminCan` together. `actions` (on resources with record actions)
+   * names the ones the user may run on that record: offered to them (`canRunAction`), the record within their update
+   * scopes, and the action's own `@AdminCan` rules agreeing. Skipped (undefined) for superusers on a resource without
+   * any `@AdminCan` rule: nothing narrows what the schema says.
+   */
+  async recordPermissions(entry: RegisteredResource, entities: object[], ctx: AdminContext): Promise<Map<string, RecordPermissions> | undefined> {
     const perms = this.permissionsOf(ctx);
-    const hasRules = getCanRules(entry.resource.constructor, 'update').length > 0 || getCanRules(entry.resource.constructor, 'delete').length > 0;
+    const target = entry.resource.constructor;
+    const recordActions = [...entry.actions.values()].filter((action) => action.target === 'record');
+    const hasRules = ['update', 'delete', ...recordActions.map((action) => action.name)].some((name) => getCanRules(target, name).length > 0);
     if (perms.superuser && !hasRules) return undefined;
     const keys = entry.schema.primaryKeys;
     const ids = entities.map((entity) => (keys.length === 1 ? (entity as Record<string, unknown>)[keys[0]!] : Object.fromEntries(keys.map((key) => [key, (entity as Record<string, unknown>)[key]])))) as RecordId[];
-    const result = new Map<string, { update: boolean; delete: boolean }>();
+    const result = new Map<string, RecordPermissions>();
     const allowed: Record<RecordOperation, Set<string> | undefined> = { update: undefined, delete: undefined };
     for (const operation of ['update', 'delete'] as const) {
       if (perms.canOn(entry.schema.name, operation)) allowed[operation] = await this.allowedIds(entry, ids, operation, ctx);
     }
+    const offered = recordActions.filter((action) => this.canRunAction(entry, action, ctx));
     for (const entity of entities) {
       const id = recordIdOf(entity, keys);
+      const updatable = allowed.update?.has(id) === true;
       result.set(id, {
-        update: allowed.update?.has(id) === true && this.recordRule(entry, 'update', entity, ctx),
+        update: updatable && this.recordRule(entry, 'update', entity, ctx),
         delete: allowed.delete?.has(id) === true && this.recordRule(entry, 'delete', entity, ctx),
+        // An action has its own rules: a shipped order may be closed to edits and still be cancellable.
+        ...(recordActions.length > 0 ? { actions: updatable ? offered.filter((action) => this.recordRule(entry, action.name, entity, ctx)).map((action) => action.name) : [] } : {}),
       });
     }
     return result;

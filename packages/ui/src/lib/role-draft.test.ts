@@ -5,8 +5,8 @@ import { catalogCodes, grants, togglePermission } from './role-draft';
 const catalog: RbacCatalog = {
   operations: ['view', 'create', 'update', 'delete', 'purge'],
   resources: [
-    { name: 'product', label: 'Product', group: 'catalog', fields: [], scopes: [], custom: ['approve'] },
-    { name: 'tag', label: 'Tag', group: 'catalog', fields: [], scopes: [], custom: [] },
+    { name: 'product', label: 'Product', group: 'catalog', fields: [], scopes: [], custom: ['approve'], actions: [{ name: 'ship', label: 'Ship', target: 'record' }] },
+    { name: 'tag', label: 'Tag', group: 'catalog', fields: [], scopes: [], custom: [], actions: [] },
   ],
   global: ['rbac.view'],
 };
@@ -19,7 +19,7 @@ describe('role drafts', () => {
   });
   test('unticking a code a wildcard grants expands the wildcard', () => {
     const next = togglePermission(['product.*', 'tag.view'], 'product.delete', false, known);
-    expect(next.sort()).toEqual(['product.approve', 'product.create', 'product.purge', 'product.update', 'product.view', 'tag.view'].sort());
+    expect(next.sort()).toEqual(['product.action.ship', 'product.approve', 'product.create', 'product.purge', 'product.update', 'product.view', 'tag.view'].sort());
     expect(grants(next, 'product.delete')).toBe(false);
     const fromStar = togglePermission(['*'], 'tag.view', false, known);
     expect(grants(fromStar, 'tag.view')).toBe(false);

@@ -28,9 +28,11 @@ export type RecordOperation = 'update' | 'delete';
 
 /**
  * A per-record rule (spec §6.3): `@AdminCan('update') canEdit(record, ctx) { return record.status === 'draft'; }`.
- * Records carry the answer in `_perm`; PATCH and DELETE re-check it (403).
+ * Records carry the answer in `_perm`; PATCH and DELETE re-check it (403). The name of a record `@AdminAction`
+ * (`@AdminCan('ship')`) rules that action the same way: `_perm.actions` lists it only where the rule agrees, and
+ * running it elsewhere is a 403. Any other name fails at boot.
  */
-export function AdminCan(operation: RecordOperation): MethodDecorator {
+export function AdminCan(operation: RecordOperation | (string & {})): MethodDecorator {
   return (target, propertyKey) => {
     const owner = target.constructor;
     const inherited = (Reflect.getMetadata(ADMIN_CAN_METADATA, owner) as Record<string, Array<string | symbol>> | undefined) ?? {};
@@ -40,6 +42,13 @@ export function AdminCan(operation: RecordOperation): MethodDecorator {
   };
 }
 
-export function getCanRules(target: Function, operation: RecordOperation): Array<string | symbol> {
-  return (Reflect.getMetadata(ADMIN_CAN_METADATA, target) as Record<string, Array<string | symbol>> | undefined)?.[operation] ?? [];
+/** The rule methods for an operation (`update`, `delete`) or a record action's name. */
+export function getCanRules(target: Function, operation: string): Array<string | symbol> {
+  const rules = Reflect.getMetadata(ADMIN_CAN_METADATA, target) as Record<string, Array<string | symbol>> | undefined;
+  return rules && Object.hasOwn(rules, operation) ? rules[operation]! : [];
+}
+
+/** Every name the class has `@AdminCan` rules for. */
+export function getCanRuleNames(target: Function): string[] {
+  return Object.keys((Reflect.getMetadata(ADMIN_CAN_METADATA, target) as Record<string, unknown> | undefined) ?? {});
 }

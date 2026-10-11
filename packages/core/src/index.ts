@@ -21,6 +21,7 @@ export { AdminField, BADGE_COLORS, WIDGETS, type AdminFieldOptions, type FileFie
 export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutSectionConfig, LayoutTabConfig } from './schema/field-config.js';
 export { AdminContext } from './resource/admin-context.js';
 export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from './decorators/admin-scope.js';
+export { AdminAction, type ActionOutcome, type AdminActionOptions } from './decorators/admin-action.js';
 export type { FieldRule, ResourceOperation, RoleDefinition, ScopedOperation } from './policy/roles.js';
 export { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './rbac/entities.js';
 export { ADMIN_FILE_ENTITIES, NmaFile } from './files/entities.js';

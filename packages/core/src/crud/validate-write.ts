@@ -13,6 +13,8 @@ export interface WriteRules {
   partial?: boolean;
   /** The resource's fields: without a DTO, keys inside object fields are checked against their children. */
   fields?: FieldSchema[];
+  /** Keep the values the DTO's class initializers give to properties the body leaves out (an action's input); writes drop them. */
+  keepDefaults?: boolean;
   /** Cleans the HTML of `richtext` fields; sent values pass through it before anything else looks at them. Required when `fields` has one. */
   sanitizeHtml?: (html: string) => string;
 }
@@ -129,8 +131,10 @@ export async function validateWrite(body: unknown, rules: WriteRules): Promise<o
   if (errors.length > 0) throw new AdminValidationError(flattenValidationErrors(errors));
   for (const name of sent) (instance as Record<string, unknown>)[name] = input[name];
   // Constructor initializers add keys the client never sent; they would overwrite stored values on update.
-  for (const key of Object.keys(instance)) {
-    if (!Object.hasOwn(input, key)) delete (instance as Record<string, unknown>)[key];
+  if (!rules.keepDefaults) {
+    for (const key of Object.keys(instance)) {
+      if (!Object.hasOwn(input, key)) delete (instance as Record<string, unknown>)[key];
+    }
   }
   return instance;
 }

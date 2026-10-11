@@ -16,13 +16,19 @@ export interface RoleDefinition {
   description?: LocalizedText;
   /**
    * Permission codes: `product.view`, `product.update`, `product.field.cost.view`, `product.view_all` (custom),
-   * `reports.run` (global custom). Wildcards: `*` (everything), `product.*` (everything on product), `*.view`.
+   * `order.action.ship` (an `@AdminAction`), `reports.run` (global custom). Wildcards: `*` (everything), `product.*`
+   * (everything on product, its actions included), `order.action.*` (every action on order), `*.view`.
    */
   permissions: string[];
   /** Per resource, per field: `hidden`, `readonly` (= `view`) or `edit` (spec §6.2). */
   fields?: Record<string, Record<string, FieldRule>>;
   /** Per resource, per operation: the `@AdminScope` names that limit the rows (ORed); none = all rows. */
   scopes?: Record<string, Partial<Record<ScopedOperation, string | string[]>>>;
+}
+
+/** The permission code of an `@AdminAction`: `order.action.ship`. */
+export function actionCode(resource: string, action: string): string {
+  return `${resource}.action.${action}`;
 }
 
 /** Whether `pattern` grants `code`: `*` as the last segment matches the rest, elsewhere exactly one segment. */
@@ -38,9 +44,9 @@ export function codeMatches(pattern: string, code: string): boolean {
   return wanted.length === actual.length;
 }
 
-/** What the roles are checked against: every resource's fields, scopes and custom codes. */
+/** What the roles are checked against: every resource's fields, scopes, custom codes and action names. */
 export interface PolicyCatalog {
-  resources: Map<string, { fields: string[]; scopes: string[]; custom: string[]; restricted?: string[] }>;
+  resources: Map<string, { fields: string[]; scopes: string[]; custom: string[]; restricted?: string[]; actions?: string[] }>;
   /** Codes declared in `forRoot({ permissions })`. */
   global: string[];
 }
@@ -51,6 +57,7 @@ export function knownCodes(catalog: PolicyCatalog): string[] {
   for (const [name, resource] of catalog.resources) {
     for (const op of RESOURCE_OPERATIONS) codes.push(`${name}.${op}`);
     for (const custom of resource.custom) codes.push(`${name}.${custom}`);
+    for (const action of resource.actions ?? []) codes.push(actionCode(name, action));
     for (const field of resource.fields) codes.push(`${name}.field.${field}.view`, `${name}.field.${field}.edit`);
   }
   return codes;

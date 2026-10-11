@@ -5,6 +5,7 @@ import type { DataSource, EntityMetadata } from 'typeorm';
 import { ADMIN_OPTIONS } from '../constants.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { ResourceSchema } from '../contract.js';
+import { resolveActions, toActionSchema, type RegisteredAction } from '../decorators/admin-action.js';
 import { getAdminGroupOptions } from '../decorators/admin-group.js';
 import { getAdminResourceDefinition, type AdminResourceDefinition } from '../decorators/admin-resource.js';
 import { AdminNotFoundError } from '../errors.js';
@@ -40,6 +41,8 @@ export interface RegisteredResource {
   relatedFieldLabels: Array<string | undefined>;
   /** Merged field options (`@AdminField` and `fields`), texts in every language given. */
   fieldConfig: Map<string, FieldConfig>;
+  /** The resource's `@AdminAction`s by name, in declaration order, texts in every language given. */
+  actions: ReadonlyMap<string, RegisteredAction>;
 }
 
 /** TypeORM's RelationMetadata as the admin reads it (TypeORM does not export the class from its root). */
@@ -55,6 +58,9 @@ export interface RegisteredGroup {
 const DEFAULT_GROUP_ORDER = 100;
 
 const AUTO_GROUP = { key: 'entities', label: 'Entities', order: 1000 } as const;
+
+/** Method and property names of the base class: an action that took one over would replace how the admin reads or writes. */
+const BASE_MEMBERS = [...Object.getOwnPropertyNames(AdminResourceBase.prototype), 'list', 'form', 'fields'];
 
 /** Default resource used by autoRegister. */
 class AutoRegisteredResource extends AdminResourceBase {}
@@ -171,6 +177,11 @@ export class ResourceRegistry implements OnModuleInit {
     resource.attachRepository(dataSource.getRepository(definition.entity));
 
     const schema = buildResourceSchema({ definition, resource, metadata, moduleGroup, className });
+    const actions = resolveActions(resource.constructor, BASE_MEMBERS, (message) => {
+      throw new Error(`${className}: ${message}`);
+    });
+    // Texts in the first language given, like the fields; AdminApiService localizes per request.
+    schema.actions = [...actions.values()].map((action) => toActionSchema(action, '', ''));
     const existing = this.resources.get(schema.name);
     if (existing) {
       throw new Error(
@@ -203,6 +214,7 @@ export class ResourceRegistry implements OnModuleInit {
         [definition.entity, resource.form?.create, resource.form?.update ?? resource.form?.create],
         resource.fields as Record<string, FieldConfig | undefined>,
       ),
+      actions,
     });
   }
 
