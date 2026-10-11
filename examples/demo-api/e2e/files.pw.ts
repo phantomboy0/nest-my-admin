@@ -183,3 +183,40 @@ test('an article keeps bold text and an inline image across a reload', async ({ 
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page).toHaveURL(/\/admin\/article$/);
 });
+
+test('an editor image on its way can be cancelled; saving waits for it', async ({ page }) => {
+  await page.goto('/admin/article/new');
+  await page.getByLabel('Title').fill('Never saved');
+  const editor = page.getByRole('textbox', { name: 'Body' });
+  await editor.click();
+  await page.keyboard.type('Text');
+  // The server never answers: the upload stays on its way until someone stops it.
+  let aborted = false;
+  await page.route('**/admin/api/uploads?**', () => undefined);
+  page.on('requestfailed', (request) => {
+    if (request.url().includes('/api/uploads')) aborted = true;
+  });
+  await page.locator('input[data-editor-image]').setInputFiles(png('slow.png'));
+  const row = page.locator('[data-uploading="slow.png"]');
+  await expect(row.getByRole('progressbar', { name: 'Uploading slow.png' })).toBeVisible();
+  const save = page.getByRole('button', { name: 'Save', exact: true });
+  await expect(save).toBeDisabled();
+  await page.keyboard.press('Control+s');
+  await expect(page.getByRole('alert')).toContainText('Wait for the uploads to finish, then save.');
+
+  await row.getByRole('button', { name: 'Cancel uploading slow.png' }).click();
+  await expect(row).toHaveCount(0);
+  await expect(save).toBeEnabled();
+  await expect(page.getByRole('alert')).toHaveCount(0); // nothing left to wait for, and a cancelled upload is no error
+  await expect(editor.getByRole('img')).toHaveCount(0);
+  await expect.poll(() => aborted).toBe(true);
+
+  // Leaving the form stops an upload too.
+  aborted = false;
+  await page.locator('input[data-editor-image]').setInputFiles(png('left.png'));
+  await expect(page.locator('[data-uploading="left.png"]')).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Leave', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/article$/);
+  await expect.poll(() => aborted).toBe(true);
+});

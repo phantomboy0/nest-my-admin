@@ -135,9 +135,9 @@ export function checkFile(file: { type: string; size: number }, rules: { accept:
   return undefined;
 }
 
-const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
+const UNITS = ['upload.bytes', 'upload.kilobytes', 'upload.megabytes', 'upload.gigabytes', 'upload.terabytes'] as const;
 
-/** `1.5 KB`, `10 MB`: binary steps, at most one decimal. */
+/** `1.5 KB`, `10 MB` (`۱٫۵ کیلوبایت` in Persian): binary steps, at most one decimal, the unit from the texts. */
 export function formatBytes(bytes: number, locale?: string): string {
   let value = bytes;
   let unit = 0;
@@ -145,7 +145,8 @@ export function formatBytes(bytes: number, locale?: string): string {
     value /= 1024;
     unit += 1;
   }
-  return `${new Intl.NumberFormat(locale ?? `${activeLocale()}-u-nu-${activeDisplay().digits}`, { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(value)} ${UNITS[unit]}`;
+  const number = new Intl.NumberFormat(locale ?? `${activeLocale()}-u-nu-${activeDisplay().digits}`, { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(value);
+  return tr(UNITS[unit]!, { value: number }, locale);
 }
 
 /** `items` with the one at `from` moved to `to`; unchanged when either index is outside the list. */

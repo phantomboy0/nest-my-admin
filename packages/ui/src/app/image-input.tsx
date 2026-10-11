@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, ImageOff, X } from 'lucide-react';
-import { DropZone, UploadProblems, UploadProgress, useFileField, useReorder, type FileFieldProps } from '@/app/file-input';
+import { DropZone, UploadProblems, UploadProgress, type FileFieldProps } from '@/app/file-input';
+import { useFileField, useReorder } from '@/app/use-uploads';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
 import { cn } from '@/lib/utils';

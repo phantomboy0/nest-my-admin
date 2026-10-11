@@ -83,7 +83,11 @@ export interface UploadResponse {
   name: string;
   contentType: string;
   size: number;
-  /** Where a browser can fetch the file right away; only for public files of storages with public URLs. */
+  /**
+   * Where a browser can fetch the file right away. Always set for rich-text images (the storage's public URL, else
+   * `<admin path>/api/files/<key>`, which answers to the uploader until the record is saved); for file and image
+   * fields only for public files of storages with public URLs.
+   */
   url?: string;
 }
 

@@ -143,4 +143,9 @@ Deferred findings from the M0 per-task and final reviews (see git history for co
 - UI: per-block direction in rich text is CSS (`unicode-bidi: plaintext`), so list markers and quote borders stay on the page's side; a `dir` attribute kept by the sanitizer would fix it.
 - UI: phone cards built from `list.mobile` show no thumbnail; the editor chunk is about 460 kB (145 kB gzip), loaded on demand.
 - The upload insert and the sweep do not go through the SQLite-family write queue (from Task 2's report).
-
+- List thumbnails load the original files; there are no resized variants.
+- The demo reads `NMA_UPLOAD_DIR` when `app.module.ts` is imported (the demo test imports it late for that reason); Playwright's per-run upload directories in the OS temp folder are not removed.
+- Accessibility of the new widgets: the editor toolbar has no roving tabindex, the editor has no `aria-required`, focus is lost when a file is moved to an end of its list (the arrow becomes disabled), and reordering is not announced.
+- PDFs are served `inline` under `Content-Security-Policy: sandbox`, which Chrome's PDF viewer may refuse; verify by opening one in a tab in M4-2's E2E.
+- Flaky test from before M4-1: `products.pw.ts` two-factor sign-in reads the recovery codes right after the click, without waiting.
+- A paste that carries text or HTML next to a picture inserts the text or HTML; pictures inside pasted HTML that point at other sites are dropped on save.

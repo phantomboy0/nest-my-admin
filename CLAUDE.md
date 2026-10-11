@@ -123,7 +123,8 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - UI:
     - `lib/upload.ts` is the XHR uploader (pure, environment passed in; `api.upload` fills it);
     - `lib/form-values.ts` keeps `FileValue`s, read from `_files` (so Duplicate starts without files) and sent as `{ token }`/`{ key }`;
-    - `app/file-input.tsx` holds `useFileField`, `useReorder` and `DropZone`, shared with `app/image-input.tsx`;
+    - `lib/upload-queue.ts` (`UploadQueue`: check, send, progress, cancel, problems; plain state, unit-tested) is wrapped by `useUploads` in `app/use-uploads.ts`, which also holds `useFileField` and `useReorder`; file, image and rich-text fields all upload through it, and unmounting aborts;
+    - `app/file-input.tsx` holds `DropZone`, `UploadProgress` and `FileInput`; `app/image-input.tsx` the previews;
     - `app/rich-text-input.tsx` (Tiptap) is a lazy chunk behind `RichText` in `field-input.tsx`; its toolbar must offer only what the sanitizer keeps, and read-only rich text goes through the same editor (never `dangerouslySetInnerHTML`);
     - `app/file-display.tsx` renders `_files` in lists, quick view and read-only fields (`plain` inside phone cards, which are links);
     - a form does not save while a field reports `onBusy`.

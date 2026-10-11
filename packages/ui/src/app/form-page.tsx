@@ -120,6 +120,13 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
   const [notice, setNotice] = useState<string | null>(saved ? t('form.savedName', { name: saved }) : null);
   // Fields with uploads on their way: saving now would leave those files out.
   const [uploading, setUploading] = useState<string[]>([]);
+  // "Wait for the uploads" has nothing left to say once they are done.
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    if (uploading.length > 0 || !waited) return;
+    setWaited(false);
+    setFormError(null);
+  }, [uploading.length, waited]);
   const setBusy = (name: string, busy: boolean) => setUploading((names) => (busy === names.includes(name) ? names : busy ? [...names, name] : names.filter((other) => other !== name)));
 
   // Unsaved changes: in-app navigation asks first (an inline bar), closing the tab asks through the browser.
@@ -224,6 +231,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
     setNotice(null);
     if (uploading.length > 0) {
       setFormError(t('upload.busy')); // ⌘S while a file travels; the buttons are disabled
+      setWaited(true);
       return;
     }
     const { payload, errors } = payloadOf();

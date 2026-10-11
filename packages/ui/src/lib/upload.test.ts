@@ -209,9 +209,24 @@ test('formatBytes', () => {
   expect(formatBytes(1536, 'en')).toBe('1.5 KB');
   expect(formatBytes(10 * 1024 * 1024, 'en')).toBe('10 MB');
   expect(formatBytes(3.25 * 1024 ** 3, 'en')).toBe('3.3 GB');
+  // Units are texts: Persian names them, and the number follows the locale.
+  expect(formatBytes(1536, 'fa')).toBe(`${new Intl.NumberFormat('fa', { maximumFractionDigits: 1 }).format(1.5)} کیلوبایت`);
+  expect(formatBytes(2 * 1024 * 1024, 'fa-u-nu-latn')).toBe('2 MB'); // an unknown bundle falls back to English
 });
 
-test('moveItem', () => {
+test('moveItem: what a drop or an arrow button does to the list', () => {
+  const files = [{ key: 'a' }, { key: 'b' }, { key: 'c' }, { key: 'd' }];
+  const keys = (list: Array<{ key: string }>) => list.map((file) => file.key).join('');
+  expect(keys(moveItem(files, 0, 1))).toBe('bacd'); // the down arrow on the first
+  expect(keys(moveItem(files, 3, 2))).toBe('abdc'); // the up arrow on the last
+  expect(keys(moveItem(files, 1, 3))).toBe('acdb'); // dragged onto a later row: lands in that row's place
+  expect(keys(moveItem(files, 3, 0))).toBe('dabc'); // dragged onto an earlier row
+  expect(keys(moveItem(files, 2, 2))).toBe('abcd'); // dropped on itself
+  expect(moveItem(files, 0, 1)[1]).toBe(files[0]!); // the same objects, so previews and keys stay attached
+  expect(keys(files)).toBe('abcd'); // the form's value is never changed in place
+});
+
+test('moveItem at the edges', () => {
   expect(moveItem(['a', 'b', 'c'], 0, 2)).toEqual(['b', 'c', 'a']);
   expect(moveItem(['a', 'b', 'c'], 2, 0)).toEqual(['c', 'a', 'b']);
   expect(moveItem(['a', 'b', 'c'], 1, 1)).toEqual(['a', 'b', 'c']);

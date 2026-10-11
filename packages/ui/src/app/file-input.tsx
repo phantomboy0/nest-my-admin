@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useRef, useState, type DragEvent } from 'react';
 import { ArrowDown, ArrowUp, File as FileIcon, GripVertical, Upload as UploadIcon, X } from 'lucide-react';
 import type { FieldSchema } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
-import { api } from '@/lib/api';
-import { fileValuesOf, type FileValue, type FormValue } from '@/lib/form-values';
-import { UploadAbortedError, checkFile, formatBytes, moveItem, uploadErrorMessage, type Upload } from '@/lib/upload';
+import { useFileField, useReorder } from '@/app/use-uploads';
+import type { FormValue } from '@/lib/form-values';
+import { formatBytes } from '@/lib/upload';
+import type { PendingUpload } from '@/lib/upload-queue';
 import { cn } from '@/lib/utils';
 
 export interface FileFieldProps {
@@ -18,139 +19,6 @@ export interface FileFieldProps {
   /** Told while uploads are running, so the form waits with saving. */
   onBusy?: (busy: boolean) => void;
   aria: { 'aria-invalid'?: true; 'aria-describedby'?: string };
-}
-
-export interface PendingUpload {
-  id: number;
-  name: string;
-  /** 0 to 1. */
-  progress: number;
-  /** A local object URL for images, shown while the bytes travel. */
-  preview?: string;
-}
-
-/**
- * The state of a file or image field: the files it holds, the uploads on their way, and what went wrong. One file
- * for a plain field (a new one replaces it), a list in order for `file.many`.
- */
-export function useFileField({ resource, field, value, onChange, onBusy }: Pick<FileFieldProps, 'resource' | 'field' | 'value' | 'onChange' | 'onBusy'>) {
-  const t = useT();
-  const many = field.file?.many === true;
-  const files = fileValuesOf(value);
-  // Uploads finish outside React's render cycle: they add to the list as it is then, not as it was when they started.
-  const latest = useRef(files);
-  latest.current = files;
-  const [pending, setPending] = useState<PendingUpload[]>([]);
-  const [problems, setProblems] = useState<string[]>([]);
-  const uploads = useRef(new Map<number, Upload>());
-  /** Object URLs of new uploads by token: a private upload has no URL to show it from until the record is saved. */
-  const previews = useRef(new Map<string, string>());
-  const nextId = useRef(0);
-
-  const busy = pending.length > 0;
-  useEffect(() => {
-    onBusy?.(busy);
-  }, [busy]);
-  useEffect(
-    () => () => {
-      for (const upload of uploads.current.values()) upload.abort();
-      for (const url of previews.current.values()) URL.revokeObjectURL(url);
-      onBusy?.(false);
-    },
-    [],
-  );
-
-  function emit(next: FileValue[]) {
-    latest.current = next;
-    onChange(many ? next : (next[0] ?? null));
-  }
-
-  function add(chosen: File[]) {
-    const accepted = many ? chosen : chosen.slice(0, 1);
-    if (accepted.length === 0) return;
-    setProblems([]);
-    // One file: picking another while the first still travels replaces it.
-    if (!many) for (const upload of uploads.current.values()) upload.abort();
-    for (const file of accepted) {
-      const refused = checkFile(file, field.file ?? { accept: [], maxBytes: Infinity });
-      if (refused) {
-        setProblems((previous) => [...previous, t('upload.failed', { name: file.name, message: refused })]);
-        continue;
-      }
-      const id = ++nextId.current;
-      const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined;
-      const upload = api.upload(file, { resource, field: field.name }, (progress) => setPending((items) => items.map((item) => (item.id === id ? { ...item, progress } : item))));
-      uploads.current.set(id, upload);
-      setPending((items) => [...items, { id, name: file.name, progress: 0, preview }]);
-      upload.promise
-        .then(
-          (stored) => {
-            if (preview) previews.current.set(stored.token, preview);
-            const added: FileValue = { token: stored.token, name: stored.name, size: stored.size, contentType: stored.contentType, ...(stored.url ? { url: stored.url } : {}) };
-            emit(many ? [...latest.current, added] : [added]);
-          },
-          (error: unknown) => {
-            if (preview) URL.revokeObjectURL(preview);
-            if (!(error instanceof UploadAbortedError)) setProblems((previous) => [...previous, t('upload.failed', { name: file.name, message: uploadErrorMessage(error) })]);
-          },
-        )
-        .finally(() => {
-          uploads.current.delete(id);
-          setPending((items) => items.filter((item) => item.id !== id));
-        });
-    }
-  }
-
-  return {
-    many,
-    files,
-    pending,
-    problems,
-    add,
-    remove: (index: number) => emit(files.filter((_, at) => at !== index)),
-    move: (from: number, to: number) => emit(moveItem(files, from, to)),
-    cancel: (id: number) => uploads.current.get(id)?.abort(),
-    /** Where a file can be shown from: its URL, else the local copy of a new upload. */
-    previewOf: (file: FileValue) => file.url ?? (file.token ? previews.current.get(file.token) : undefined),
-  };
-}
-
-/**
- * Drag-to-reorder for a list of files (native drag events; the arrow buttons do the same from the keyboard).
- * Spread `item(index)` on each row.
- */
-export function useReorder(move: (from: number, to: number) => void) {
-  const [dragging, setDragging] = useState<number | null>(null);
-  const [over, setOver] = useState<number | null>(null);
-  const end = () => {
-    setDragging(null);
-    setOver(null);
-  };
-  return {
-    dragging,
-    over,
-    item: (index: number) => ({
-      draggable: true,
-      onDragStart: (event: DragEvent) => {
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', String(index)); // Firefox starts no drag without data
-        setDragging(index);
-      },
-      onDragOver: (event: DragEvent) => {
-        if (dragging === null) return; // a file from the desktop: the drop zone takes it
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-        setOver(index);
-      },
-      onDrop: (event: DragEvent) => {
-        if (dragging === null) return;
-        event.preventDefault();
-        move(dragging, index);
-        end();
-      },
-      onDragEnd: end,
-    }),
-  };
 }
 
 interface DropZoneProps {

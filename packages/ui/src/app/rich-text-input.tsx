@@ -7,12 +7,11 @@ import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import type { FieldSchema } from '@nest-my-admin/core/contract';
-import { UploadProblems } from '@/app/file-input';
+import { UploadProblems, UploadProgress } from '@/app/file-input';
+import { useUploads } from '@/app/use-uploads';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useT } from '@/i18n';
-import { api } from '@/lib/api';
-import { checkFile, uploadErrorMessage } from '@/lib/upload';
 import { cn } from '@/lib/utils';
 
 export interface RichTextInputProps {
@@ -60,9 +59,8 @@ export default function RichTextInput({ id, resource, field, value, onChange, on
   const t = useT();
   // What this editor last reported: a `value` that differs from it came from outside (a save, "Load theirs").
   const emitted = useRef(value);
-  const [uploading, setUploading] = useState(0);
-  const [problems, setProblems] = useState<string[]>([]);
   const images = !readOnly && field.richtext?.images === true;
+  const uploads = useUploads({ resource, field, rules: { accept: ['image/*'], maxBytes: field.richtext?.maxBytes ?? Infinity }, onBusy });
   const insertRef = useRef<(files: File[]) => boolean>(() => false);
 
   const editor = useEditor({
@@ -81,7 +79,12 @@ export default function RichTextInput({ id, resource, field, value, onChange, on
       },
       // Images dropped or pasted as files are uploaded like the toolbar's; other content takes the normal path.
       handleDrop: (_view, event) => insertRef.current([...(event.dataTransfer?.files ?? [])]),
-      handlePaste: (_view, event) => insertRef.current([...(event.clipboardData?.files ?? [])]),
+      // A paste that also carries text or HTML (a spreadsheet range, a slide) is that content; its picture is a rendering of it.
+      handlePaste: (_view, event) => {
+        const data = event.clipboardData;
+        if (!data || data.types.includes('text/html') || data.types.includes('text/plain')) return false;
+        return insertRef.current([...data.files]);
+      },
     },
     onUpdate: ({ editor: current }) => {
       emitted.current = htmlOf(current);
@@ -95,44 +98,29 @@ export default function RichTextInput({ id, resource, field, value, onChange, on
     editor.commands.setContent(value, { emitUpdate: false });
   }, [value, editor]);
 
-  useEffect(() => {
-    onBusy?.(uploading > 0);
-  }, [uploading > 0]);
-  useEffect(() => () => onBusy?.(false), []);
-
   /** Uploads image files for this field and inserts them where the cursor is. True when it took the files. */
   function insertImages(files: File[]): boolean {
     const chosen = files.filter((file) => file.type.startsWith('image/'));
     if (!images || chosen.length === 0) return false;
-    setProblems([]);
-    for (const file of chosen) {
-      const refused = checkFile(file, { accept: ['image/*'], maxBytes: field.richtext!.maxBytes });
-      if (refused) {
-        setProblems((previous) => [...previous, t('upload.failed', { name: file.name, message: refused })]);
-        continue;
+    uploads.start(chosen, (stored, file, preview) => {
+      if (preview) URL.revokeObjectURL(preview); // the editor shows the stored image, not the local copy
+      if (editor.isDestroyed) return;
+      // The server gives every editor image a URL (an unsaved one answers only to its uploader).
+      if (!stored.url) {
+        uploads.report(file.name, t('editor.imageNoAddress'));
+        return;
       }
-      setUploading((count) => count + 1);
-      api
-        .upload(file, { resource, field: field.name })
-        .promise.then(
-          // The server gives every editor image a URL; an unsaved one answers only to its uploader.
-          (stored) => {
-            if (!stored.url || editor.isDestroyed) return;
-            editor.chain().focus().setImage({ src: stored.url, alt: stored.name }).run();
-            // The new image is left selected, so typing (or the next image) would replace it: go on in the
-            // paragraph after it, adding one where there is none (the end of a list item or a quote).
-            editor.commands.command(({ tr, state }) => {
-              if (!(tr.selection instanceof NodeSelection)) return true;
-              const after = tr.selection.to;
-              if (!tr.doc.resolve(after).nodeAfter?.isTextblock) tr.insert(after, state.schema.nodes.paragraph!.create());
-              tr.setSelection(TextSelection.create(tr.doc, after + 1));
-              return true;
-            });
-          },
-          (error: unknown) => setProblems((previous) => [...previous, t('upload.failed', { name: file.name, message: uploadErrorMessage(error) })]),
-        )
-        .finally(() => setUploading((count) => count - 1));
-    }
+      editor.chain().focus().setImage({ src: stored.url, alt: stored.name }).run();
+      // The new image is left selected, so typing (or the next image) would replace it: go on in the
+      // paragraph after it, adding one where there is none (the end of a list item or a quote).
+      editor.commands.command(({ tr, state }) => {
+        if (!(tr.selection instanceof NodeSelection)) return true;
+        const after = tr.selection.to;
+        if (!tr.doc.resolve(after).nodeAfter?.isTextblock) tr.insert(after, state.schema.nodes.paragraph!.create());
+        tr.setSelection(TextSelection.create(tr.doc, after + 1));
+        return true;
+      });
+    });
     return true;
   }
   insertRef.current = insertImages;
@@ -140,11 +128,17 @@ export default function RichTextInput({ id, resource, field, value, onChange, on
   if (readOnly) return <EditorContent editor={editor} />;
   return (
     <div data-invalid={invalid || undefined} className="rounded-lg border border-input focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 data-invalid:border-destructive">
-      <Toolbar editor={editor} label={t('editor.toolbar', { name: field.label })} images={images} uploading={uploading > 0} onImages={insertImages} />
+      <Toolbar editor={editor} label={t('editor.toolbar', { name: field.label })} images={images} onImages={insertImages} />
       <EditorContent editor={editor} />
-      {problems.length > 0 && (
-        <div className="border-t px-3 py-2">
-          <UploadProblems problems={problems} />
+      {(uploads.pending.length > 0 || uploads.problems.length > 0) && (
+        <div className="flex flex-col gap-1.5 border-t px-3 py-2 text-sm">
+          {uploads.pending.map((upload) => (
+            <div key={upload.id} data-uploading={upload.name} className="flex items-center gap-2">
+              <bdi className="max-w-[40%] truncate text-muted-foreground">{upload.name}</bdi>
+              <UploadProgress upload={upload} onCancel={() => uploads.cancel(upload.id)} className="min-w-0 flex-1" />
+            </div>
+          ))}
+          <UploadProblems problems={uploads.problems} />
         </div>
       )}
     </div>
@@ -155,11 +149,10 @@ interface ToolbarProps {
   editor: Editor;
   label: string;
   images: boolean;
-  uploading: boolean;
   onImages: (files: File[]) => void;
 }
 
-function Toolbar({ editor, label, images, uploading, onImages }: ToolbarProps) {
+function Toolbar({ editor, label, images, onImages }: ToolbarProps) {
   const t = useT();
   const picker = useRef<HTMLInputElement>(null);
   const [linking, setLinking] = useState<string | null>(null);
@@ -230,7 +223,7 @@ function Toolbar({ editor, label, images, uploading, onImages }: ToolbarProps) {
                 event.target.value = '';
               }}
             />
-            <Tool label={t('editor.image')} disabled={uploading} onClick={() => picker.current?.click()} icon={<ImagePlus />} />
+            <Tool label={t('editor.image')} onClick={() => picker.current?.click()} icon={<ImagePlus />} />
           </>
         )}
         <Tool label={t('editor.table')} onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} icon={<TableIcon />} />
