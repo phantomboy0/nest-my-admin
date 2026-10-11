@@ -180,6 +180,11 @@ export class ResourceRegistry implements OnModuleInit {
     const actions = resolveActions(resource.constructor, BASE_MEMBERS, (message) => {
       throw new Error(`${className}: ${message}`);
     });
+    // All-or-nothing is a promise only a transaction can keep.
+    const atomic = [...actions.values()].find((action) => action.atomic);
+    if (atomic && !this.options.transactions) {
+      throw new Error(`${className}: @AdminAction "${atomic.name}" is \`atomic\`, which needs the admin's transactions; they are off (\`transactions: false\`)`);
+    }
     // Texts in the first language given, like the fields; AdminApiService localizes per request.
     schema.actions = [...actions.values()].map((action) => toActionSchema(action, '', ''));
     const existing = this.resources.get(schema.name);

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { BadRequestException, ConflictException, Injectable, Module, type INestApplication } from '@nestjs/common';
-import { IsBoolean, IsOptional, IsString, Length } from 'class-validator';
+import { IsArray, IsBoolean, IsOptional, IsString, Length } from 'class-validator';
 import request from 'supertest';
 import type { IncomingMessage } from 'node:http';
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, DeleteDateColumn, Entity, PrimaryColumn, PrimaryGeneratedColumn } from 'typeorm';
 import {
   AdminAction,
   AdminAuth,
@@ -96,6 +96,45 @@ class OrderAdmin extends AdminResourceBase<Order> {
   }
 }
 
+/** A composite key and a trash, for the id handling of actions. */
+@Entity('act_parcel')
+class Parcel {
+  @PrimaryColumn({ length: 10 }) depot: string;
+  @PrimaryColumn({ type: 'int' }) no: number;
+  @Column({ length: 40 }) name: string;
+  @Column({ length: 12, default: 'new' }) state: string;
+  @DeleteDateColumn() deletedAt: Date | null;
+}
+
+class LabelDto {
+  @IsArray()
+  @IsString({ each: true })
+  tags: string[];
+}
+
+/** The tags each `label` run was handed, before it added its own. */
+const labelled: Array<{ parcel: string; tags: string[] }> = [];
+
+@AdminResource(Parcel, { title: 'name' })
+class ParcelAdmin extends AdminResourceBase<Parcel> {
+  @AdminAction({ bulk: true, input: LabelDto })
+  async label(parcel: Parcel, input: LabelDto, ctx: AdminContext): Promise<void> {
+    labelled.push({ parcel: parcel.name, tags: [...input.tags] });
+    input.tags.push(parcel.name); // must not reach the next record
+    await this.repositoryFor(ctx).update({ depot: parcel.depot, no: parcel.no }, { state: 'labelled' });
+    if (parcel.name === 'BOOM') throw new BadRequestException('The printer jammed');
+  }
+
+  @AdminAction({ bulk: true, atomic: true })
+  async seal(parcel: Parcel, _input: unknown, ctx: AdminContext): Promise<void> {
+    calls.push({ action: 'seal', inTransaction: ctx.manager !== undefined });
+    await this.repositoryFor(ctx).update({ depot: parcel.depot, no: parcel.no }, { state: 'sealed' });
+  }
+  @AdminCan('seal') notSealed(parcel: Parcel) {
+    return parcel.state !== 'sealed';
+  }
+}
+
 const users = new Map<string, AdminUserRecord>();
 for (const [id, isSuperuser] of [['root', true], ['u1', false], ['u2', false], ['editor', false], ['wild', false], ['shipper', false], ['counter', false], ['blind', false]] as const) {
   users.set(id, { id, displayName: id.toUpperCase(), username: id, isSuperuser, isActive: true });
@@ -116,7 +155,7 @@ class HeaderAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [HeaderAuth, OrderAdmin] })
+@Module({ providers: [HeaderAuth, OrderAdmin, ParcelAdmin] })
 class ActionsModule {}
 
 const ROLES = [
@@ -151,13 +190,14 @@ const schemaFor = async (user: string, headers: Record<string, string> = {}) => 
 const actionNames = (schema: ResourceSchema) => schema.actions.map((action) => action.name);
 
 beforeAll(async () => {
-  app = await createTestApp({ imports: [ActionsModule], entities: [Order], admin: { auth: AdminAuth.custom(HeaderAuth), roles: ROLES, locales: ['en', 'fa'] } });
+  app = await createTestApp({ imports: [ActionsModule], entities: [Order, Parcel], admin: { auth: AdminAuth.custom(HeaderAuth), roles: ROLES, locales: ['en', 'fa'] } });
 });
 afterAll(async () => {
   await app.close();
 });
 beforeEach(() => {
   calls.length = 0;
+  labelled.length = 0;
 });
 
 describe(`action schema (${TEST_DB})`, () => {
@@ -362,12 +402,112 @@ describe(`bulk actions (${TEST_DB}, Review Focus 1)`, () => {
     const res = await run('u1', 'archive', { ids: [first, theirs, last] });
     expect(res.status).toBe(404);
     expect(res.body.code).toBe('NOT_FOUND');
-    expect(calls.map((call) => call.id)).toEqual([Number(first)]);
+    // Every record is checked before any method runs: the refusal does not lean on the rollback.
+    expect(calls).toEqual([]);
     for (const id of [first, theirs, last]) expect((await stored(id)).status).toBe('draft');
     const done = await run('u1', 'archive', { ids: [first, last, first] });
     expect(done.status).toBe(200);
     expect(done.body).toEqual({ ok: [first, last], failed: [], message: 'Archived' });
     for (const id of [first, last]) expect((await stored(id)).status).toBe('archived');
+  });
+});
+
+describe(`record ids (${TEST_DB})`, () => {
+  let serial = 0;
+  const parcel = async (name: string, state = 'new'): Promise<string> => {
+    const res = await api('root').post('/resources/parcel', { depot: 'D1', no: ++serial, name, state });
+    expect(res.status).toBe(201);
+    return res.body._id as string;
+  };
+  const runParcel = (action: string, body: object) => api('root').post(`/resources/parcel/actions/${action}`, body);
+  const stateOf = async (id: string) => (await api('root').get(`/resources/parcel/${encodeURIComponent(id)}`)).body.state as string;
+
+  test('composite keys: single and bulk runs take the encoded id', async () => {
+    const one = await parcel('C1');
+    const two = await parcel('C2');
+    expect(one).toBe(`D1,${serial - 1}`);
+    const single = await runParcel('label', { ids: [one], input: { tags: ['a'] } });
+    expect(single.status).toBe(200);
+    expect(single.body.record).toMatchObject({ _id: one, state: 'labelled' });
+    expect((await runParcel('seal', { ids: [one, two] })).body).toEqual({ ok: [one, two], failed: [] });
+    expect(await stateOf(two)).toBe('sealed');
+    expect((await runParcel('label', { ids: ['D1'], input: { tags: [] } })).status).toBe(404);
+  });
+
+  test('two spellings of one id run once, under the first spelling', async () => {
+    const id = await order({ name: 'Alias' });
+    const other = await order({ name: 'Alias 2' });
+    const res = await run('u1', 'archive', { ids: [id, `0${id}`, other, `00${other}`] });
+    expect(res.body).toEqual({ ok: [id, other], failed: [], message: 'Archived' });
+    expect(calls.map((call) => call.id)).toEqual([Number(id), Number(other)]);
+    // One record under two spellings is one record: the single answer, and fine for an action that is not bulk.
+    const draft = await order({ name: 'Alias 3' });
+    const single = await run('u1', 'cancel', { ids: [`0${draft}`, draft] });
+    expect(single.status).toBe(200);
+    expect(single.body.record).toMatchObject({ _id: draft, status: 'cancelled' });
+    const first = await parcel('A1');
+    const no = first.split(',')[1]!;
+    expect((await runParcel('label', { ids: [first, `D1,0${no}`, 'D1,x'], input: { tags: [] } })).body).toEqual({
+      ok: [first],
+      failed: [{ id: 'D1,x', code: 'NOT_FOUND', message: expect.stringContaining('not found') }],
+    });
+    expect(labelled).toEqual([{ parcel: 'A1', tags: [] }]);
+  });
+
+  test('a record in the trash is not found', async () => {
+    const binned = await parcel('Binned');
+    const kept = await parcel('Kept');
+    expect((await api('root').post('/resources/parcel/bulk-delete', { ids: [binned] })).body.ok).toEqual([binned]);
+    const single = await runParcel('label', { ids: [binned], input: { tags: [] } });
+    expect(single.status).toBe(404);
+    expect(single.body.code).toBe('NOT_FOUND');
+    expect((await runParcel('label', { ids: [binned, kept], input: { tags: [] } })).body).toEqual({
+      ok: [kept],
+      failed: [{ id: binned, code: 'NOT_FOUND', message: expect.stringContaining('not found') }],
+    });
+    expect((await runParcel('seal', { ids: [kept, binned] })).status).toBe(404);
+    expect(calls).toEqual([]);
+    expect(labelled.map((run) => run.parcel)).toEqual(['Kept']);
+  });
+
+  test('each record of a bulk run gets its own input, nested values included', async () => {
+    const ids = [await parcel('N1'), await parcel('N2'), await parcel('N3')];
+    expect((await runParcel('label', { ids, input: { tags: ['x'] } })).body).toEqual({ ok: ids, failed: [] });
+    expect(labelled).toEqual([{ parcel: 'N1', tags: ['x'] }, { parcel: 'N2', tags: ['x'] }, { parcel: 'N3', tags: ['x'] }]);
+  });
+
+  // Each record's own transaction, on every driver (the app keeps the default `transactions: true`).
+  test('not atomic: a method that writes and then throws is rolled back alone', async () => {
+    const before = await parcel('R1');
+    const boom = await parcel('BOOM');
+    const after = await parcel('R2');
+    expect((await runParcel('label', { ids: [before, boom, after], input: { tags: [] } })).body).toEqual({
+      ok: [before, after],
+      failed: [{ id: boom, code: 'BUSINESS_RULE', message: 'The printer jammed' }],
+    });
+    expect([await stateOf(before), await stateOf(boom), await stateOf(after)]).toEqual(['labelled', 'new', 'labelled']);
+  });
+
+  test('atomic: a record its rule refuses stops the run before any method is called', async () => {
+    const open = await parcel('S1');
+    const sealed = await parcel('S2', 'sealed');
+    const last = await parcel('S3');
+    const res = await runParcel('seal', { ids: [open, sealed, last] });
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('FORBIDDEN');
+    expect(calls).toEqual([]);
+    expect([await stateOf(open), await stateOf(last)]).toEqual(['new', 'new']);
+  });
+
+  test('names of things every object or resource has are not actions', async () => {
+    const id = await order({ name: 'Names' });
+    for (const name of ['constructor', 'findMany', '__proto__', 'toString', 'hasOwnProperty', 'own', 'notCancelled']) {
+      const res = await run('root', name, { ids: [id] });
+      expect(res.status, name).toBe(404);
+      expect(res.body.code, name).toBe('NOT_FOUND');
+    }
+    expect(calls).toEqual([]);
+    expect(await stored(id)).toMatchObject({ status: 'draft', ownerId: 'u1' });
   });
 });
 
@@ -444,10 +584,10 @@ describe(`action permissions in the catalog (${TEST_DB})`, () => {
 });
 
 describe('boot checks', () => {
-  const boot = async (resource: Function, roles: typeof ROLES = []) => {
+  const boot = async (resource: Function, roles: typeof ROLES = [], admin: { transactions?: boolean } = {}) => {
     @Module({ providers: [HeaderAuth, resource as never] })
     class BootModule {}
-    const booted = await createTestApp({ imports: [BootModule], entities: [Order], admin: { auth: AdminAuth.custom(HeaderAuth), roles } });
+    const booted = await createTestApp({ imports: [BootModule], entities: [Order], admin: { auth: AdminAuth.custom(HeaderAuth), roles, ...admin } });
     await booted.close();
   };
 
@@ -458,6 +598,17 @@ describe('boot checks', () => {
       override async delete(): Promise<void> {}
     }
     await expect(boot(CollidingAdmin)).rejects.toThrow('CollidingAdmin: @AdminAction "delete" collides with the built-in delete');
+  });
+
+  test('an atomic action needs transactions', async () => {
+    await expect(boot(OrderAdmin, [], { transactions: false })).rejects.toThrow(
+      'OrderAdmin: @AdminAction "archive" is `atomic`, which needs the admin\'s transactions; they are off (`transactions: false`)',
+    );
+    @AdminResource(Order, { name: 'loose-order' })
+    class LooseAdmin extends AdminResourceBase<Order> {
+      @AdminAction({ bulk: true }) async touch(): Promise<void> {}
+    }
+    await boot(LooseAdmin, [], { transactions: false });
   });
 
   test('a role naming an action that does not exist fails, with a hint', async () => {

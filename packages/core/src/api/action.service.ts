@@ -1,6 +1,7 @@
 import type { Logger } from '@nestjs/common';
 import type { ActionBulkResult, ActionRecordResult, ActionResourceResult, ActionResult, AdminRecord } from '../contract.js';
-import { parseRecordId } from '../crud/record-id.js';
+import { MAX_BULK } from '../constants.js';
+import { parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { validateWrite } from '../crud/validate-write.js';
 import type { ActionOutcome, RegisteredAction } from '../decorators/admin-action.js';
 import { AdminBadRequestError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
@@ -10,9 +11,7 @@ import type { ResolvedAdminOptions } from '../options.js';
 import type { AdminPolicy } from '../policy/admin-policy.service.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
-
-/** Most ids one bulk request may name (a list page). */
-export const MAX_BULK = 100;
+import type { RecordId } from '../resource/admin-resource-base.js';
 
 /** What running actions needs from `AdminApiService`: its write transaction and its record serializer. */
 export interface ActionHost {
@@ -49,23 +48,25 @@ export class ActionService {
     policy.requireAction(entry, action, label, ctx);
 
     const request = parseRequest(body);
-    const input = await validateInput(action, request.input);
+    // Validated once up front (a 422 before anything runs); every run then gets an instance of its own.
+    await validateInput(action, request.input);
+    const input: InputFactory = () => validateInput(action, request.input);
     if (action.target === 'resource') {
       if (request.ids !== undefined) throw new AdminBadRequestError(`"${label}" runs on the resource, not on records: send no ids`);
       return this.runOnResource(entry, action, input, ctx);
     }
-    const ids = parseIds(request.ids);
+    const ids = distinctIds(parseIds(request.ids), entry);
     if (ids.length === 1) return this.runOnOne(entry, action, label, ids[0]!, input, ctx);
     if (!action.bulk) throw new AdminBadRequestError(`"${label}" runs on one record at a time`);
     return action.atomic ? this.runTogether(entry, action, label, ids, input, ctx) : this.runEach(entry, action, label, ids, input, ctx);
   }
 
-  private async runOnResource(entry: RegisteredResource, action: RegisteredAction, input: object, ctx: AdminContext): Promise<ActionResourceResult> {
-    const outcome = await this.host.write(entry, ctx, async (tx) => methodOf(entry, action).call(entry.resource, input, tx));
+  private async runOnResource(entry: RegisteredResource, action: RegisteredAction, input: InputFactory, ctx: AdminContext): Promise<ActionResourceResult> {
+    const outcome = await this.host.write(entry, ctx, async (tx) => methodOf(entry, action).call(entry.resource, await input(), tx));
     return withMessage({}, messageOf(outcome, ctx, this.host.options));
   }
 
-  private runOnOne(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: object, ctx: AdminContext): Promise<ActionRecordResult> {
+  private runOnOne(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: InputFactory, ctx: AdminContext): Promise<ActionRecordResult> {
     return this.host.write(entry, ctx, async (tx) => {
       const { message, after } = await this.runOnRecord(entry, action, label, rawId, input, tx);
       return withMessage({ record: after ? await this.host.record(entry, after, tx) : null }, message);
@@ -73,7 +74,7 @@ export class ActionService {
   }
 
   /** Each record in its own transaction: a failure is reported for its id (as the single run would answer) and undoes nothing else. */
-  private async runEach(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: object, ctx: AdminContext): Promise<ActionBulkResult> {
+  private async runEach(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: InputFactory, ctx: AdminContext): Promise<ActionBulkResult> {
     const result: ActionBulkResult = { ok: [], failed: [] };
     const messages: Array<string | undefined> = [];
     for (const id of ids) {
@@ -89,9 +90,14 @@ export class ActionService {
     return withMessage(result, sharedMessage(messages));
   }
 
-  /** `atomic`: every record in one transaction; the first failure is the answer and nothing is applied. */
-  private runTogether(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: object, ctx: AdminContext): Promise<ActionBulkResult> {
+  /**
+   * `atomic`: every record is loaded and checked before any method is called, so a record the user may not touch
+   * refuses the whole run without leaning on a rollback. Then all of them run in the same transaction; a method
+   * that throws is the answer and undoes the ones before it (the registry refuses `atomic` without transactions).
+   */
+  private runTogether(entry: RegisteredResource, action: RegisteredAction, label: string, ids: string[], input: InputFactory, ctx: AdminContext): Promise<ActionBulkResult> {
     return this.host.write(entry, ctx, async (tx) => {
+      for (const id of ids) await this.loadAllowed(entry, action, label, id, tx);
       const messages: Array<string | undefined> = [];
       for (const id of ids) messages.push((await this.runOnRecord(entry, action, label, id, input, tx)).message);
       return withMessage<ActionBulkResult>({ ok: [...ids], failed: [] }, sharedMessage(messages));
@@ -99,30 +105,41 @@ export class ActionService {
   }
 
   /**
-   * One record, start to finish, inside the write transaction `tx`: load it, check the user's scopes for view and
-   * update (404, as if it did not exist) and the action's `@AdminCan` rules (403), call the method, read the record
-   * again. Every path (single, bulk, atomic) runs a record through here and nowhere else.
+   * The record, if the user may run the action on it: within their scopes for view and update (404 otherwise, as if
+   * it did not exist; the trash counts as gone) and with the action's `@AdminCan` rules agreeing (403 otherwise).
    */
-  private async runOnRecord(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: object, tx: AdminContext): Promise<RecordRun> {
-    const { policy, options } = this.host;
+  private async loadAllowed(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, tx: AdminContext): Promise<{ id: RecordId; record: object }> {
+    const { policy } = this.host;
     const { schema, resource } = entry;
     const id = parseRecordId(rawId, schema);
     await policy.requireInScope(entry, id, rawId, 'view', tx);
     await policy.requireInScope(entry, id, rawId, 'update', tx);
-    const existing = await resource.findOne(id, tx);
-    if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
-    if (!policy.recordRule(entry, action.name, existing, tx)) throw new AdminForbiddenError(`You may not run "${label}" on ${schema.label} "${rawId}"`);
+    const record = await resource.findOne(id, tx);
+    if (!record) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+    if (!policy.recordRule(entry, action.name, record, tx)) throw new AdminForbiddenError(`You may not run "${label}" on ${schema.label} "${rawId}"`);
+    return { id, record };
+  }
 
-    // Each record gets its own copy of the input: a method that changes it must not change the next record's.
-    const own = Object.assign(Object.create(Object.getPrototypeOf(input) as object | null) as object, input);
-    const outcome = await methodOf(entry, action).call(resource, existing, own, tx);
+  /**
+   * One record, start to finish, inside the write `tx`: load and check it (`loadAllowed`), call the method with an
+   * input of its own, read the record again. Every path (single, bulk, atomic) runs a record through here and
+   * nowhere else. An atomic run has checked every record once already; it is loaded again here, because the methods
+   * that ran before it may have changed it.
+   */
+  private async runOnRecord(entry: RegisteredResource, action: RegisteredAction, label: string, rawId: string, input: InputFactory, tx: AdminContext): Promise<RecordRun> {
+    const { policy, options } = this.host;
+    const { id, record } = await this.loadAllowed(entry, action, label, rawId, tx);
+    const outcome = await methodOf(entry, action).call(entry.resource, record, await input(), tx);
 
     // The action may have deleted the record or moved it out of the user's scopes (a findOne override may ignore them).
-    const reloaded = await resource.findOne(id, tx);
+    const reloaded = await entry.resource.findOne(id, tx);
     const visible = reloaded !== null && (await policy.allowedIds(entry, [id], 'view', tx)).size > 0;
     return withMessage({ after: visible ? reloaded : null }, messageOf(outcome, tx, options));
   }
 }
+
+/** A fresh, validated instance of the action's input: a method that changes its input changes nobody else's. */
+type InputFactory = () => Promise<object>;
 
 function methodOf(entry: RegisteredResource, action: RegisteredAction): ActionMethod {
   return (entry.resource as unknown as Record<string, ActionMethod>)[action.name]!;
@@ -139,12 +156,42 @@ function parseRequest(body: unknown): { ids?: unknown; input?: unknown } {
   return body;
 }
 
-/** The distinct ids, in request order. */
 function parseIds(ids: unknown): string[] {
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_BULK || ids.some((id) => typeof id !== 'string' || id === '')) {
     throw new AdminValidationError({ ids: [`must be a list of 1 to ${MAX_BULK} record ids`] });
   }
-  return [...new Set(ids as string[])];
+  return ids as string[];
+}
+
+/**
+ * The ids naming distinct records, in request order, each as first spelled. Two spellings of one key (`1` and `01`
+ * for a number, the cases of a uuid) are one record; an id that cannot be parsed stays, to be answered as not found.
+ */
+function distinctIds(ids: string[], entry: RegisteredResource): string[] {
+  const { schema } = entry;
+  const keys = schema.primaryKeys;
+  const seen = new Set<string>();
+  return ids.filter((raw) => {
+    let canonical: string;
+    try {
+      const id = parseRecordId(raw, schema);
+      const values = typeof id === 'object' ? id : { [keys[0]!]: id };
+      // Numbers are parsed already; bigint and uuid keys stay strings, so their spellings are folded here.
+      const folded = Object.fromEntries(keys.map((key) => [key, foldKey(values[key]!, schema.fields.find((field) => field.name === key)?.type)]));
+      canonical = `id:${recordIdOf(folded, keys)}`;
+    } catch {
+      canonical = `raw:${raw}`;
+    }
+    if (seen.has(canonical)) return false;
+    seen.add(canonical);
+    return true;
+  });
+}
+
+function foldKey(value: string | number, type: string | undefined): string | number {
+  if (type === 'bigint') return BigInt(value).toString();
+  if (type === 'uuid') return String(value).toLowerCase();
+  return value;
 }
 
 /**
@@ -154,7 +201,8 @@ function parseIds(ids: unknown): string[] {
 async function validateInput(action: RegisteredAction, input: unknown): Promise<object> {
   if (input !== undefined && input !== null && !isPlainObject(input)) throw new AdminBadRequestError('`input` must be a JSON object');
   // Class initializers of the DTO are the input's defaults, so they are kept (a write would drop them).
-  return validateWrite(input ?? {}, { allowed: action.form?.fields.map((field) => field.name) ?? [], dto: action.input, keepDefaults: true });
+  // A deep copy first: the instance must share nothing, nested lists included, with the body or another run's input.
+  return validateWrite(structuredClone(input ?? {}), { allowed: action.form?.fields.map((field) => field.name) ?? [], dto: action.input, keepDefaults: true });
 }
 
 /** `ActionOutcome.message` in the request's language; anything else a method returns is ignored. */

@@ -21,7 +21,8 @@ export interface AdminActionOptions {
   bulk?: boolean;
   /**
    * Bulk runs: `false` (default) gives each record its own transaction, so one failure does not undo the others
-   * (`{ ok, failed }`); `true` runs them all in one transaction, and any failure undoes everything.
+   * (`{ ok, failed }`); `true` checks every record first (scopes, `@AdminCan`) and then runs them all in one
+   * transaction, so any failure undoes everything. Needs the admin's transactions (the default).
    */
   atomic?: boolean;
   /** Ask before running: `true` for the default question, or the question itself. */
@@ -64,7 +65,9 @@ export interface RegisteredAction {
  * A custom action of a resource (spec §5.2): a button on a record, on a list selection (`bulk`) or on the list
  * (`target: 'resource'`). The method name is the action's name; running it needs `{resource}.action.{name}`, and for
  * record actions `{resource}.update`, the user's row scopes and any `@AdminCan('<name>')` rule. It runs inside the
- * admin's write transaction (`ctx.manager`). Throw an `HttpException` (or `AdminFieldError` for input fields) to refuse.
+ * admin's write transaction (`ctx.manager`), unless the admin runs with `transactions: false`: then nothing a method
+ * wrote is undone when it throws, and `atomic` actions are refused at boot. Throw an `HttpException` (or
+ * `AdminFieldError` for input fields) to refuse.
  */
 export function AdminAction(options: AdminActionOptions = {}): MethodDecorator {
   return (target, propertyKey) => {

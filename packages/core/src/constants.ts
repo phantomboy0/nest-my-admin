@@ -15,5 +15,8 @@ export const ADMIN_FIELD_METADATA = 'nest-my-admin:fields';
 export const ADMIN_SCOPES_METADATA = 'nest-my-admin:scopes';
 export const ADMIN_CAN_METADATA = 'nest-my-admin:can';
 
+/** Most ids one bulk request (bulk delete, a bulk action) may name: a list page. */
+export const MAX_BULK = 100;
+
 /** Reflect-metadata key holding the @AdminAction definitions of a resource class, by method name. */
 export const ADMIN_ACTIONS_METADATA = 'nest-my-admin:actions';

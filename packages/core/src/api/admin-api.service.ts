@@ -5,7 +5,7 @@ import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { persianLike } from '../i18n/persian.js';
 import { toErrorResponse } from '../http/error-response.js';
 import { toActionSchema } from '../decorators/admin-action.js';
-import { ADMIN_OPTIONS } from '../constants.js';
+import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
 import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { likePattern } from '../crud/list-query-builder.js';
@@ -22,7 +22,7 @@ import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
 import { AdminResourceBase, type ListParams, type RecordId, type RecordLinkConfig } from '../resource/admin-resource-base.js';
-import { ActionService, MAX_BULK } from './action.service.js';
+import { ActionService } from './action.service.js';
 
 /** TypeORM drivers that share ONE query runner (and one transaction depth counter) across all callers. */
 const SINGLE_CONNECTION_DRIVERS = new Set(['sqljs', 'sqlite', 'better-sqlite3', 'capacitor', 'cordova', 'expo', 'react-native', 'nativescript']);
