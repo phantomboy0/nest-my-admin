@@ -18,6 +18,7 @@ import { GroupPage } from '@/app/group-page';
 import { HomePage } from '@/app/home-page';
 import { ListPage } from '@/app/list-page';
 import { NotFound } from '@/app/not-found';
+import { SettingsPage } from '@/app/settings-page';
 import { LocaleProvider } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
 import { setSignedOutHandler } from '@/lib/session';
@@ -51,6 +52,8 @@ const router = createBrowserRouter(
         { path: '-/roles/:name', element: <RoleEditorPage /> },
         { path: '-/debugger', element: <DebuggerPage /> },
         { path: 'g/:group', element: <GroupPage /> },
+        // Settings pages live under /p, like groups under /g.
+        { path: 'p/:page', element: <SettingsPage /> },
         { path: ':resource', element: <ListPage /> },
         { path: ':resource/new', element: <FormPage mode="create" /> },
         { path: ':resource/:id', element: <FormPage mode="edit" /> },

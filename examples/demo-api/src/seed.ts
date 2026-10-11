@@ -9,6 +9,8 @@ import { Product } from './catalog/product.entity.js';
 import { StockMove } from './catalog/stock-move.entity.js';
 import { Tag } from './catalog/tag.entity.js';
 import { Article } from './content/article.entity.js';
+import { Order } from './sales/order.entity.js';
+import { ShopSetting } from './settings/shop-setting.entity.js';
 
 export async function seedProducts(app: INestApplication): Promise<void> {
   const products = app.get<Repository<Product>>(getRepositoryToken(Product));
@@ -42,6 +44,30 @@ export async function seedContent(app: INestApplication): Promise<void> {
     body: '<h2>Cleaning</h2><p>Wipe with a <strong>dry</strong> cloth; never use water.</p><ul><li><p>Once a month</p></li><li><p>After moving it</p></li></ul><p>برنج را با پارچه‌ی خشک تمیز کنید.</p>',
   });
   await app.get<Repository<Invoice>>(getRepositoryToken(Invoice)).save({ number: 'INV-1001', customer: 'Ada Lovelace', total: '523.90', pdf: null });
+}
+
+/** Orders in every status: the actions move them on. */
+export async function seedSales(app: INestApplication): Promise<void> {
+  const orders = app.get<Repository<Order>>(getRepositoryToken(Order));
+  if ((await orders.count()) > 0) return;
+  await orders.save([
+    { number: 'SO-1001', customer: 'Ada Lovelace', total: '523.90', status: 'shipped', tracking: 'TRK-448120' },
+    { number: 'SO-1002', customer: 'Grace Hopper', total: '24.90', status: 'paid' },
+    { number: 'SO-1003', customer: 'مریم میرزاخانی', total: '7.00', status: 'paid' },
+    { number: 'SO-1004', customer: 'Alan Turing', total: '499.00', status: 'draft' },
+    { number: 'SO-1005', customer: 'Katherine Johnson', total: '1299.00', status: 'cancelled' },
+  ]);
+}
+
+/** The shop's settings, without a payment key or a logo yet. */
+export async function seedSettings(app: INestApplication): Promise<void> {
+  const settings = app.get<Repository<ShopSetting>>(getRepositoryToken(ShopSetting));
+  if ((await settings.count()) > 0) return;
+  await settings.save([
+    { name: 'shopName', value: JSON.stringify('Demo shop') },
+    { name: 'supportEmail', value: JSON.stringify('support@shop.example.test') },
+    { name: 'lowStockThreshold', value: JSON.stringify(5) },
+  ]);
 }
 
 /** A second, non-superuser account (editor / editor-demo-pass) next to the bootstrap superuser. */

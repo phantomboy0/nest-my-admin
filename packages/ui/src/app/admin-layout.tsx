@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Eye, X } from 'lucide-react';
 import { Header } from '@/app/header';
 import { Sidebar } from '@/app/sidebar';
+import { Toaster } from '@/app/toaster';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
@@ -120,7 +121,13 @@ function Shell() {
       {menuOpen && (
         <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('shell.menu')} ref={drawer}>
           <div className="absolute inset-0 bg-black/40" aria-hidden onClick={() => setMenuOpen(false)} />
-          <aside className="absolute inset-y-0 start-0 flex w-72 max-w-[85vw] flex-col border-e bg-sidebar text-sidebar-foreground shadow-xl">
+          {/* A link closes the menu at once: a form with unsaved changes may hold the navigation back to ask first. */}
+          <aside
+            className="absolute inset-y-0 start-0 flex w-72 max-w-[85vw] flex-col border-e bg-sidebar text-sidebar-foreground shadow-xl"
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest('a')) setMenuOpen(false);
+            }}
+          >
             <div className="flex justify-end p-2">
               <Button variant="ghost" size="icon" aria-label={t('shell.closeMenu')} onClick={() => setMenuOpen(false)}>
                 <X />
@@ -141,6 +148,7 @@ function Shell() {
           <Outlet />
         </main>
       </div>
+      <Toaster />
     </div>
   );
 }

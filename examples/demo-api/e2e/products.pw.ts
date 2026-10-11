@@ -940,8 +940,10 @@ test.describe('two-factor sign-in (M3-4 Review Focus 3)', () => {
     const secret = (await section.getByTestId('two-factor-key').textContent())!.replace(/\s/g, '');
     await section.getByLabel('Code from the app').fill(totpCode(secret, new Date()));
     await section.getByRole('button', { name: 'Turn on' }).click();
-    const codes = await section.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem').allTextContents();
-    expect(codes).toHaveLength(10);
+    // The codes arrive with the answer of "Turn on": wait for them (`allTextContents` reads what is there now).
+    const codeItems = section.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem');
+    await expect(codeItems).toHaveCount(10);
+    const codes = await codeItems.allTextContents();
     await section.getByRole('button', { name: 'I saved them' }).click();
     await expect(section).toContainText('10 unused recovery codes.');
     await signOut();

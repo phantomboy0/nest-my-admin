@@ -23,6 +23,8 @@ interface FieldInputProps {
   onChange: (value: FormValue) => void;
   /** Told while the field is uploading files, so the form waits with saving. */
   onBusy?: (busy: boolean) => void;
+  /** Start of the input's id (`field`): a form shown over another one (an action's dialog) needs ids of its own. */
+  idPrefix?: string;
 }
 
 // Tiptap is only downloaded by forms that have a rich-text field.
@@ -42,8 +44,8 @@ const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive';
 
 /** One field of a form: its label, the widget (`field.widget`, else inferred from the type), help and errors. */
-export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange, onBusy }: FieldInputProps) {
-  const id = `field-${field.name}`;
+export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange, onBusy, idPrefix = 'field' }: FieldInputProps) {
+  const id = `${idPrefix}-${field.name}`;
   const errorId = `${id}-error`;
   const helpId = `${id}-help`;
   const invalid = (errors?.length ?? 0) > 0;

@@ -27,6 +27,12 @@ export const useSchema = (resource: string) => {
   return useQuery({ queryKey: ['schema', resource, locale], queryFn: () => api.schema(resource) });
 };
 
+/** A settings page (`/api/pages/:name`): labels follow the language, so it is cached per locale too. */
+export const usePage = (name: string) => {
+  const { locale } = useLocale();
+  return useQuery({ queryKey: ['page', name, locale], queryFn: () => api.page(name) });
+};
+
 export const useList = (resource: string, query: string, enabled = true) =>
   useQuery({
     queryKey: ['list', resource, query],

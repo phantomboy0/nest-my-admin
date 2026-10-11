@@ -35,6 +35,26 @@ describe('role drafts', () => {
     expect(grants(['*.*.update'], 'page.payments.update')).toBe(false);
     expect(grants(['*.*'], 'tag.view')).toBe(true);
   });
+  test('actions and pages are boxes like any other', () => {
+    // One action off under the resource wildcard: everything else of the resource stays, the action goes.
+    const withoutShip = togglePermission(['product.*'], 'product.action.ship', false, known);
+    expect(withoutShip.sort()).toEqual(['product.approve', 'product.create', 'product.delete', 'product.purge', 'product.update', 'product.view']);
+    // `product.action.*` covers every action of the resource and nothing else.
+    expect(grants(['product.action.*'], 'product.action.ship')).toBe(true);
+    expect(grants(['product.action.*'], 'product.update')).toBe(false);
+    expect(togglePermission(['product.action.*'], 'product.action.ship', false, known)).toEqual([]);
+    // `*.view` is about resources: unticking one of them never adds a page.
+    const views = togglePermission(['*.view'], 'tag.view', false, known);
+    expect(views).toEqual(['rbac.view', 'product.view']); // `rbac.view` is a general permission the pattern also matched
+    expect(views.some((code) => code.startsWith('page.'))).toBe(false);
+    // A page's save box off under `*`: its view box and everything else stay.
+    const fromStar = togglePermission(['*'], 'page.payments.update', false, known);
+    expect(grants(fromStar, 'page.payments.update')).toBe(false);
+    expect(known.filter((code) => code !== 'page.payments.update').every((code) => grants(fromStar, code))).toBe(true);
+    // `page.payments.*` is the save code only.
+    expect(togglePermission(['page.payments.*'], 'page.payments.update', false, known)).toEqual([]);
+    expect(togglePermission([], 'page.payments', true, known)).toEqual(['page.payments']);
+  });
   test('unticking a plain code removes it', () => {
     expect(togglePermission(['product.view', 'tag.view'], 'tag.view', false, known)).toEqual(['product.view']);
   });

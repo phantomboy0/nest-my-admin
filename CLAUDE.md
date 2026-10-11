@@ -129,6 +129,27 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
     - `app/file-display.tsx` renders `_files` in lists, quick view and read-only fields (`plain` inside phone cards, which are links);
     - a form does not save while a field reports `onBusy`.
   - The demo keeps uploads in `var/uploads` (git-ignored); tests and Playwright set `NMA_UPLOAD_DIR` to a temporary directory.
+- Actions (M4-2):
+  - `decorators/admin-action.ts`: `@AdminAction` on resource methods (`(record, input, ctx)`, or `(input, ctx)` for `target: 'resource'`), boot checks in `resolveActions`, `toActionSchema`. The method name is the action name; the code is `{r}.action.{name}` (`actionCode`).
+  - `schema/dto-form.ts` `buildDtoForm`/`localizeDtoForm` build a form from a DTO alone (action inputs and settings pages).
+  - `api/action.service.ts` (`ActionService`, a plain class built by `AdminApiService`) runs `POST /api/resources/:r/actions/:action` inside `write()`:
+    - `runOnRecord` is the one per-record path (view and update scopes → `findOne` → `@AdminCan('<name>')` → method → reload), used by single, bulk and atomic runs;
+    - the answer's shape follows the number of distinct ids (`distinctIds` folds aliases): the record (or `null`), a `BulkResult`, or just `{ message? }`;
+    - `atomic` checks every record before running any, and needs `transactions` (boot check).
+  - Policy: `canRunAction` (reach, the code, and `{r}.update` for record actions) cuts `schema.actions`, fills `_perm.actions` and guards the run; `@AdminCan('update')` does not gate actions.
+  - Host errors: `HttpException` below 500 passes through (409 `CONFLICT`, 400 `BUSINESS_RULE`); bulk failures carry `code` and `message` only.
+  - UI: `lib/actions.ts` (which actions to offer, the outcome by shape); `app/action-button.tsx` (`ActionButton` runs or opens `app/action-dialog.tsx`; `RecordActions` in the detail header, disabled while the form is dirty); the list page puts resource actions on the toolbar and bulk actions on the selection bar, with one `BulkSummary` for bulk deletes and bulk actions. Messages are toasts (`lib/toast.ts`, `app/toaster.tsx`). After a record action `FormPage` remounts the form from the answer's record.
+- Settings pages (M4-2):
+  - `decorators/admin-settings-page.ts` (`@AdminSettingsPage(name, options)`, `AdminSettingsSource` `load`/`save`); `pages/page-registry.ts` discovers them and runs the boot checks (names, `secret`, `many`, a resource named `page`).
+  - `pages/page.service.ts`: `GET`/`PATCH /api/pages/:name` → `PageResponse` (`schema`, `values` without secrets, `secrets` as booleans, `files`). A save validates as a partial, then `apply()` runs `load` → resolve files → `save` → `load` → attach inside one `write()`; `scrubSecrets` replaces secret values (6+ characters) in errors leaving it.
+  - Secrets: a non-empty string replaces, `null` clears, an absent key keeps, `''` is a 422. `secret: true` is allowed only on a page's own text fields.
+  - Codes `page.{name}` / `page.{name}.update` (`pageCode`, `canPage`, `requirePage`); `codeMatches` never lets a pattern starting with `*` (other than `*` itself) grant a page code, here and in the UI's copy (`lib/role-draft.ts`).
+  - Files: `files/file-owner.ts` (`FileOwner`): resources and pages (`pages/page-file-owner.ts`, owner `page:<name>`, record id `page`) are both owners for `FilesService`.
+  - `MetaGroup.pages` lists viewable pages; a group may have no resources.
+  - UI: `lib/page-form.ts` (`pageFormValues`, `pagePayload`: changed keys only, groups whole, a secret as text or `null` and never `''`; `validatePagePayload` checks only what is sent); `app/settings-page.tsx` at `/p/:page` (`SecretField`: Set ✓ · Replace · Clear); pages appear in the sidebar, group and home cards, breadcrumbs and the command palette.
+  - Shared form pieces: `app/form-guards.tsx` (`useUnsavedGuard` + `LeaveBar`, `useSaveShortcut`, `useUploadGate`) and `lib/form-errors.ts` (`shownErrors`) are used by the record form, settings pages and the action dialog.
+  - View-as: `readOnlySchema` drops `actions`, `readOnlyPage` makes pages read-only.
+  - Demo: `src/sales` (`OrderAdmin` with `markPaid`, `ship`, `cancel`, `cancelStaleDrafts`) and `src/settings` (`ShopSettingsPage` on the `shop_setting` table); E2E in `e2e/actions.pw.ts` and `e2e/settings.pw.ts`.
 - Form constraints: `dtoConstraints` compiles class-validator metadata (names like `isLength`, `matches`, `isIn`; `@IsOptional` is `name: 'isOptional'`; `@ValidateIf` properties get no client rules; DTO properties with a class initializer are not required) on top of entity facts into `form.constraints.{create,update}`; the UI's `validatePayload` checks them before submit. PATCH is always validated as partial.
 - `packages/core/src/contract.ts` is the JSON contract with the UI. It is types only; the UI imports it from source through a tsconfig path.
 - `packages/ui` is a Vite + React + shadcn SPA published as static `dist/` only (all its deps are devDependencies). The shadcn primitives and theme tokens were copied from crm-next (`radix-nova`, neutral).

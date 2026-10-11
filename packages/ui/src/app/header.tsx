@@ -15,14 +15,14 @@ interface Crumb {
   to?: string;
 }
 
-/** Home › Group › Resource › Record, from the URL and the meta. */
+/** Home › Group › Resource › Record (or Home › Group › Settings page), from the URL and the meta. */
 export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
   const { t } = useLocale();
   const [first, second, third] = useLocation()
     .pathname.split('/')
     .filter(Boolean)
     .map((part) => decodeURIComponent(part));
-  const recordId = first && first !== 'g' && first !== '-' && second && second !== 'new' ? second : undefined;
+  const recordId = first && first !== 'g' && first !== 'p' && first !== '-' && second && second !== 'new' ? second : undefined;
   const record = useRecord(first ?? '', recordId);
   const crumbs: Crumb[] = [{ label: t('shell.home'), to: '/' }];
   if (first === 'account' && !second) return [...crumbs, { label: t('auth.account') }];
@@ -36,6 +36,12 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
   if (first === 'g') {
     const group = meta.groups.find((candidate) => candidate.key === second);
     if (group) crumbs.push({ label: group.label });
+    return crumbs;
+  }
+  if (first === 'p') {
+    const group = meta.groups.find((candidate) => candidate.pages.some((page) => page.name === second));
+    const page = group?.pages.find((candidate) => candidate.name === second);
+    if (group && page) crumbs.push({ label: group.label, to: `/g/${group.key}` }, { label: page.label });
     return crumbs;
   }
   const group = meta.groups.find((candidate) => candidate.resources.some((resource) => resource.name === first));

@@ -261,7 +261,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - Every name must be on a form and listed once. Fields left out go into a last section.
   - A tab with a field error is marked, and a refused save switches to it.
 - **Detail header.**
-  - The edit page title shows badge fields and `links(record)` (records carry them as `_links`).
+  - The edit page title shows badge fields, the record's [actions](#actions) and `links(record)` (records carry them as `_links`).
   - Only http(s) and relative URLs are kept. They open in a new tab with `rel="noopener noreferrer"`.
 - **Form keys.**
   - Leaving a form with unsaved changes asks first: an inline bar for in-app navigation, the browser's prompt for closing the tab.
@@ -322,6 +322,95 @@ export class ProductAdmin extends AdminResourceBase<Product> {
 - `localStorage` keeps public and private files in one directory. If you serve that directory yourself for `publicBaseUrl`, private files in it are reachable by anyone who learns their key; serve only what you mean to publish, or use a bucket with its own rules.
 - Rich text is sanitized on the server at every write, whatever the browser sent. Links keep http(s), mailto and relative addresses and get `rel="noopener noreferrer nofollow"`; an `<img>` is kept only when it points at a file of this admin that belongs to the record (or that the same user just uploaded for this field). A custom `files.sanitizeHtml` is trusted to do the same.
 - An unsaved upload can be fetched only by the user who made it.
+
+### Actions
+
+```ts
+class ShipDto {
+  @AdminField({ label: { en: 'Tracking code', fa: 'کد رهگیری' } })
+  @IsString() @Length(4, 40) tracking: string;
+}
+
+@AdminResource(Order)
+export class OrderAdmin extends AdminResourceBase<Order> {
+  @AdminAction({ label: { en: 'Ship', fa: 'ارسال' }, bulk: true, input: ShipDto, icon: 'truck' })
+  async ship(order: Order, input: ShipDto, ctx: AdminContext): Promise<ActionOutcome> {
+    if (order.status !== 'paid') throw new ConflictException(`Order ${order.number} is not paid yet`);
+    await this.orders.ship(order.id, input.tracking, ctx.manager);
+    return { message: { en: 'Shipped', fa: 'ارسال شد' } };
+  }
+
+  @AdminAction({ variant: 'destructive', confirm: { en: 'Cancel this order?', fa: 'این سفارش لغو شود؟' } })
+  async cancel(order: Order, _input: unknown, ctx: AdminContext) { await this.orders.cancel(order.id, ctx.manager); }
+  @AdminCan('cancel') onlyDrafts(order: Order) { return order.status === 'draft'; }
+
+  @AdminAction({ target: 'resource', label: 'Recount stock' })
+  async recount(_input: unknown, ctx: AdminContext) { return { message: `Counted ${await this.stock.recount(ctx.manager)} items` }; }
+}
+```
+
+- **Declaring one.** `@AdminAction(options)` on a method of the resource; the method name is the action's name.
+  - `target: 'record'` (the default): the method is `(record, input, ctx)` and gets one loaded entity. The button is in the record's detail header. With `bulk: true` it is also offered for a list selection.
+  - `target: 'resource'`: the method is `(input, ctx)`. The button is on the list toolbar and runs once, without records.
+  - `label` (default: the humanized name), `icon`, `variant: 'destructive'` (a red button), `confirm: true` or a question of your own (asked in a dialog before it runs).
+  - `input`: a DTO. Its properties become a form in the dialog, checked in the browser and validated on the server like any write (whitelisted; class-validator; `@AdminField` for labels, help and widgets). A property with a class initializer is optional and keeps its default. File, image, rich-text and secret fields are not allowed in an input.
+  - Return `{ message }` (a text or `{ en, fa }`) to say what happened: the UI shows it as a toast. Returning nothing gives a default "done".
+  - Names that collide with `create`, `update`, `delete`, `restore`, `purge` or a method of `AdminResourceBase`, and options that do not fit together (`bulk` on a resource action, `atomic` without `bulk`), fail at boot.
+- **Permissions.**
+  - Each action has the code `{r}.action.{name}`. `{r}.*` and `*` cover it, `{r}.action.*` covers every action of the resource, and `*.update` or `{r}.update` do not.
+  - A record action also needs `{r}.update`, and the record must be inside the user's view and update scopes: an action never runs on a record the user could not change. A resource action needs only its own code.
+  - `@AdminCan('<action name>')` is a rule per record, as for update and delete: where it says no, the button is not there (`_perm.actions` lists the allowed ones) and the API answers 403. Rules apply to superusers too. `@AdminCan('update')` does not gate actions, so a record closed to edits can still be cancellable.
+  - The schema lists only the actions the user may run. While viewing as someone, none can be run.
+- **Selections.** A bulk action runs on up to 100 records.
+  - By default each record gets its own transaction: the answer is `{ ok, failed: [{ id, code, message }], message? }`, and one failure does not stop the others. The list shows how many ran and why the others did not.
+  - `atomic: true` runs them all in one transaction: every record is checked first, and one failure is the answer, with nothing applied. It needs the admin's transactions (boot fails with `transactions: false`). The confirmation says "all or nothing".
+- **Refusing.** Throw from the method:
+  - an `HttpException` below 500 answers with its status and message (409 is `CONFLICT`, 400 is `BUSINESS_RULE`), and the UI shows the message;
+  - `AdminFieldError({ tracking: 'is unknown to the courier' })` is a 422 shown on that input;
+  - anything else goes through `errorMapper` and the usual error mapping (a 500 with a correlation id when nothing maps it).
+- **Transactions.** An action runs inside the admin's write transaction: pass `ctx.manager` to your services, as in `create` and `update`.
+- **API.** `POST /api/resources/:resource/actions/:action` with `{ ids?, input? }`. One distinct id answers `{ message?, record }` (`record` is `null` when the action took it out of the user's view), several answer the bulk result, and a resource action answers `{ message? }`.
+
+### Settings pages
+
+```ts
+export class ShopSettingsDto {
+  @IsString() @Length(2, 60) shopName: string;
+  @IsOptional() @IsInt() @Min(0) lowStockThreshold?: number | null;
+  @IsOptional() logo?: AdminFile | string | null;
+  @IsOptional() @IsString() @Length(12, 80) paymentApiKey?: string | null;
+}
+
+@AdminSettingsPage('shop', {
+  label: { en: 'Shop settings', fa: 'تنظیمات فروشگاه' },
+  icon: 'store',
+  form: ShopSettingsDto,
+  fields: { logo: { widget: 'image' }, paymentApiKey: { secret: true } },
+  layout: [{ section: 'Shop', fields: ['shopName', 'logo'], columns: 2 }, { section: 'Payments', fields: ['paymentApiKey'] }],
+})
+export class ShopSettingsPage implements AdminSettingsSource<ShopSettingsDto> {
+  load(ctx: AdminContext) { return this.settings.all(ctx.manager); }
+  save(changes: Partial<ShopSettingsDto>, ctx: AdminContext) { return this.settings.write(changes, ctx.manager); }
+}
+```
+
+- **What it is.** One form that is not a table: a provider with `load` and `save`, shown in the sidebar under its module's group (or `group: '<key>'`) at `/p/<name>`. A group may hold only pages. List the class in a module's `providers`.
+- **The form** comes from the DTO alone: one field per property with a class-validator decorator. `fields` and `@AdminField` set labels, help, widgets and `showIf`; `layout` works as on resources. `readonly`, `readonlyIf` and `restricted` do not exist on pages.
+- **`load(ctx)`** returns the stored values. Keys that are not form fields are dropped.
+- **`save(changes, ctx)`** gets only the keys that were sent: a save is partial and validated like a PATCH. The UI sends what changed; a group of fields (a nested DTO) is sent whole once one of its fields changed, so `save` can store it under its key.
+  - It runs in a transaction on the default DataSource, and `load` is called inside it before and after. Use `ctx.manager` when it is set: a `save` that ignores it writes outside the transaction.
+  - Throw `AdminFieldError` (422 on a field) or an `HttpException` to refuse.
+- **Secrets.** `secret: true` (text fields of the page only) makes a field write-only.
+  - The value is never served: not by GET, not in the answer of a save. The API reports `secrets: { paymentApiKey: true }` when one is stored, and the form shows **Set ✓ · Replace · Clear**.
+  - A save replaces it with any non-empty text, clears it with `null` (even when the DTO requires the property), and leaves it alone when the key is absent. An empty string is refused with 422: empty never means "clear".
+  - `load` returns the secret like any other value (the admin needs to know whether one is set), and `save` gets the new text or `null`. Encrypt it in `save` if the table is not a safe place for it.
+  - Never put a secret into an error message. As a last line of defence the admin replaces the exact values of secrets of 6 or more characters with `***` in errors leaving a save (messages, field errors, the log). That is best effort: shorter and transformed values are not found, and errors thrown by `load` outside a save are logged as thrown.
+- **Files.** File, image and rich-text fields work as on records, with `resource=page:<name>` for uploads. `save` gets an `AdminFile` (store its `key`) or `null`, and `load` returns the key, and `null` once the file was cleared: leaving the key out means "unknown", and the removed file is then kept. List fields (`many`) are not supported on pages.
+- **Permissions.** `page.<name>` views the page and `page.<name>.update` saves it; whoever may save may view.
+  - `*` and `page.*` grant both codes of every page, and `page.*.update` saves every page. Resource wildcards (`*.view`, `*.update`, `product.*`) never reach a page.
+  - Without view, the page is a 404 and absent from the sidebar. With view only, the form is read-only. Viewing as someone is always read-only.
+- **Names.** Letters, digits, `-` and `_`; not the name of a resource, an operation (`view`, `update`, …) or a resource's custom permission. Because page codes start with `page.`, **a resource cannot be named `page` in an admin with settings pages**: boot fails and suggests `@AdminResource(Page, { name: 'content-page' })`.
+- **API.** `GET /api/pages/:name` answers `{ schema, values, secrets, files }`, and `PATCH /api/pages/:name` takes the changed keys and answers the same.
 
 ## Transactions, context and errors
 
@@ -413,8 +502,10 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 - **Codes:**
   - operations: `{r}.view`, `{r}.create`, `{r}.update`, `{r}.delete`, `{r}.purge`;
   - fields: `{r}.field.{f}.view` and `{r}.field.{f}.edit`;
+  - actions: `{r}.action.{name}` ([Actions](#actions));
+  - settings pages: `page.{name}` and `page.{name}.update` ([Settings pages](#settings-pages));
   - custom codes, per resource or global.
-  - Wildcards: `*`, `{r}.*`, `*.view`.
+  - Wildcards: `*`, `{r}.*`, `*.view`. Page codes are granted only by `*` and by patterns that start with `page`.
   - `update` implies `view`.
   - Anything unknown in a role (code, resource, field, scope) fails at boot with a suggestion.
 - **Roles combine grant-only, the most permissive winning.**
@@ -429,7 +520,7 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   - Records carry only visible fields. Relation titles of resources or rows you may not see become `#id`, and paths through them are null.
   - A write naming hidden or read-only fields is 403 `FORBIDDEN_FIELDS` with their names. A missing operation is 403 `FORBIDDEN`.
   - Records outside your scope are 404.
-  - `_perm: { update, delete }` on each record combines permission, scope and `@AdminCan`, and PATCH/DELETE re-check it.
+  - `_perm: { update, delete, actions? }` on each record combines permission, scope and `@AdminCan`, and PATCH, DELETE and actions re-check it.
   - Scopes also restrict counts, global search, relation pickers and the ids a write may link to.
   - A resource that overrides `findMany`/`findOne` still cannot leak rows: the API re-checks with its own scoped query.
 - **In your code:** `ctx.can('order.view_all')` and `ctx.permissions`.
@@ -445,7 +536,7 @@ AdminModule.forRoot({ rbac: {}, roles: [/* system roles */], auth: builtinAuth({
 
 - **Tables.** Roles, groups and memberships live in `nma_role`, `nma_group`, `nma_group_role`, `nma_group_member` and `nma_user_role`. The Administration section shows Users, Groups and Roles to `rbac.view`, and `rbac.manage` may change them.
 - **Roles from code** are stored as system roles at every boot: read-only in the admin, and code always wins. A user's roles are the union of their direct roles, their groups' roles and `resolveRoles`, and changes apply on the next request.
-- **The Roles page** is a matrix of resources × view/create/update/delete/purge. Each row expands to per-field access and to row scopes per operation, plus custom and global codes. Roles export and import as JSON; an import is all or nothing and validated like the editor.
+- **The Roles page** is a matrix of resources × view/create/update/delete/purge. Each row expands to per-field access, row scopes per operation, the resource's actions and its custom codes. Settings pages have their own table (view, change), and global codes follow. Roles export and import as JSON; an import is all or nothing and validated like the editor.
 - **Anti-escalation.** A manager who is not a superuser may only create, change, assign or remove roles within their own permissions (codes, field levels, scopes). They cannot change superusers, make anyone a superuser, or give themselves roles or groups.
 - **Users** come from the auth adapter. `@nest-my-admin/auth` lists, creates and edits users and sets passwords; deactivating a user or setting their password signs them out everywhere. Other adapters may implement `listUsers`, `getUser`, `createUser`, `updateUser` and `setPassword`. Without them, the page shows the users that have roles or groups.
 
@@ -454,12 +545,14 @@ AdminModule.forRoot({ rbac: {}, roles: [/* system roles */], auth: builtinAuth({
 - **Permission debugger** (Administration → Permission debugger, for `rbac.view`; `GET /api/rbac/explain?user=&resource=[&record=]`). For one user and resource it shows:
   - each role and where it comes from (directly, a group, `resolveRoles`, the adapter), and names that are not roles;
   - each operation, allowed or not, and the patterns that grant it;
+  - each action, and whether a granted one is held back because the user lacks `update`;
+  - every settings page: view, change, and the patterns behind them;
   - each field's level, with every role's level and the rule or code behind it;
   - the row scopes per operation, per role, and the global scopes;
-  - for a record id: whether the user may view, change and delete it, and why not (no permission, outside their rows, an `@AdminCan` rule, no such record).
+  - for a record id: whether the user may view, change and delete it, and why not (no permission, outside their rows, an `@AdminCan` rule, no such record), and the actions they may run on it.
 
   The answers come from the code the API enforces with, and a test checks them against the API for random role combinations.
-- **View as.** A superuser opens a user and chooses *View as this user*. The admin then shows exactly what that user sees (the UI sends `X-View-As: <id>`), under a banner with *Stop viewing*. It is read-only: the server refuses every write, and the account pages are closed. The server logs each start with both ids; the audit log arrives with M4.
+- **View as.** A superuser opens a user and chooses *View as this user*. The admin then shows exactly what that user sees (the UI sends `X-View-As: <id>`), under a banner with *Stop viewing*. It is read-only: the server refuses every write (actions and settings pages included, so the UI offers neither), and the account pages are closed. The server logs each start with both ids; the audit log arrives with M4.
 
 ### Testing permissions
 

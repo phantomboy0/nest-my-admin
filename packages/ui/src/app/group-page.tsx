@@ -1,13 +1,13 @@
 import { Link, useParams } from 'react-router';
 import { useQueries } from '@tanstack/react-query';
-import type { MetaGroup, MetaResourceSummary } from '@nest-my-admin/core/contract';
+import type { MetaGroup, MetaPageSummary, MetaResourceSummary } from '@nest-my-admin/core/contract';
 import { PageMessage } from '@/components/page-message';
 import { formatNumber, useLocale } from '@/i18n';
 import { api } from '@/lib/api';
 import { iconFor } from '@/lib/icons';
 import { useMeta } from '@/lib/queries';
 
-/** A module landing page (spec §9.1): the group's resources with their record counts. */
+/** A module landing page (spec §9.1): the group's resources with their record counts, and its settings pages. */
 export function GroupPage() {
   const { t } = useLocale();
   const { group: key } = useParams();
@@ -19,7 +19,7 @@ export function GroupPage() {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-xl font-semibold">{group.label}</h1>
-      <ResourceCards resources={group.resources} />
+      <GroupCards group={group} />
     </div>
   );
 }
@@ -35,10 +35,43 @@ export function GroupSections({ groups }: { groups: MetaGroup[] }) {
               {group.label}
             </Link>
           </h2>
-          <ResourceCards resources={group.resources} />
+          <GroupCards group={group} />
         </section>
       ))}
     </div>
+  );
+}
+
+/** What a group holds: its resources, then its settings pages. A group may have only one of the two. */
+function GroupCards({ group }: { group: MetaGroup }) {
+  return (
+    <>
+      {group.resources.length > 0 && <ResourceCards resources={group.resources} />}
+      {group.pages.length > 0 && <PageCards pages={group.pages} />}
+    </>
+  );
+}
+
+const cardClass = 'flex items-center gap-3 rounded-lg border p-4 hover:bg-muted/50';
+
+/** One card per settings page. */
+function PageCards({ pages }: { pages: MetaPageSummary[] }) {
+  return (
+    <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {pages.map((page) => {
+        const Icon = iconFor(page.icon, 'page');
+        return (
+          <li key={page.name}>
+            <Link to={`/p/${page.name}`} className={cardClass}>
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
+                <Icon className="size-5 text-muted-foreground" aria-hidden />
+              </span>
+              <span className="truncate font-medium">{page.label}</span>
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -66,7 +99,7 @@ export function ResourceCards({ resources }: { resources: MetaResourceSummary[] 
             : undefined;
         return (
           <li key={resource.name}>
-            <Link to={`/${resource.name}`} className="flex items-center gap-3 rounded-lg border p-4 hover:bg-muted/50">
+            <Link to={`/${resource.name}`} className={cardClass}>
               <span className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
                 <Icon className="size-5 text-muted-foreground" aria-hidden />
               </span>

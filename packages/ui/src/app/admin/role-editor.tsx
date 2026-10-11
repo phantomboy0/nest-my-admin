@@ -225,6 +225,22 @@ function RoleEditor({ catalog, role }: { catalog: RbacCatalog; role?: RbacRole }
                                         })}
                                       </div>
                                     )}
+                                    {resource.actions.length > 0 && (
+                                      <div className="flex flex-col gap-2" data-actions={resource.name}>
+                                        <h3 className="text-xs font-medium text-muted-foreground">{t('rbac.actions')}</h3>
+                                        {resource.actions.map((action) => {
+                                          const code = `${resource.name}.action.${action.name}`;
+                                          return (
+                                            <label key={action.name} className="flex items-center gap-2">
+                                              <input type="checkbox" className="size-4 accent-primary" checked={grants(permissions, code)} disabled={readOnly} onChange={(event) => toggle(code, event.target.checked)} />
+                                              {action.label}
+                                              <code className="text-xs text-muted-foreground">{code}</code>
+                                            </label>
+                                          );
+                                        })}
+                                        {resource.actions.some((action) => action.target === 'record') && <p className="text-xs text-muted-foreground">{t('rbac.actionNote')}</p>}
+                                      </div>
+                                    )}
                                     {resource.custom.length > 0 && (
                                       <div className="flex flex-col gap-2">
                                         <h3 className="text-xs font-medium text-muted-foreground">{t('rbac.custom')}</h3>
@@ -253,6 +269,61 @@ function RoleEditor({ catalog, role }: { catalog: RbacCatalog; role?: RbacRole }
           </table>
         </div>
       </section>
+
+      {catalog.pages.length > 0 && (
+        <section aria-labelledby="pages-title" className="flex flex-col gap-2">
+          <h2 id="pages-title" className="font-medium">
+            {t('rbac.pages')}
+          </h2>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/40">
+                  <th className="px-3 py-2 text-start font-medium">{t('rbac.page')}</th>
+                  <th className="px-2 py-2 text-center font-medium">{t('rbac.op.view')}</th>
+                  <th className="px-2 py-2 text-center font-medium">{t('rbac.op.update')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {catalog.pages.map((page) => {
+                  const view = `page.${page.name}`;
+                  const update = `${view}.update`;
+                  // Whoever may save a page may view it: the view box follows, and is not this role's to untick.
+                  const implied = grants(permissions, update) && !grants(permissions, view);
+                  return (
+                    <tr key={page.name} className="border-b last:border-0">
+                      <th scope="row" className="px-3 py-2 text-start font-normal">
+                        {page.label}
+                      </th>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          aria-label={t('rbac.grant', { operation: t('rbac.op.view'), resource: page.label })}
+                          title={implied ? t('rbac.viewImplied') : undefined}
+                          checked={implied || grants(permissions, view)}
+                          disabled={readOnly || implied}
+                          onChange={(event) => toggle(view, event.target.checked)}
+                        />
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          aria-label={t('rbac.grant', { operation: t('rbac.op.update'), resource: page.label })}
+                          checked={grants(permissions, update)}
+                          disabled={readOnly}
+                          onChange={(event) => toggle(update, event.target.checked)}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {catalog.global.length > 0 && (
         <fieldset className="flex flex-col gap-2">

@@ -6,6 +6,8 @@ import { BillingModule } from './billing/billing.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
 import { ContentModule } from './content/content.module.js';
 import { databaseOptions } from './database.js';
+import { SalesModule } from './sales/sales.module.js';
+import { SettingsModule } from './settings/settings.module.js';
 
 @Module({
   imports: [
@@ -18,12 +20,15 @@ import { databaseOptions } from './database.js';
       locales: ['en', 'fa'],
       branding: { primaryColor: '#0f766e' },
       // Sign in as admin / admin-demo-pass (or NMA_DEMO_PASSWORD) on a fresh database.
-      // `editor` edits the catalog: products (drafts only, price read-only, no cost), categories and tags.
+      // `editor` edits the catalog: products (drafts only, price read-only, no cost), categories and tags. They also
+      // handle orders: they may ship them (`order.action.ship`, with `order.update`, which every action on a record
+      // needs), but not mark them paid or cancel them, and they see the shop's settings without being able to save
+      // them (`page.shop` without `page.shop.update`).
       roles: [
         {
           name: 'catalog-editor',
           label: { en: 'Catalog editor', fa: 'ویرایشگر کاتالوگ' },
-          permissions: ['product.view', 'product.update', 'category.*', 'tag.*', 'stock-move.view'],
+          permissions: ['product.view', 'product.update', 'category.*', 'tag.*', 'stock-move.view', 'order.view', 'order.update', 'order.action.ship', 'page.shop'],
           fields: { product: { price: 'readonly' } },
           scopes: { product: { update: 'drafts' } },
         },
@@ -42,8 +47,10 @@ import { databaseOptions } from './database.js';
       }),
     }),
     CatalogModule,
+    SalesModule,
     ContentModule,
     BillingModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

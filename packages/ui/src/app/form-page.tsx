@@ -1,15 +1,18 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Copy, ExternalLink, Lock } from 'lucide-react';
-import { Link, useBlocker, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
 import { FieldInput, RichText } from '@/app/field-input';
+import { RecordActions } from '@/app/action-button';
+import { LeaveBar, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
 import { FormLayout } from '@/app/form-layout';
 import { ObjectInput } from '@/app/object-input';
 import { DisplayValue, ValueBadge } from '@/app/widgets/badge';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
+import { shownErrors } from '@/lib/form-errors';
 import { useT } from '@/i18n';
 import { formatCell } from '@/lib/format';
 import { dependencyValues, toFormValues, toPayload, withoutImages, type FormValue, type FormValues } from '@/lib/form-values';
@@ -37,6 +40,8 @@ export function FormPage({ mode }: { mode: Mode }) {
   const loads = mode === 'edit' ? id : from;
   const schema = useSchema(resource);
   const record = useRecord(resource, loads);
+  // An action changed the record under the form: the form starts over from what the record is now.
+  const [revision, setRevision] = useState(0);
 
   if (schema.isPending || (loads !== undefined && record.isPending)) return <PageMessage>{t('common.loading')}</PageMessage>;
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
@@ -45,13 +50,15 @@ export function FormPage({ mode }: { mode: Mode }) {
   return (
     <RecordForm
       // Save & new opens /r/new again: a new location key gives it a fresh form.
-      key={mode === 'edit' ? `${resource}:${id}` : `${resource}:new:${location.key}`}
+      key={mode === 'edit' ? `${resource}:${id}:${revision}` : `${resource}:new:${location.key}`}
       schema={schema.data}
       mode={mode}
       id={id}
       record={mode === 'edit' ? record.data : undefined}
       source={from ? record.data : undefined}
-      saved={saved}
+      // "Saved" is said once: a form that starts over after an action does not repeat it.
+      saved={revision === 0 ? saved : undefined}
+      onChanged={() => setRevision((count) => count + 1)}
     />
   );
 }
@@ -82,9 +89,11 @@ interface RecordFormProps {
   source?: AdminRecord;
   /** The title of the record saved just before (Save & new, ⌘S on a new record). */
   saved?: string;
+  /** An action changed the record (the cache already holds it as it is now). */
+  onChanged: () => void;
 }
 
-function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps) {
+function RecordForm({ schema, mode, id, record, source, saved, onChanged }: RecordFormProps) {
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -124,47 +133,19 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
   }
 
   const [notice, setNotice] = useState<string | null>(saved ? t('form.savedName', { name: saved }) : null);
-  // Fields with uploads on their way: saving now would leave those files out.
-  const [uploading, setUploading] = useState<string[]>([]);
   // "Wait for the uploads" has nothing left to say once they are done.
-  const [waited, setWaited] = useState(false);
-  useEffect(() => {
-    if (uploading.length > 0 || !waited) return;
-    setWaited(false);
-    setFormError(null);
-  }, [uploading.length, waited]);
-  const setBusy = (name: string, busy: boolean) => setUploading((names) => (busy === names.includes(name) ? names : busy ? [...names, name] : names.filter((other) => other !== name)));
+  const uploads = useUploadGate(() => setFormError(null));
 
   // Unsaved changes: in-app navigation asks first (an inline bar), closing the tab asks through the browser.
   const dirty = JSON.stringify(values) !== JSON.stringify(initial);
-  const released = useRef(false);
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      dirty && !released.current && (currentLocation.pathname !== nextLocation.pathname || currentLocation.search !== nextLocation.search),
-  );
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  const { blocker, release } = useUnsavedGuard(dirty);
 
   const formRef = useRef<HTMLFormElement>(null);
   const after = useRef<After>('list');
   // ⌘S / Ctrl+S saves and stays on the record.
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 's') return;
-      event.preventDefault();
-      after.current = 'stay';
-      formRef.current?.requestSubmit();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  useSaveShortcut(formRef, () => {
+    after.current = 'stay';
+  });
 
   const save = useMutation({
     mutationFn: ({ payload, version: expected }: { payload: Record<string, unknown>; version?: unknown; then: After }) =>
@@ -182,7 +163,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
         await queryClient.invalidateQueries({ queryKey: ['record', schema.name, id] });
         return;
       }
-      released.current = true;
+      release();
       queryClient.removeQueries({ queryKey: ['record', schema.name] });
       if (then === 'new') navigate(`/${schema.name}/new`, { state: { saved: title } });
       else if (then === 'stay') navigate(`/${schema.name}/${encodeURIComponent(String(stored._id))}`, { replace: true, state: { saved: title } });
@@ -197,12 +178,9 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
         setConflict(error.body.current);
         return;
       }
-      const entries = Object.entries(error.fields);
-      const onForm = (name: string) => names.includes(name.split('.')[0]!); // `address.city` shows in the address group
-      const shown = Object.fromEntries(entries.filter(([name]) => onForm(name)));
-      const hidden = entries.filter(([name]) => !onForm(name)).map(([name, messages]) => `${name}: ${messages.join(', ')}`);
-      setFieldErrors(shown);
-      setFormError(Object.keys(shown).length > 0 && hidden.length === 0 ? null : [error.message, ...hidden].join(' — '));
+      const shown = shownErrors(error, names);
+      setFieldErrors(shown.fields);
+      setFormError(shown.form);
     },
   });
 
@@ -210,7 +188,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
   const remove = useMutation({
     mutationFn: () => api.remove(schema.name, id!, version),
     onSuccess: async () => {
-      released.current = true;
+      release();
       await queryClient.invalidateQueries({ queryKey: ['list', schema.name] });
       navigate(`/${schema.name}`);
       queryClient.removeQueries({ queryKey: ['record', schema.name, id] });
@@ -235,9 +213,9 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
     const then: After = submitter?.value === 'new' ? 'new' : submitter ? 'list' : after.current;
     after.current = 'list';
     setNotice(null);
-    if (uploading.length > 0) {
+    if (uploads.busy) {
       setFormError(t('upload.busy')); // ⌘S while a file travels; the buttons are disabled
-      setWaited(true);
+      uploads.refuse();
       return;
     }
     const { payload, errors } = payloadOf();
@@ -293,7 +271,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
         formValues={field.type === 'relation' ? dependencies : undefined}
         constraints={schema.form.constraints[formMode][field.name]}
         onChange={(value) => change(field.name, value)}
-        onBusy={(busy) => setBusy(field.name, busy)}
+        onBusy={(busy) => uploads.setBusy(field.name, busy)}
       />
     );
   }
@@ -303,7 +281,17 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
       {mode === 'create' ? (
         <h1 className="text-xl font-semibold">{t('form.new', { name: schema.label })}</h1>
       ) : (
-        <DetailHeader schema={schema} record={record} id={id} />
+        <DetailHeader
+          schema={schema}
+          record={record}
+          id={id}
+          dirty={dirty}
+          onGone={() => {
+            release();
+            navigate(`/${schema.name}`);
+          }}
+          onChanged={onChanged}
+        />
       )}
       {!canUpdate && (
         <p role="note" className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
@@ -315,19 +303,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
           {notice}
         </p>
       )}
-      {blocker.state === 'blocked' && (
-        <div role="alertdialog" aria-labelledby="leave-title" className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/50 bg-background p-3 shadow-sm">
-          <p id="leave-title" className="flex-1 text-sm font-medium">
-            {t('form.leaveTitle')}
-          </p>
-          <Button type="button" variant="outline" autoFocus onClick={() => blocker.reset()}>
-            {t('form.stay')}
-          </Button>
-          <Button type="button" variant="destructive" onClick={() => blocker.proceed()}>
-            {t('form.leave')}
-          </Button>
-        </div>
-      )}
+      <LeaveBar blocker={blocker} />
       {conflict && (
         <ConflictNotice
           fields={fields}
@@ -346,12 +322,12 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
       <FormLayout layout={schema.form.layout} names={allFields.map((field) => field.name)} errors={fieldErrors} render={renderField} />
       <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
         {canUpdate && (
-          <Button type="submit" value="list" disabled={save.isPending || uploading.length > 0} aria-keyshortcuts="Control+S Meta+S">
+          <Button type="submit" value="list" disabled={save.isPending || uploads.busy} aria-keyshortcuts="Control+S Meta+S">
             {t(save.isPending ? 'form.saving' : 'form.save')}
           </Button>
         )}
         {canUpdate && schema.creatable && (
-          <Button type="submit" value="new" variant="outline" disabled={save.isPending || uploading.length > 0}>
+          <Button type="submit" value="new" variant="outline" disabled={save.isPending || uploads.busy}>
             {t('form.saveAndNew')}
           </Button>
         )}
@@ -406,7 +382,7 @@ function RecordForm({ schema, mode, id, record, source, saved }: RecordFormProps
 const lockedOn = (record: AdminRecord | undefined): string[] => (Array.isArray(record?._readonly) ? (record._readonly as string[]) : []);
 
 /** A field shown but not editable: its value as text (files and rich text as they look), with a lock. */
-function ReadOnlyField({ resource, field, record }: { resource: string; field: FieldSchema; record: AdminRecord | undefined }) {
+export function ReadOnlyField({ resource, field, record }: { resource: string; field: FieldSchema; record: AdminRecord | undefined }) {
   const t = useT();
   const value = record?.[field.name];
   return (
@@ -427,8 +403,19 @@ function ReadOnlyField({ resource, field, record }: { resource: string; field: F
   );
 }
 
-/** The record's title with its badge fields and the resource's external links (spec §9.4). */
-function DetailHeader({ schema, record, id }: { schema: ResourceSchema; record?: AdminRecord; id?: string }) {
+interface DetailHeaderProps {
+  schema: ResourceSchema;
+  record?: AdminRecord;
+  id?: string;
+  /** The form has unsaved changes: actions wait, since they reload the record. */
+  dirty: boolean;
+  /** An action left the record out of the user's view (or removed it). */
+  onGone: () => void;
+  onChanged: () => void;
+}
+
+/** The record's title with its badge fields, its actions, and the resource's external links (spec §9.4). */
+function DetailHeader({ schema, record, id, dirty, onGone, onChanged }: DetailHeaderProps) {
   const t = useT();
   const badges = schema.fields.filter((field) => field.widget === 'badge' && record?.[field.name] !== undefined && record?.[field.name] !== null);
   const links = Array.isArray(record?._links) ? (record._links as RecordLink[]) : [];
@@ -439,6 +426,7 @@ function DetailHeader({ schema, record, id }: { schema: ResourceSchema; record?:
         {badges.map((field) => (
           <ValueBadge key={field.name} value={record![field.name]} field={field} />
         ))}
+        {record && id !== undefined && <RecordActions schema={schema} record={record} id={id} dirty={dirty} onGone={onGone} onChanged={onChanged} />}
       </div>
       {links.length > 0 && (
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">

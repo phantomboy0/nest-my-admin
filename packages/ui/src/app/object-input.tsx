@@ -18,13 +18,15 @@ interface ObjectInputProps {
   markRequired: boolean;
   errors: Record<string, string[]>;
   onChange: (value: FormValue) => void;
+  /** As `FieldInput`'s: the start of the input ids. */
+  idPrefix?: string;
 }
 
 const asGroup = (value: FormValue | undefined): FormValues =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as FormValues) : {};
 
 /** A sub-form (embedded entity or nested DTO), or a list of them with Add and Remove when the field is `many`. */
-export function ObjectInput({ resource, field, path, pattern, value, constraints, markRequired, errors, onChange }: ObjectInputProps) {
+export function ObjectInput({ resource, field, path, pattern, value, constraints, markRequired, errors, onChange, idPrefix }: ObjectInputProps) {
   const t = useT();
   const own = errors[path];
   if (field.many) {
@@ -43,6 +45,7 @@ export function ObjectInput({ resource, field, path, pattern, value, constraints
               constraints={constraints}
               markRequired={markRequired}
               errors={errors}
+              idPrefix={idPrefix}
               onChange={(next) => onChange(items.map((existing, at) => (at === index ? next : existing)))}
             />
             <div>
@@ -75,6 +78,7 @@ export function ObjectInput({ resource, field, path, pattern, value, constraints
         constraints={constraints}
         markRequired={markRequired}
         errors={errors}
+        idPrefix={idPrefix}
         onChange={onChange}
       />
       {own && <p className="text-sm text-destructive">{own.join(' ')}</p>}
@@ -84,7 +88,7 @@ export function ObjectInput({ resource, field, path, pattern, value, constraints
 
 type GroupProps = Omit<ObjectInputProps, 'value' | 'onChange'> & { value: FormValues; onChange: (value: FormValues) => void };
 
-function Group({ resource, field, path, pattern, value, constraints, markRequired, errors, onChange }: GroupProps) {
+function Group({ resource, field, path, pattern, value, constraints, markRequired, errors, onChange, idPrefix }: GroupProps) {
   return (
     <>
       {(field.fields ?? [])
@@ -104,6 +108,7 @@ function Group({ resource, field, path, pattern, value, constraints, markRequire
               constraints={constraints}
               markRequired={markRequired}
               errors={errors}
+              idPrefix={idPrefix}
               onChange={set}
             />
           ) : (
@@ -115,6 +120,7 @@ function Group({ resource, field, path, pattern, value, constraints, markRequire
               required={markRequired && constraints[childPattern]?.required === true}
               errors={errors[childPath]}
               constraints={constraints[childPattern]}
+              idPrefix={idPrefix}
               onChange={set}
             />
           );

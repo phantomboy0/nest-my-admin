@@ -162,3 +162,23 @@ Open after the final review of M4-1 (its fixes: octet-stream uploads and a 400 f
 - `files.service.ts` is over 500 lines: split uploads, the write cycle and downloads.
 - A `removed` status with a retention period instead of deleting rows and objects at commit, so record history (M4) can show and restore earlier files.
 - Uploads must be sent as `application/octet-stream`; a host parser that reads that type too (`express.raw()` on the admin path) still leaves nothing to store, and the 400 says so. Mounting the admin before the host's body parsers would remove the limit.
+
+## M4-2 follow-ups
+- No `If-Match` on settings pages: the last save wins, and two people replacing a file at the same moment can leave one object without an owner.
+- List (`many`) file fields are not supported on settings pages (boot error): a page field is never a json column.
+- Action inputs have no upload target: file, image and rich-text fields in an input DTO are refused at boot, so import-style actions wait.
+- No host helper for actions that change file columns: an action that sets or clears a file field itself bypasses `FilesService` (no attach, no delete of the old object).
+- `expectNoLeaks` and `AdminClient` (`@nest-my-admin/testing`) know nothing about settings pages or actions.
+- Bulk action failures carry `code` and `message` only: a 422 on the input of one record loses its `fields` (as bulk delete does).
+- `withoutEchoes` covers only a secret's own field: a validation message on another field that quotes a secret (a DTO message using `$value` on a cross-field rule) is not replaced. The scrubber for errors leaving `save()` has a 6-character floor and finds exact, JSON-escaped and URL-encoded values only.
+- Errors thrown by `load()` outside a save are logged as thrown (unscrubbed).
+- A host `save()` that ignores `ctx.manager` and whose reload fails leaves a `temp` upload row.
+- A bulk run reloads each record after its method and loads it twice in an atomic run; the ids-list validation is duplicated in `admin-api.service.ts` and `action.service.ts`; the atomic boot check names only the first atomic action.
+- A stored role naming an action or page that was renamed or removed stops validating and grants nothing until fixed (as for custom codes).
+- UI: record actions are disabled while the form has unsaved changes (an action reloads the record); they are not offered in the quick view or on phone cards, only on the detail page and the selection bar.
+- UI: a selection on phones is offered every bulk action (the cards' `_perm` is not read); the server answers per record, and the summary names failed records by id there.
+- UI: the action dialog's inputs take no defaults from the DTO's class initializers (the schema does not carry them): an optional input left empty gets the default on the server.
+- UI: `/p/:page` and `/g/:group` shadow the record pages of resources named `p` and `g`.
+- UI: the sidebar's pins and recents hold resources only, not settings pages; toasts are a small store of our own (no swipe, no pause on hover).
+- UI: a settings page sends a group of fields whole once one field of it changed, and then requires the group's required fields; the API itself accepts a partial group.
+- Flaky test fixed here: `products.pw.ts` two-factor sign-in now waits for the recovery codes.

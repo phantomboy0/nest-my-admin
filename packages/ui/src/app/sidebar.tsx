@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router';
 import { ChevronDown, KeyRound, Pin, PinOff, SearchCheck, UserRound, UsersRound } from 'lucide-react';
-import type { MetaGroup, MetaResourceSummary } from '@nest-my-admin/core/contract';
+import type { MetaGroup, MetaPageSummary, MetaResourceSummary } from '@nest-my-admin/core/contract';
 import { Input } from '@/components/ui/input';
 import { useLocale } from '@/i18n';
 import { iconFor } from '@/lib/icons';
@@ -25,8 +25,8 @@ const linkClass = (rail: boolean) => ({ isActive }: { isActive: boolean }) =>
   );
 
 /**
- * Groups (collapsible, one per Nest module) with their resources, a filter box, and the resources pinned or opened
- * recently in this browser. As a rail it shows icons only, each link keeping its name for assistive technology.
+ * Groups (collapsible, one per Nest module) with their resources and settings pages, a filter box, and the resources
+ * pinned or opened recently in this browser. As a rail it shows icons only, each link keeping its name for assistive technology.
  */
 export function Sidebar({ title, logo, groups, rail = false }: SidebarProps) {
   const { t } = useLocale();
@@ -39,14 +39,28 @@ export function Sidebar({ title, logo, groups, rail = false }: SidebarProps) {
     .map((name) => resources.get(name)!);
 
   const term = filter.trim().toLocaleLowerCase();
+  // A group may hold only pages; it is listed as long as something of it matches.
+  const narrowed = (group: MetaGroup) => term !== '' && !group.label.toLocaleLowerCase().includes(term);
   const visible = groups
     .map((group) => ({
       group,
-      resources: term && !group.label.toLocaleLowerCase().includes(term)
-        ? group.resources.filter((resource) => resource.label.toLocaleLowerCase().includes(term))
-        : group.resources,
+      resources: narrowed(group) ? group.resources.filter((resource) => resource.label.toLocaleLowerCase().includes(term)) : group.resources,
+      pages: narrowed(group) ? group.pages.filter((page) => page.label.toLocaleLowerCase().includes(term)) : group.pages,
     }))
-    .filter((entry) => entry.resources.length > 0);
+    .filter((entry) => entry.resources.length > 0 || entry.pages.length > 0);
+
+  /** A settings page: a link like a resource's, without a pin (pins and recents are for lists). */
+  const pageItem = (page: MetaPageSummary) => {
+    const Icon = iconFor(page.icon, 'page');
+    return (
+      <li key={`page:${page.name}`} className="flex items-center">
+        <NavLink to={`/p/${page.name}`} className={linkClass(rail)} aria-label={rail ? page.label : undefined} title={rail ? page.label : undefined}>
+          <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+          {!rail && <span className="truncate">{page.label}</span>}
+        </NavLink>
+      </li>
+    );
+  };
 
   const item = (resource: MetaResourceSummary, section: string) => {
     const Icon = iconFor(resource.icon, 'resource');
@@ -103,7 +117,7 @@ export function Sidebar({ title, logo, groups, rail = false }: SidebarProps) {
         </Section>
       )}
 
-      {visible.map(({ group, resources: items }) => {
+      {visible.map(({ group, resources: items, pages }) => {
         const collapsed = !term && !rail && nav.collapsedGroups.includes(group.key);
         const GroupIcon = iconFor(group.icon, 'group');
         const listId = `nav-group-${group.key}`;
@@ -127,6 +141,7 @@ export function Sidebar({ title, logo, groups, rail = false }: SidebarProps) {
             {!collapsed && (
               <ul id={listId} className="flex flex-col gap-0.5" aria-label={group.label}>
                 {items.map((resource) => item(resource, group.key))}
+                {pages.map(pageItem)}
               </ul>
             )}
           </div>

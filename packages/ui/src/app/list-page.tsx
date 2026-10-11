@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ListChecks, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import type { AdminRecord, BulkResult, FieldSchema } from '@nest-my-admin/core/contract';
+import { ActionButton } from '@/app/action-button';
 import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
 import { EditableCell } from '@/app/editable-cell';
 import { FilterBar } from '@/app/filter-bar';
@@ -13,6 +14,7 @@ import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useT } from '@/i18n';
+import { bulkActions, resourceActions, selectionResult } from '@/lib/actions';
 import { api, describeError } from '@/lib/api';
 import { useColumnPrefs, visibleColumns } from '@/lib/column-prefs';
 import { formatCell } from '@/lib/format';
@@ -53,11 +55,15 @@ export function ListPage() {
   useEffect(() => setSelected(new Set()), [listQuery, resource]);
   const [quickView, setQuickView] = useState<AdminRecord | undefined>();
   const [confirmingBulk, setConfirmingBulk] = useState(false);
+  // What the last run on a selection did (a bulk delete or a bulk action), shown under the selection bar.
+  const [bulkOutcome, setBulkOutcome] = useState<{ title: string; result: BulkResult } | undefined>();
+  useEffect(() => setBulkOutcome(undefined), [resource]);
   const bulkDelete = useMutation({
     mutationFn: (ids: string[]) => api.bulkDelete(resource, ids),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
       setSelected(new Set());
       setConfirmingBulk(false);
+      setBulkOutcome({ title: t('list.bulkDeleted', { count: result.ok.length }), result });
       await queryClient.invalidateQueries({ queryKey: ['list', resource] });
     },
     onError: () => setConfirmingBulk(false),
@@ -100,9 +106,11 @@ export function ListPage() {
     setTrail(trail.slice(0, -1));
     updateParams({ after: previous || null });
   }
-  // Selection only serves bulk delete: without the permission there is nothing to select for.
+  // Selection serves bulk delete and bulk actions: without either there is nothing to select for.
   const can = s.permissions ?? { create: true, update: true, delete: true, purge: true };
-  const selectable = !trash && can.delete;
+  const selectable = !trash && (can.delete || bulkActions(s, []).length > 0);
+  // Bulk actions at least one selected record allows (phone cards are not on this page's list: the server decides).
+  const selectedActions = bulkActions(s, items.filter((item) => selected.has(String(item._id))));
   const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item._id))}`;
 
   function updateParams(changes: ParamChanges) {
@@ -116,7 +124,7 @@ export function ListPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-semibold">{s.label}</h1>
         <div className="ms-auto" />
         <ColumnMenu schema={s} prefs={prefs} />
@@ -139,6 +147,7 @@ export function ListPage() {
             {t(selectMode ? 'list.done' : 'list.select')}
           </Button>
         )}
+        {!trash && resourceActions(s).map((action) => <ActionButton key={action.name} resource={s.name} action={action} onDone={() => undefined} />)}
         {s.creatable && !trash && (
           <Button asChild>
             <Link to={`/${s.name}/new`}>
@@ -167,7 +176,22 @@ export function ListPage() {
       {selectable && selected.size > 0 && (
         <div role="region" aria-label={t('list.selected', { count: selected.size })} className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
           <span className="font-medium">{t('list.selected', { count: selected.size })}</span>
-          {confirmingBulk ? (
+          {selectedActions.map((action) => (
+            <ActionButton
+              key={action.name}
+              resource={s.name}
+              action={action}
+              ids={[...selected]}
+              size="sm"
+              onDone={(outcome, ids) => {
+                const result = selectionResult(outcome, ids);
+                setSelected(new Set());
+                bulkDelete.reset();
+                setBulkOutcome({ title: t('action.bulkDone', { action: action.label, count: result.ok.length }), result });
+              }}
+            />
+          ))}
+          {!can.delete ? null : confirmingBulk ? (
             <Button variant="destructive" size="sm" disabled={bulkDelete.isPending} onClick={() => bulkDelete.mutate([...selected])}>
               {t('list.confirmDeleteSelected', { count: selected.size })}
             </Button>
@@ -182,7 +206,7 @@ export function ListPage() {
           </Button>
         </div>
       )}
-      {bulkDelete.data && <BulkSummary result={bulkDelete.data} items={items} />}
+      {bulkOutcome && <BulkSummary title={bulkOutcome.title} result={bulkOutcome.result} items={items} />}
       {bulkDelete.isError && <PageMessage tone="error">{describeError(bulkDelete.error)}</PageMessage>}
 
       {mobile ? (
@@ -387,8 +411,8 @@ function RestoreButton({ item, pending, onRestore }: { item: AdminRecord; pendin
   );
 }
 
-/** "2 deleted, 1 failed" with each failure's record and reason. */
-function BulkSummary({ result, items }: { result: BulkResult; items: AdminRecord[] }) {
+/** "2 deleted · 1 failed" (or "Ship: 2 done · 1 failed") with each failure's record and reason. */
+function BulkSummary({ title, result, items }: { title: string; result: BulkResult; items: AdminRecord[] }) {
   const t = useT();
   const name = (id: string) => {
     const item = items.find((candidate) => String(candidate._id) === id);
@@ -397,7 +421,7 @@ function BulkSummary({ result, items }: { result: BulkResult; items: AdminRecord
   return (
     <div role="status" className="rounded-lg border px-3 py-2 text-sm">
       <p>
-        {t('list.bulkDeleted', { count: result.ok.length })}
+        {title}
         {result.failed.length > 0 && ` · ${t('list.bulkFailed', { count: result.failed.length })}`}
       </p>
       {result.failed.length > 0 && (

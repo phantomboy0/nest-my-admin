@@ -10,6 +10,8 @@ const meta: MetaResponse = {
   groups: [
     { key: 'catalog', label: 'Catalog', resources: [{ name: 'product', label: 'Product', creatable: true, searchable: true }, { name: 'stock-move', label: 'Stock move', creatable: false, searchable: false }], pages: [] },
     { key: 'sales', label: 'Sales', resources: [{ name: 'order', label: 'سفارش', creatable: true, searchable: true }], pages: [] },
+    // A group may hold only pages.
+    { key: 'settings', label: 'Settings', resources: [], pages: [{ name: 'shop', label: 'Shop settings' }] },
   ],
 };
 const newLabel = (name: string) => `New ${name}`;
@@ -22,12 +24,17 @@ describe('palette', () => {
     expect(matches('Product', 'order')).toBe(false);
   });
   test('an empty query lists every place to go, and nothing to create', () => {
-    expect(navigationItems(meta, '', newLabel).map((item) => item.id)).toEqual(['group:catalog', 'go:product', 'go:stock-move', 'group:sales', 'go:order']);
+    expect(navigationItems(meta, '', newLabel).map((item) => item.id)).toEqual(['group:catalog', 'go:product', 'go:stock-move', 'group:sales', 'go:order', 'group:settings', 'page:shop']);
   });
   test('"new prod" offers the create form; resources that cannot be created are left out', () => {
     expect(navigationItems(meta, 'new prod', newLabel)).toEqual([{ id: 'new:product', section: 'create', label: 'New Product', to: '/product/new' }]);
     expect(navigationItems(meta, 'new stock', newLabel)).toEqual([]);
     expect(navigationItems(meta, 'stock', newLabel).map((item) => item.to)).toEqual(['/stock-move']);
     expect(navigationItems(meta, 'catalog', newLabel).map((item) => item.to)).toEqual(['/g/catalog', '/product', '/stock-move']);
+  });
+  test('settings pages are places to go, found by their own name or their group', () => {
+    expect(navigationItems(meta, 'shop set', newLabel)).toEqual([{ id: 'page:shop', section: 'go', label: 'Shop settings', detail: 'Settings', to: '/p/shop' }]);
+    expect(navigationItems(meta, 'settings', newLabel).map((item) => item.to)).toEqual(['/g/settings', '/p/shop']);
+    expect(navigationItems(meta, 'new shop', newLabel)).toEqual([]);
   });
 });

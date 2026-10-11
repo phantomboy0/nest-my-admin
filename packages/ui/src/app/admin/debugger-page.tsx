@@ -176,6 +176,38 @@ function Explanation({ data }: { data: PermissionExplanation }) {
         </div>
       </section>
 
+      {data.actions.length > 0 && (
+        <section aria-labelledby="debug-actions" className="flex flex-col gap-2">
+          <h2 id="debug-actions" className="font-medium">
+            {t('debugger.actions')}
+          </h2>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <tbody className="divide-y">
+                {data.actions.map((action) => (
+                  <tr key={action.name} data-action={action.name}>
+                    <th scope="row" className="w-32 px-3 py-2 text-start font-medium">
+                      {action.label}
+                    </th>
+                    <td className="w-24 px-3 py-2">
+                      <Verdict allowed={action.allowed} />
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {data.superuser
+                        ? ''
+                        : [
+                            action.grantedBy.length === 0 ? t('debugger.noGrant') : action.grantedBy.map((grant) => t('debugger.grant', { pattern: grant.pattern, role: grant.role })).join(' · '),
+                            ...(action.needsUpdate ? [t('debugger.needsUpdate')] : []),
+                          ].join(' — ')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <section aria-labelledby="debug-fields" className="flex flex-col gap-2">
         <h2 id="debug-fields" className="font-medium">
           {t('debugger.fields')}
@@ -238,7 +270,59 @@ function Explanation({ data }: { data: PermissionExplanation }) {
                 {data.record!.reasons[operation] && <span className="text-muted-foreground">{t(`debugger.reason.${data.record!.reasons[operation]!}`)}</span>}
               </li>
             ))}
+            {data.record.actions && (
+              <li className="flex flex-wrap items-center gap-2" data-operation="actions">
+                <span className="w-24 font-medium">{t('debugger.actions')}</span>
+                <span className="text-muted-foreground">
+                  {data.record.actions.length === 0
+                    ? t('debugger.noRecordActions')
+                    : data.record.actions.map((name) => data.actions.find((action) => action.name === name)?.label ?? name).join(', ')}
+                </span>
+              </li>
+            )}
           </ul>
+        </section>
+      )}
+
+      {data.pages.length > 0 && (
+        <section aria-labelledby="debug-pages" className="flex flex-col gap-2">
+          <h2 id="debug-pages" className="font-medium">
+            {t('debugger.pages')}
+          </h2>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-start font-medium">{t('rbac.page')}</th>
+                  <th className="px-3 py-2 text-start font-medium">{t('rbac.op.view')}</th>
+                  <th className="px-3 py-2 text-start font-medium">{t('rbac.op.update')}</th>
+                  <th className="px-3 py-2 text-start font-medium">{t('debugger.byRole')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {data.pages.map((page) => (
+                  <tr key={page.name} data-page={page.name}>
+                    <th scope="row" className="px-3 py-2 text-start font-medium">
+                      {page.label}
+                    </th>
+                    <td className="px-3 py-2" data-operation="view">
+                      <Verdict allowed={page.view} />
+                    </td>
+                    <td className="px-3 py-2" data-operation="update">
+                      <Verdict allowed={page.update} />
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {data.superuser
+                        ? ''
+                        : page.grantedBy.length === 0
+                          ? t('debugger.noGrant')
+                          : page.grantedBy.map((grant) => `${t('debugger.grant', { pattern: grant.pattern, role: grant.role })} (${grant.code})`).join(' · ')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
     </div>

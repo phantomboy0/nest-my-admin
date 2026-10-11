@@ -279,7 +279,8 @@ describe('the catalog-editor role (editor)', () => {
   test('sees the catalog without suppliers, and no cost', async () => {
     const meta = (await editor.get('/admin/api/meta')).body;
     const names = meta.groups.flatMap((group: { resources: Array<{ name: string }> }) => group.resources.map((resource) => resource.name)).sort();
-    expect(names).toEqual(['category', 'product', 'stock-move', 'tag']); // no articles, no invoices
+    expect(names).toEqual(['category', 'order', 'product', 'stock-move', 'tag']); // no articles, no invoices
+    expect(meta.groups.flatMap((group: { pages: Array<{ name: string }> }) => group.pages.map((page) => page.name))).toEqual(['shop']);
     const schema = (await editor.get('/admin/api/meta/resources/product')).body;
     expect(schema.list.columns).not.toContain('cost');
     expect(schema.permissions).toEqual({ create: false, update: true, delete: false, purge: false });
@@ -296,5 +297,119 @@ describe('the catalog-editor role (editor)', () => {
     expect((await editor.get(`${base}/${draft._id}`)).body).not.toHaveProperty('cost');
     expect((await editor.delete(`${base}/${draft._id}`)).status).toBe(403);
     expect((await editor.post(base).send({ name: 'New', sku: 'ed-3', price: '1' })).status).toBe(403);
+  });
+
+  test('ships orders but may not cancel or mark them paid; reads the shop settings without saving them', async () => {
+    const orders = '/admin/api/resources/order';
+    const schema = (await editor.get('/admin/api/meta/resources/order')).body;
+    expect(schema.actions.map((action: { name: string }) => action.name)).toEqual(['ship']);
+    const draft = (await agent.post(orders).send({ number: 'ED-ORDER-1', customer: 'Ada', total: '5.00' })).body;
+    expect((await editor.get(`${orders}/${draft._id}`)).body._perm.actions).toEqual(['ship']);
+    for (const action of ['cancel', 'markPaid', 'cancelStaleDrafts']) {
+      expect((await editor.post(`${orders}/actions/${action}`).send(action === 'cancelStaleDrafts' ? {} : { ids: [draft._id] })).status).toBe(403);
+    }
+    expect((await agent.post(`${orders}/actions/markPaid`).send({ ids: [draft._id] })).status).toBe(200);
+    const shipped = await editor.post(`${orders}/actions/ship`).send({ ids: [draft._id], input: { tracking: 'TRK-EDITOR' } });
+    expect(shipped.body).toMatchObject({ message: 'Shipped', record: { status: 'shipped', tracking: 'TRK-EDITOR' } });
+
+    const page = await editor.get('/admin/api/pages/shop');
+    expect(page.status).toBe(200);
+    expect(page.body.schema.readonly).toBe(true);
+    expect((await editor.patch('/admin/api/pages/shop').send({ shopName: 'Not mine' })).status).toBe(403);
+  });
+});
+
+describe('orders (actions)', () => {
+  const orders = '/admin/api/resources/order';
+  const make = async (number: string) => (await agent.post(orders).send({ number, customer: 'Grace', total: '12.50' })).body as { _id: string };
+  const run = (action: string, body: object) => agent.post(`${orders}/actions/${action}`).send(body);
+
+  test('status and tracking code are changed by actions only', async () => {
+    const schema = (await agent.get('/admin/api/meta/resources/order')).body;
+    expect(schema.form).toMatchObject({ create: ['number', 'customer', 'total'], update: ['customer', 'total'] });
+    expect(schema.actions.map((action: { name: string; target: string; bulk: boolean }) => [action.name, action.target, action.bulk])).toEqual([
+      ['markPaid', 'record', false],
+      ['ship', 'record', true],
+      ['cancel', 'record', false],
+      ['cancelStaleDrafts', 'resource', false],
+    ]);
+    const order = await make('ACT-1');
+    expect((await agent.patch(`${orders}/${order._id}`).send({ status: 'shipped' })).status).toBe(422);
+  });
+
+  test('rules take actions away from records; the method says why it refuses', async () => {
+    const order = await make('ACT-2');
+    expect((await agent.get(`${orders}/${order._id}`)).body._perm.actions).toEqual(['markPaid', 'ship', 'cancel']);
+    // Not paid yet: the host's refusal, with its message.
+    const early = await run('ship', { ids: [order._id], input: { tracking: 'TRK-EARLY' } });
+    expect(early.status).toBe(409);
+    expect(early.body).toMatchObject({ code: 'CONFLICT', message: 'Order ACT-2 is not paid yet: mark it paid first' });
+    expect((await run('markPaid', { ids: [order._id] })).body).toMatchObject({ message: 'Order ACT-2 is paid', record: { status: 'paid', _perm: { actions: ['ship'] } } });
+    expect((await run('cancel', { ids: [order._id] })).status).toBe(403); // drafts only
+    expect((await run('ship', { ids: [order._id], input: { tracking: 'x' } })).body).toMatchObject({ code: 'VALIDATION', fields: { tracking: expect.any(Array) } });
+    expect((await run('ship', { ids: [order._id], input: { tracking: 'TRK-2' } })).body.record).toMatchObject({ status: 'shipped', tracking: 'TRK-2', _perm: { actions: [] } });
+  });
+
+  test('a selection is shipped record by record', async () => {
+    const paid = [await make('ACT-3'), await make('ACT-4')];
+    const draft = await make('ACT-5');
+    for (const order of paid) await run('markPaid', { ids: [order._id] });
+    const result = await run('ship', { ids: [paid[0]!._id, draft._id, paid[1]!._id], input: { tracking: 'TRK-BULK' } });
+    expect(result.body).toEqual({
+      ok: [paid[0]!._id, paid[1]!._id],
+      failed: [{ id: draft._id, code: 'CONFLICT', message: 'Order ACT-5 is not paid yet: mark it paid first' }],
+      message: 'Shipped',
+    });
+  });
+
+  test('the toolbar action runs without records and uses its default', async () => {
+    expect((await run('cancelStaleDrafts', {})).body).toEqual({ message: 'No draft is older than 30 days' });
+    expect((await run('cancelStaleDrafts', { input: { olderThanDays: 0 } })).status).toBe(422);
+  });
+});
+
+describe('shop settings (a settings page)', () => {
+  const url = '/admin/api/pages/shop';
+  const KEY = 'sk_test_demo_4242424242';
+
+  test('values are saved key by key; the payment key is write-only', async () => {
+    const { seedSettings } = await import('../src/seed.js');
+    await seedSettings(app);
+    const before = (await agent.get(url)).body;
+    expect(before.values).toMatchObject({ shopName: 'Demo shop', lowStockThreshold: 5, logo: null });
+    expect(before.secrets).toEqual({ paymentApiKey: false });
+    expect(before.schema.fields.find((field: { name: string }) => field.name === 'paymentApiKey')).toMatchObject({ secret: true });
+
+    const saved = await agent.patch(url).send({ lowStockThreshold: 9, paymentApiKey: KEY });
+    expect(saved.status).toBe(200);
+    expect(saved.body.values).toMatchObject({ shopName: 'Demo shop', lowStockThreshold: 9 });
+    expect(saved.body.secrets).toEqual({ paymentApiKey: true });
+    expect(JSON.stringify(saved.body)).not.toContain(KEY);
+    expect(JSON.stringify((await agent.get(url)).body)).not.toContain(KEY);
+    // The secret is where `save()` put it; another save without the key leaves it alone.
+    expect((await agent.patch(url).send({ maintenance: true })).body.secrets).toEqual({ paymentApiKey: true });
+    expect((await agent.patch(url).send({ paymentApiKey: '' })).status).toBe(422);
+    expect((await agent.patch(url).send({ paymentApiKey: null })).body.secrets).toEqual({ paymentApiKey: false });
+  });
+
+  test("the page's own refusal names the field, never the value", async () => {
+    const refused = await agent.patch(url).send({ paymentApiKey: 'pk_wrong_kind_of_key_123' });
+    expect(refused.status).toBe(422);
+    expect(refused.body.fields).toEqual({ paymentApiKey: ['must start with sk_'] });
+    expect(JSON.stringify(refused.body)).not.toContain('pk_wrong_kind_of_key_123');
+  });
+
+  test('a logo is uploaded for the page, stored by its key, and cleared to null', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    const upload = await agent.post('/admin/api/uploads?resource=page:shop&field=logo').set('Content-Type', 'image/png').set('X-File-Name', 'logo.png').send(png);
+    expect(upload.status).toBe(201);
+    const saved = (await agent.patch(url).send({ logo: { token: upload.body.token } })).body;
+    expect(saved.values.logo).toMatch(/^page\/shop\/logo\//);
+    expect(saved.files.logo).toMatchObject({ name: 'logo.png', key: saved.values.logo });
+    expect((await agent.get(`/admin/api/files/${saved.values.logo}`)).status).toBe(200);
+    const cleared = (await agent.patch(url).send({ logo: null })).body;
+    expect(cleared.values.logo).toBeNull();
+    expect(cleared.files).toEqual({});
+    expect((await agent.get(`/admin/api/files/${saved.values.logo}`)).status).toBe(404);
   });
 });

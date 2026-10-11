@@ -1,11 +1,14 @@
 import type {
   AccountSession,
+  ActionRequest,
+  ActionResult,
   AdminErrorBody,
   AdminRecord,
   BulkResult,
   ListResponse,
   MetaResponse,
   OptionsResponse,
+  PageResponse,
   PermissionExplanation,
   ResourceSchema,
   RbacCatalog,
@@ -23,7 +26,7 @@ import { runtimeConfig } from './config';
 import { ApiError } from './api-error';
 import { currentCsrfToken, signedOut, viewingAs } from './session';
 import { uploadFile, type Upload, type UploadTarget } from './upload';
-import { readOnlySchema, readOnlySession } from './view-as';
+import { readOnlyPage, readOnlySchema, readOnlySession } from './view-as';
 
 export { ApiError, describeError } from './api-error';
 
@@ -136,6 +139,19 @@ export const api = {
   /** Deletes each record on its own; `failed` says which could not be deleted and why. */
   bulkDelete: (resource: string, ids: string[]) =>
     request<BulkResult>(`/resources/${enc(resource)}/bulk-delete`, { method: 'POST', body: JSON.stringify({ ids }) }),
+  /**
+   * Runs a custom action: on `ids` for a record action (the answer is the record for one distinct id, a `BulkResult`
+   * for several), without ids for a resource action. `input` holds the values of the action's form.
+   */
+  runAction: (resource: string, action: string, body: ActionRequest) =>
+    request<ActionResult>(`/resources/${enc(resource)}/actions/${enc(action)}`, { method: 'POST', body: JSON.stringify(body) }),
+  /** A settings page: its form, values, which secrets are set, and its files. */
+  page: async (name: string) => {
+    const page = await request<PageResponse>(`/pages/${enc(name)}`);
+    return viewingAs() ? readOnlyPage(page) : page;
+  },
+  /** Saves the keys in `changes` (and only those); the answer is the page as it is now. */
+  savePage: (name: string, changes: Record<string, unknown>) => request<PageResponse>(`/pages/${enc(name)}`, { method: 'PATCH', body: JSON.stringify(changes) }),
   restore: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}/restore`, { method: 'POST', body: '{}' }),
   get: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`),
   create: (resource: string, body: Record<string, unknown>) =>

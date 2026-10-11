@@ -28,7 +28,7 @@ export function matches(text: string, query: string): boolean {
     .every((word) => haystack.includes(word));
 }
 
-/** Resources and groups to go to, and "New …" for creatable resources, that match the query (all of them when empty). */
+/** Resources, settings pages and groups to go to, and "New …" for creatable resources, that match the query (all of them when empty). */
 export function navigationItems(meta: MetaResponse, query: string, newLabel: (name: string) => string): PaletteItem[] {
   const go: PaletteItem[] = [];
   const create: PaletteItem[] = [];
@@ -38,6 +38,9 @@ export function navigationItems(meta: MetaResponse, query: string, newLabel: (na
       if (matches(`${resource.label} ${group.label}`, query)) go.push({ id: `go:${resource.name}`, section: 'go', label: resource.label, detail: group.label, to: `/${resource.name}` });
       const label = newLabel(resource.label);
       if (resource.creatable && query.trim() !== '' && matches(label, query)) create.push({ id: `new:${resource.name}`, section: 'create', label, to: `/${resource.name}/new` });
+    }
+    for (const page of group.pages) {
+      if (matches(`${page.label} ${group.label}`, query)) go.push({ id: `page:${page.name}`, section: 'go', label: page.label, detail: group.label, to: `/p/${page.name}` });
     }
   }
   return [...go, ...create];

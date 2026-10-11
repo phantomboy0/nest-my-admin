@@ -3,7 +3,7 @@ import { PageMessage } from '@/components/page-message';
 import { useT } from '@/i18n';
 import { useMeta } from '@/lib/queries';
 
-/** Every group with its resources and counts. */
+/** Every group with its resources (and their counts) and its settings pages. */
 export function HomePage() {
   const t = useT();
   const meta = useMeta();

@@ -1,0 +1,53 @@
+import type { ActionResult, ActionSchema, AdminRecord, BulkResult, RecordPermissions, ResourceSchema } from '@nest-my-admin/core/contract';
+
+/**
+ * The record actions to offer on `record`: the schema's (already cut to what the user may run), narrowed by the
+ * record's `_perm.actions`. A record without `_perm`, or a `_perm` without `actions`, allows every one of them.
+ */
+export function recordActions(schema: ResourceSchema, record: AdminRecord | undefined): ActionSchema[] {
+  const allowed = (record?._perm as RecordPermissions | undefined)?.actions;
+  return schema.actions.filter((action) => action.target === 'record' && (allowed === undefined || allowed.includes(action.name)));
+}
+
+/**
+ * The bulk actions to offer for a selection: those at least one of the selected records allows. `records` are the
+ * selected records the page knows; a selection it knows nothing about (phone cards) is offered every bulk action,
+ * and the server answers per record.
+ */
+export function bulkActions(schema: ResourceSchema, records: AdminRecord[]): ActionSchema[] {
+  const bulk = schema.actions.filter((action) => action.target === 'record' && action.bulk);
+  if (records.length === 0) return bulk;
+  return bulk.filter((action) => records.some((record) => recordActions(schema, record).includes(action)));
+}
+
+/** The actions of the list toolbar: they run once, without records. */
+export function resourceActions(schema: ResourceSchema): ActionSchema[] {
+  return schema.actions.filter((action) => action.target === 'resource');
+}
+
+/** An action that runs on the click alone: nothing to fill in and nothing to confirm. */
+export function runsAtOnce(action: ActionSchema): boolean {
+  return !action.input && action.confirm === undefined;
+}
+
+export type ActionOutcome =
+  /** One record: as it is now, or `null` when the user can no longer see it. */
+  | { kind: 'record'; record: AdminRecord | null; message?: string }
+  | { kind: 'bulk'; result: BulkResult; message?: string }
+  | { kind: 'resource'; message?: string };
+
+/** What the server answered. The shape follows the number of distinct ids sent, not the action. */
+export function actionOutcome(result: ActionResult): ActionOutcome {
+  const message = result.message === undefined ? {} : { message: result.message };
+  if ('record' in result) return { kind: 'record', record: result.record, ...message };
+  if ('ok' in result && 'failed' in result) return { kind: 'bulk', result: { ok: result.ok, failed: result.failed }, ...message };
+  return { kind: 'resource', ...message };
+}
+
+/**
+ * The outcome of a run on a selection as a `BulkResult`, whatever shape it had: one selected record (or several
+ * spellings of one id) is answered like a single run.
+ */
+export function selectionResult(outcome: ActionOutcome, ids: string[]): BulkResult {
+  return outcome.kind === 'bulk' ? outcome.result : { ok: ids, failed: [] };
+}
