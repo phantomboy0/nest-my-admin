@@ -21,6 +21,10 @@ interface AuditState {
   title?: string;
   /** The entry, when it cannot share the change's transaction: written once that has committed. */
   pending?: AuditInput;
+  /** The id of the entry written in the change's transaction. */
+  entryId?: number;
+  /** A delete whose row the transaction still reads, untrashed: the key to read again once it has committed (`unsure`). */
+  recheck?: RecordId;
 }
 
 const EVENTS = { create: 'created', update: 'updated', delete: 'deleted', restore: 'restored', purge: 'purged' } as const;
@@ -34,6 +38,9 @@ const EVENTS = { create: 'created', update: 'updated', delete: 'deleted', restor
  * The entry is written in the change's transaction when the audit table is on the same DataSource, so the two
  * commit or roll back together; on another DataSource it is written once the change has committed; without
  * transactions, once the host method has returned. A change that fails writes none.
+ *
+ * After commit, and only then (the write's connection is back in the pool, so a pool of one is enough), a delete
+ * that seemed to leave its row is checked once more (`unsure`, `onCommit`). That check never fails the write.
  */
 export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState> {
   return {
@@ -55,13 +62,20 @@ export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState
       const { target } = change;
       const input = 'schema' in target ? await recordEntry(target, change, state, saved, tx.manager ?? target.dataSource.manager) : pageEntry(target, state, saved);
       if (!input) return;
-      if (audit.joins(tx)) await audit.record(input, tx);
+      if (audit.joins(tx)) state.entryId = await audit.record(input, tx);
       else if (tx.manager) state.pending = input;
       else await audit.recordAfter(input, tx);
     },
 
-    async onCommit(_change, state, tx) {
-      if (state.pending) await audit.recordAfter(state.pending, tx);
+    async onCommit(change, state, tx) {
+      const { target } = change;
+      const { pending, entryId, recheck } = state;
+      // What is committed now, on the DataSource's own manager. A read that fails is logged and stamps nothing.
+      const event = 'schema' in target ? `${target.schema.name}.deleted` : '';
+      const ended = 'schema' in target && recheck !== undefined && (pending !== undefined || entryId !== undefined) && (await audit.leftNoRow(event, tx, () => load(target, recheck, target.dataSource.manager)));
+      // An entry that waited for the commit is written with the stamp; one that is in the table already gets it now.
+      if (pending) await audit.recordAfter(ended ? { ...pending, meta: { ...pending.meta, deleted: true } } : pending, tx);
+      else if (ended && entryId !== undefined) await audit.stampDeleted(entryId, event, tx);
     },
   };
 }
@@ -105,21 +119,19 @@ async function load(entry: RegisteredResource, id: RecordId, manager: EntityMana
 }
 
 /**
- * Whether a delete left no row of the record, trash included. `stored` is what the write's own manager reads back.
- * No row there: gone. A row in the trash: not gone. A row that is not in the trash is either a record the host
- * kept (an archive flag, a refusal it swallowed) or one a host service deleted on another connection, which the
- * admin's transaction cannot see under MySQL's REPEATABLE READ (its snapshot is of its first read). So it is read
- * once more on the DataSource's own manager: outside the transaction, what is committed now. Only where there is a
- * transaction and another connection to read from (`SINGLE_CONNECTION_DRIVERS`: one connection reads the same
- * twice). That read takes a second connection from the pool while the write holds its own.
+ * Whether a delete that still reads its row cannot tell yet that the record is there. `stored` is what the write's
+ * own manager read back, and it is not in the trash: either the host kept the record (an archive flag, a refusal
+ * it swallowed), or a host service deleted it on another connection, which the admin's transaction cannot see
+ * under MySQL's REPEATABLE READ (its snapshot is of its first read). Only once the transaction has committed can
+ * another read tell, on the DataSource's own manager (`onCommit`): never before, when it would take a second
+ * connection from the pool while the write holds one. Not where one connection would read the same twice
+ * (`SINGLE_CONNECTION_DRIVERS`), and not without a transaction (`transactions: false`): there is no snapshot, and
+ * the read after the host method returned is already current.
  */
-async function gone(entry: RegisteredResource, id: RecordId, stored: object | undefined, manager: EntityManager): Promise<boolean> {
-  if (!stored) return true;
+function unsure(entry: RegisteredResource, stored: object, manager: EntityManager): boolean {
   const trash = entry.metadata.deleteDateColumn;
   if (trash && trash.getEntityValue(stored) != null) return false;
-  const outside = entry.dataSource.manager;
-  if (manager === outside || SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type)) return false;
-  return !(await load(entry, id, outside));
+  return manager !== entry.dataSource.manager && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type);
 }
 
 /**
@@ -129,18 +141,22 @@ async function gone(entry: RegisteredResource, id: RecordId, stored: object | un
  * later record with the same key is another record). Which entries are stamped:
  *
  * - every purge: it is for good by definition, whatever is read back (the host may delete on another connection,
- *   or later);
- * - a delete after which no row is left (`gone`): where there is no trash, or by a host `delete()` that does not
- *   use it. The trash is no end, and neither is a `delete()` that leaves the row where it was;
+ *   or later). A host `purge()` that keeps the row cuts its history all the same: what was recorded before the
+ *   purge is then read as a gone record's;
+ * - a delete after which no row is left: where there is no trash, or by a host `delete()` that does not use it.
+ *   When the transaction still reads the row, untrashed, the stamp is added right after commit if the row is gone
+ *   by then (`unsure`). The trash is no end, and neither is a `delete()` that leaves the row where it was;
  * - an action after which the write's own manager finds no row. That read alone decides, never what the host's
  *   `findOne` answered afterwards (`saved`), which may come from a cache or from another connection.
  *
  * What gets no stamp, so that a key given again reopens the earlier entries: a delete (not a purge) that completes
  * after the host method returned (queued, fire and forget); rows a database cascade removes when another record is
  * deleted; a delete whose entry was lost (the insert after commit failed: the audit table on another DataSource,
- * or `transactions: false`); a record deleted outside the admin or by a `target: 'resource'` action, which names
- * no record; and an action that deletes on another connection: an action that leaves its row is the normal case,
- * and a second read would cost every run a query.
+ * or `transactions: false`); a delete on another connection whose check after commit did not happen (the process
+ * died between the commit and the stamp, or the read or the update failed: that is logged); a record deleted
+ * outside the admin or by a `target: 'resource'` action, which names no record; and an action that deletes on
+ * another connection: an action that leaves its row is the normal case, and a second read would cost every run a
+ * query.
  */
 async function recordEntry(entry: RegisteredResource, change: WriteChange, state: AuditState, saved: object | null | undefined, manager: EntityManager): Promise<AuditInput | undefined> {
   const name = entry.schema.name;
@@ -158,7 +174,8 @@ async function recordEntry(entry: RegisteredResource, change: WriteChange, state
   // An action's "after" is the stored row or nothing: what the host's finder answered is only a witness (`changed`).
   const current = removes ? undefined : change.kind === 'action' ? stored : (stored ?? saved ?? undefined);
   const after = current ? await serializeFull(entry, current, manager) : undefined;
-  const ended = change.kind === 'purge' || (change.kind === 'delete' && known !== undefined && (await gone(entry, known, stored, manager))) || (change.kind === 'action' && known !== undefined && !stored);
+  const ended = change.kind === 'purge' || ((change.kind === 'delete' || change.kind === 'action') && known !== undefined && !stored);
+  if (change.kind === 'delete' && known !== undefined && stored && unsure(entry, stored, manager)) state.recheck = known;
   const recordId = current ? recordIdOf(current, entry.schema.primaryKeys) : (state.recordId ?? (change.id !== undefined ? recordIdOf(whereOf(entry, change.id), entry.schema.primaryKeys) : undefined));
   const title = current ? titleOf(entry, current) : state.title;
   const record = { entry, ...(recordId !== undefined ? { recordId } : {}), ...(title !== undefined ? { title } : {}) };

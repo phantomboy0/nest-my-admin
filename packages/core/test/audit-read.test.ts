@@ -4,7 +4,7 @@ import { InjectDataSource, getDataSourceToken } from '@nestjs/typeorm';
 import { IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 import request from 'supertest';
 import type { IncomingMessage } from 'node:http';
-import { ChildEntity, Column, DeleteDateColumn, DeleteQueryBuilder, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, QueryFailedError, TableInheritance, type DataSource, type SelectQueryBuilder } from 'typeorm';
+import { ChildEntity, Column, DeleteDateColumn, DeleteQueryBuilder, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, QueryFailedError, Repository, TableInheritance, type DataSource, type FindOneOptions, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
 import {
   ADMIN_AUDIT_ENTITIES,
   ADMIN_RBAC_ENTITIES,
@@ -31,6 +31,7 @@ import {
 } from '../src/index.js';
 import { AdminAudit } from '../src/audit/audit.service.js';
 import { createTestApp } from './helpers/create-app.js';
+import { TEST_DB } from './helpers/test-db.js';
 
 /** Values some readers must never be shown: their answers are searched for them. */
 const SALARY_1 = '711711.11';
@@ -328,11 +329,12 @@ class ReadModule {}
 
 const ENTITIES = [Customer, Employee, Vault, Doc, Site, Note, Memo, Content, Post, Leaf, Depot, Setting];
 
-async function boot(admin: Partial<AdminModuleOptions> = { audit: {} }, more: { entities?: Function[]; dataSources?: Record<string, Function[]> } = { entities: [...ADMIN_AUDIT_ENTITIES] }) {
+async function boot(admin: Partial<AdminModuleOptions> = { audit: {} }, more: { entities?: Function[]; dataSources?: Record<string, Function[]>; dataSource?: Record<string, unknown> } = { entities: [...ADMIN_AUDIT_ENTITIES] }) {
   const app = await createTestApp({
     imports: [ReadModule],
     entities: [...ENTITIES, ...ADMIN_RBAC_ENTITIES, ...(more.entities ?? [])],
     dataSources: more.dataSources,
+    dataSource: more.dataSource,
     admin: { auth: AdminAuth.custom(TestAuth), roles: ROLES, rbac: {}, ...admin },
   });
   const http = (user = 'ada', headers: Record<string, string> = {}) => ({
@@ -1021,6 +1023,38 @@ describe('audit log: reading', () => {
     }
   });
 
+  test('the check after commit never fails the delete: when its read fails the entry stays unstamped, and that is logged', async () => {
+    const db = t.app.get<DataSource>(getDataSourceToken() as string, { strict: false });
+    expect(await t.create('depot', { slug: 'cape', name: 'archive cape', ownerId: 'u2' })).toBe('cape');
+    expect(await t.create('depot', { slug: 'reef', name: 'Plain reef', ownerId: 'u2' })).toBe('reef');
+    // The read outside the transaction (the DataSource's own manager, the trash included) fails; every other read works.
+    const findOne = Repository.prototype.findOne;
+    const reads = spyOn(Repository.prototype, 'findOne').mockImplementation(function (this: Repository<ObjectLiteral>, options: FindOneOptions<ObjectLiteral>) {
+      if (this.manager === db.manager && this.target === Depot && options.withDeleted) throw new Error('the pool is closed');
+      return findOne.call(this, options);
+    });
+    const warned = spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    let logged: string[];
+    try {
+      expect((await t.http().delete('/resources/depot/cape')).status).toBe(204);
+      expect((await t.http().delete('/resources/depot/reef')).status).toBe(204);
+      logged = warned.mock.calls.map((call) => String(call[0]));
+    } finally {
+      reads.mockRestore();
+      warned.mockRestore();
+    }
+    const metaOf = async (slug: string) => (await t.pages(`/audit?resource=depot&record=${slug}`, 'ada'))[0]!.meta;
+    // Flagged, not deleted: never stamped.
+    expect(await metaOf('cape')).toBeUndefined();
+    // sql.js has one connection and nothing to check outside it. On Postgres and MySQL the row "cape" is still read
+    // inside the transaction, so it is checked after commit: that failed, and was logged. "reef" was deleted on the
+    // host's own connection: Postgres (READ COMMITTED) saw that inside the transaction and stamped the entry there;
+    // MySQL (REPEATABLE READ) did not, and its check after commit failed too.
+    expect(await metaOf('reef')).toEqual(TEST_DB === 'mysql' ? undefined : { deleted: true });
+    expect(logged).toHaveLength({ sqljs: 0, postgres: 1, mysql: 2 }[TEST_DB]);
+    for (const line of logged) expect(line).toMatch(/^\[[^\]]+\] audit: could not check whether "depot\.deleted" left a row \(the pool is closed\)/);
+  });
+
   test('I1: a restriction the host wrote in `findOne` closes the audit page as it closes GET', async () => {
     const sealed = await t.create('note', { title: SEALED });
     const plain = await t.create('note', { title: 'Plain note' });
@@ -1262,6 +1296,38 @@ describe('audit log: reading, elsewhere', () => {
       await t.app.close();
     }
   });
+
+  test('with the audit table on another DataSource, a host `delete()` on another connection still ends the record', async () => {
+    const PRED = 'ISLE-SENTINEL';
+    const t = await boot({ audit: { dataSource: 'audit' } }, { dataSources: { audit: [...ADMIN_AUDIT_ENTITIES] } });
+    try {
+      expect(await t.create('depot', { slug: 'isle', name: PRED, ownerId: 'u2' })).toBe('isle');
+      expect((await t.http().delete('/resources/depot/isle')).status).toBe(204);
+      // The entry is written after commit here: what the check found is in it from the start.
+      const [ended] = await t.pages('/audit?resource=depot&record=isle', 'ada');
+      expect([ended!.event, ended!.meta]).toEqual(['depot.deleted', { deleted: true }]);
+      expect(await t.create('depot', { slug: 'isle', name: 'Mine isle', ownerId: 'r1' }, 'r1')).toBe('isle');
+      for (const path of ['/resources/depot/isle/history', '/audit?resource=depot']) expect(JSON.stringify(await t.pages(path, 'r1'))).not.toContain(PRED);
+      // Flagged and kept: no stamp.
+      expect(await t.create('depot', { slug: 'quay', name: 'archive quay', ownerId: 'r1' }, 'r1')).toBe('quay');
+      expect((await t.http().delete('/resources/depot/quay')).status).toBe(204);
+      expect((await t.pages('/resources/depot/quay/history', 'r1')).map((entry) => [entry.event, entry.meta])).toEqual([['depot.deleted', undefined], ['depot.created', undefined]]);
+    } finally {
+      await t.app.close();
+    }
+  });
+
+  test('a delete that leaves its row takes no second connection while the write holds one: a pool of one is enough', async () => {
+    // One connection for the whole app on Postgres and MySQL (sql.js has one anyway).
+    const t = await boot({ audit: {} }, { entities: [...ADMIN_AUDIT_ENTITIES], dataSource: { extra: TEST_DB === 'mysql' ? { connectionLimit: 1 } : { max: 1 } } });
+    try {
+      expect(await t.create('depot', { slug: 'solo', name: 'archive solo', ownerId: 'r1' })).toBe('solo');
+      expect((await t.http().delete('/resources/depot/solo')).status).toBe(204);
+      expect((await t.pages('/resources/depot/solo/history', 'r1')).map((entry) => [entry.event, entry.meta])).toEqual([['depot.deleted', undefined], ['depot.created', undefined]]);
+    } finally {
+      await t.app.close();
+    }
+  }, 20_000);
 
   test('the audit table on another DataSource is read from there', async () => {
     const t = await boot({ audit: { dataSource: 'audit' } }, { dataSources: { audit: [...ADMIN_AUDIT_ENTITIES] } });

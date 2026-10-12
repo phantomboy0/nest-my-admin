@@ -12,8 +12,9 @@ export interface AuditMeta {
   /**
    * The record was gone for good once this change was made (no row left, trash included): a delete where there is
    * no trash or by a host `delete()` that does not use it, a purge, or an action that deleted the record it ran on.
-   * Read back from the database after the write, but for a purge, which always is one. It ends the record: entries
-   * up to this one are that record's, and a record with the same key afterwards is another one.
+   * Read back from the database after the write, but for a purge, which always is one. A delete's entry may get it
+   * right after commit (a host service that deleted on another connection). It ends the record: entries up to this
+   * one are that record's, and a record with the same key afterwards is another one.
    */
   deleted?: true;
   /** `page.{name}.updated` entries: the page's name. */

@@ -202,6 +202,8 @@ export class AuditReader {
    * - rows a database cascade removes when another record is deleted;
    * - a delete whose entry was lost: the insert after commit failed (the audit table on another DataSource, or
    *   `transactions: false`);
+   * - a delete on another connection whose stamp, added right after commit, never came: the process died between
+   *   the commit and the stamp, or the read or the update failed (which is logged);
    * - a record deleted outside the admin, or by a `target: 'resource'` action (which names no record);
    * - an action that deletes its record on another connection under MySQL's REPEATABLE READ (the admin's
    *   transaction still reads the row, and an action's entry is not checked a second time).

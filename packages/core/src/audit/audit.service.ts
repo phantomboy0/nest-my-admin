@@ -151,10 +151,38 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
     return this.enabled && ctx.manager !== undefined && ctx.manager.connection === this.db;
   }
 
-  /** Writes an entry now, inside `ctx.manager`'s transaction when it `joins`. Throws when it cannot be written. */
-  async record(input: AuditInput, ctx: AuditContext): Promise<void> {
-    if (!this.enabled) return;
-    await this.insert(this.row(input, ctx), this.joins(ctx) ? ctx.manager : undefined);
+  /**
+   * Writes an entry now, inside `ctx.manager`'s transaction when it `joins`, and answers its id. Throws when it
+   * cannot be written.
+   */
+  async record(input: AuditInput, ctx: AuditContext): Promise<number | undefined> {
+    if (!this.enabled) return undefined;
+    return this.insert(this.row(input, ctx), this.joins(ctx) ? ctx.manager : undefined);
+  }
+
+  /**
+   * After a delete has committed: whether `read` (the record's row, read outside the write's transaction) finds
+   * nothing. A read that fails is logged with the correlation id and answers false: the entry then stays unstamped.
+   */
+  async leftNoRow(event: string, ctx: AuditContext, read: () => Promise<object | undefined>): Promise<boolean> {
+    try {
+      return (await read()) === undefined;
+    } catch (error) {
+      this.logger.warn(`[${ctx.correlationId}] audit: could not check whether "${event}" left a row (${message(error)}); its entry is not stamped`);
+      return false;
+    }
+  }
+
+  /**
+   * Stamps a delete's entry that is already in the table (`meta.deleted`; such an entry carries no other meta), on
+   * the audit log's own connection. A failure is logged, never thrown.
+   */
+  async stampDeleted(id: number, event: string, ctx: AuditContext): Promise<void> {
+    try {
+      await this.db.getRepository(NmaAuditEntry).update(id, { meta: { deleted: true } } as never);
+    } catch (error) {
+      this.logger.warn(`[${ctx.correlationId}] audit: could not stamp "${event}" (entry ${id}) as the end of its record (${message(error)})`);
+    }
   }
 
   /** Writes an entry for something already final, on the audit log's own connection. A failure is logged, never thrown. */
@@ -184,7 +212,9 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
     const row = this.row(input, ctx);
     this.waiting += 1;
     this.tail = this.tail
-      .then(() => this.insert(row))
+      .then(async () => {
+        await this.insert(row);
+      })
       .catch((error: unknown) => this.failed(row.event, row.correlationId, error))
       .finally(() => {
         this.waiting -= 1;
@@ -244,7 +274,7 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /** The one place a row reaches the table. Outside a transaction it waits its turn on single-connection drivers. */
-  private async insert(row: AuditRow, manager?: EntityManager): Promise<void> {
+  private async insert(row: AuditRow, manager?: EntityManager): Promise<number | undefined> {
     // TypeORM's deep-partial type does not take a json column holding `unknown` values.
     const values = row as never;
     // On a single-connection driver, an entry written from inside an admin write on the audit log's own DataSource
@@ -252,8 +282,9 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
     // holds: it goes through the write's manager.
     const holder = SINGLE_CONNECTION_DRIVERS.has(this.db.options.type) ? AdminContext.current()?.manager : undefined;
     const inside = manager ?? (holder?.connection === this.db ? holder : undefined);
-    if (inside) await inside.getRepository(NmaAuditEntry).insert(values);
-    else await exclusive(this.db, () => this.db.getRepository(NmaAuditEntry).insert(values));
+    const result = inside ? await inside.getRepository(NmaAuditEntry).insert(values) : await exclusive(this.db, () => this.db.getRepository(NmaAuditEntry).insert(values));
+    const id = Number((result.identifiers[0] as { id?: unknown } | undefined)?.id);
+    return Number.isSafeInteger(id) && id > 0 ? id : undefined;
   }
 
   /** The entry as stored: every text cut to its column, the changes and the input cut to what a row holds. */

@@ -643,8 +643,9 @@ export interface AuditEntryMeta {
   inputTruncated?: true;
   /**
    * The record was gone for good once this change was made (no row left, trash included): a delete where there is no
-   * trash or by a host `delete()` that bypasses it, a purge, or an action that deleted the record it ran on. It ends
-   * the record: a record with the same key afterwards is another one.
+   * trash or by a host `delete()` that bypasses it, a purge, or an action that deleted the record it ran on. A
+   * delete's entry may get it right after commit. It ends the record: a record with the same key afterwards is
+   * another one.
    */
   deleted?: true;
   /** `page.{name}.updated`: the page's name. */
