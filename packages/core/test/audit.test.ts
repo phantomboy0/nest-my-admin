@@ -112,6 +112,12 @@ class Memo {
   @Column({ type: 'int', default: 0 }) edits: number;
 }
 
+@Entity('au_crate')
+class Crate {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 40 }) name: string;
+}
+
 @Entity('au_sheet')
 class Sheet {
   @PrimaryGeneratedColumn() id: number;
@@ -241,6 +247,25 @@ class MemoAdmin extends AdminResourceBase<Memo> {
   }
 }
 
+/** The host's finder answers from a cache nothing ever clears: it still answers a record that is gone. */
+@AdminResource(Crate, { title: 'name' })
+class CrateAdmin extends AdminResourceBase<Crate> {
+  private readonly cache = new Map<string, Crate>();
+
+  override async findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<Crate | null> {
+    const hit = this.cache.get(String(id));
+    if (hit) return hit;
+    const found = await super.findOne(id, ctx, options);
+    if (found) this.cache.set(String(id), found);
+    return found;
+  }
+
+  @AdminAction()
+  async scrap(crate: Crate, _input: unknown, ctx: AdminContext): Promise<void> {
+    await this.repositoryFor(ctx).delete(crate.id);
+  }
+}
+
 @AdminResource(Sheet, { title: 'name' })
 class SheetAdmin extends AdminResourceBase<Sheet> {
   fields = { manual: { widget: 'file' as const } };
@@ -358,13 +383,13 @@ class TestAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [TestAuth, CustomerAdmin, TagAdmin, ProductAdmin, DocAdmin, BadgeAdmin, CardAdmin, MemoAdmin, SheetAdmin, SlotAdmin, ShopPage] })
+@Module({ providers: [TestAuth, CustomerAdmin, TagAdmin, ProductAdmin, DocAdmin, BadgeAdmin, CardAdmin, MemoAdmin, CrateAdmin, SheetAdmin, SlotAdmin, ShopPage] })
 class AuditModule {}
 
 @Module({ providers: [TestAuth, LooseProductAdmin] })
 class LooseModule {}
 
-const ENTITIES = [Customer, Tag, Product, Doc, Badge, Card, Memo, Sheet, Slot, Setting];
+const ENTITIES = [Customer, Tag, Product, Doc, Badge, Card, Memo, Crate, Sheet, Slot, Setting];
 
 type Entry = NmaAuditEntry & { changes: AuditChange[] | null };
 
@@ -574,6 +599,8 @@ describe('audit log: recording', () => {
     // The before image of a purge is read from the trash.
     expect(change(purged!, 'title')).toEqual({ field: 'title', before: 'Contract' });
     expect(change(purged!, 'deletedAt')).toMatchObject({ field: 'deletedAt' });
+    // Only the purge ended the record: the trash is no end.
+    expect(entries.map((entry) => entry.meta?.deleted)).toEqual([undefined, undefined, undefined, undefined, true]);
   });
 
   test('bulk delete writes one entry per deleted record, none for a failure', async () => {
@@ -599,6 +626,24 @@ describe('audit log: recording', () => {
     expect(entry!.meta).toEqual({ action: 'discount', input: { percent: 50, reason: 'clearance' } });
     // "before" was read before the method changed the entity it was handed.
     expect(entry!.changes).toEqual([{ field: 'price', before: '200.00', after: '100.00' }]);
+  });
+
+  test('an action that deleted its record is stamped from the stored row, whatever the host’s `findOne` still answers', async () => {
+    const created = await t.http().post('/resources/crate', { name: 'Crate one' });
+    expect(created.status).toBe(201);
+    const id = created.body._id as string;
+    // The finder has the record in its cache from here on.
+    expect((await t.http().get(`/resources/crate/${id}`)).body.name).toBe('Crate one');
+    await t.fresh();
+    expect((await t.http().post('/resources/crate/actions/scrap', { ids: [id] })).status).toBe(200);
+    expect(await t.auditDb.getRepository(Crate).countBy({ id: Number(id) })).toBe(0);
+    expect((await t.http().get(`/resources/crate/${id}`)).body.name).toBe('Crate one'); // the stale answer
+    const [entry, ...rest] = await t.fresh();
+    expect(rest).toEqual([]);
+    expect(entry).toMatchObject({ event: 'crate.action.scrap', recordId: id, recordTitle: 'Crate one' });
+    expect(entry!.meta).toEqual({ action: 'scrap', deleted: true });
+    // The diff is of the row that went, not of the object the finder answered.
+    expect(change(entry!, 'name')).toEqual({ field: 'name', before: 'Crate one' });
   });
 
   test('a bulk action writes one entry per record that ran; a failed run writes none', async () => {

@@ -1,6 +1,7 @@
 import type { EntityManager } from 'typeorm';
 import type { FieldSchema } from '../contract.js';
 import type { WriteChange, WriteParticipant } from '../api/write-participant.js';
+import { SINGLE_CONNECTION_DRIVERS } from '../api/write-queue.js';
 import { recordIdOf } from '../crud/record-id.js';
 import { serializeFull, storedFields } from '../crud/serialize-full.js';
 import type { RegisteredAction } from '../decorators/admin-action.js';
@@ -103,7 +104,44 @@ async function load(entry: RegisteredResource, id: RecordId, manager: EntityMana
   return ((await manager.getRepository(entry.metadata.target).findOne({ where, withDeleted: true })) as object | null) ?? undefined;
 }
 
-/** The entry of a record change, or nothing when an update changed no field. */
+/**
+ * Whether a delete left no row of the record, trash included. `stored` is what the write's own manager reads back.
+ * No row there: gone. A row in the trash: not gone. A row that is not in the trash is either a record the host
+ * kept (an archive flag, a refusal it swallowed) or one a host service deleted on another connection, which the
+ * admin's transaction cannot see under MySQL's REPEATABLE READ (its snapshot is of its first read). So it is read
+ * once more on the DataSource's own manager: outside the transaction, what is committed now. Only where there is a
+ * transaction and another connection to read from (`SINGLE_CONNECTION_DRIVERS`: one connection reads the same
+ * twice). That read takes a second connection from the pool while the write holds its own.
+ */
+async function gone(entry: RegisteredResource, id: RecordId, stored: object | undefined, manager: EntityManager): Promise<boolean> {
+  if (!stored) return true;
+  const trash = entry.metadata.deleteDateColumn;
+  if (trash && trash.getEntityValue(stored) != null) return false;
+  const outside = entry.dataSource.manager;
+  if (manager === outside || SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type)) return false;
+  return !(await load(entry, id, outside));
+}
+
+/**
+ * The entry of a record change, or nothing when an update changed no field.
+ *
+ * An entry that ends its record is stamped `meta.deleted`, and `AuditReader` closes the record's history there (a
+ * later record with the same key is another record). Which entries are stamped:
+ *
+ * - every purge: it is for good by definition, whatever is read back (the host may delete on another connection,
+ *   or later);
+ * - a delete after which no row is left (`gone`): where there is no trash, or by a host `delete()` that does not
+ *   use it. The trash is no end, and neither is a `delete()` that leaves the row where it was;
+ * - an action after which the write's own manager finds no row. That read alone decides, never what the host's
+ *   `findOne` answered afterwards (`saved`), which may come from a cache or from another connection.
+ *
+ * What gets no stamp, so that a key given again reopens the earlier entries: a delete (not a purge) that completes
+ * after the host method returned (queued, fire and forget); rows a database cascade removes when another record is
+ * deleted; a delete whose entry was lost (the insert after commit failed: the audit table on another DataSource,
+ * or `transactions: false`); a record deleted outside the admin or by a `target: 'resource'` action, which names
+ * no record; and an action that deletes on another connection: an action that leaves its row is the normal case,
+ * and a second read would cost every run a query.
+ */
 async function recordEntry(entry: RegisteredResource, change: WriteChange, state: AuditState, saved: object | null | undefined, manager: EntityManager): Promise<AuditInput | undefined> {
   const name = entry.schema.name;
   const { action } = change;
@@ -117,12 +155,10 @@ async function recordEntry(entry: RegisteredResource, change: WriteChange, state
   // What is stored now, read back: a host method may answer nothing, or an entity from before it finished.
   const known = change.id ?? (change.existing ? keyOf(entry, change.existing) : saved ? keyOf(entry, saved) : undefined);
   const stored = known !== undefined ? await load(entry, known, manager) : undefined;
-  const current = removes ? undefined : (stored ?? saved ?? undefined);
+  // An action's "after" is the stored row or nothing: what the host's finder answered is only a witness (`changed`).
+  const current = removes ? undefined : change.kind === 'action' ? stored : (stored ?? saved ?? undefined);
   const after = current ? await serializeFull(entry, current, manager) : undefined;
-  // The record is gone for good when no row is left, trash included: whatever the event's name and the resource's
-  // trash say (a delete where there is no trash, a purge, a host `delete()` that does not use the trash). The entry
-  // that says so ends the record's history: a later record with the same key is another record (`AuditReader`).
-  const ended = removes && known !== undefined && !stored ? { deleted: true as const } : undefined;
+  const ended = change.kind === 'purge' || (change.kind === 'delete' && known !== undefined && (await gone(entry, known, stored, manager))) || (change.kind === 'action' && known !== undefined && !stored);
   const recordId = current ? recordIdOf(current, entry.schema.primaryKeys) : (state.recordId ?? (change.id !== undefined ? recordIdOf(whereOf(entry, change.id), entry.schema.primaryKeys) : undefined));
   const title = current ? titleOf(entry, current) : state.title;
   const record = { entry, ...(recordId !== undefined ? { recordId } : {}), ...(title !== undefined ? { title } : {}) };
@@ -139,12 +175,12 @@ async function recordEntry(entry: RegisteredResource, change: WriteChange, state
 
   if (change.kind === 'action' && action) {
     const changes = await changed(saved, change.existing);
-    return { ...record, event: `${name}.action.${action.definition.name}`, changes, meta: { ...actionMeta(action.definition, action.input), ...(after ? {} : { deleted: true as const }) } };
+    return { ...record, event: `${name}.action.${action.definition.name}`, changes, meta: { ...actionMeta(action.definition, action.input), ...(ended ? { deleted: true as const } : {}) } };
   }
   if (change.kind === 'action' || change.kind === 'page') return undefined;
   const event = `${name}.${EVENTS[change.kind]}`;
   if (change.kind === 'restore') return { ...record, event, changes: [] };
-  if (removes) return { ...record, event, changes: diffRecords(state.before, undefined, fields, masked), ...(ended ? { meta: ended } : {}) };
+  if (removes) return { ...record, event, changes: diffRecords(state.before, undefined, fields, masked), ...(ended ? { meta: { deleted: true as const } } : {}) };
   if (!after) return undefined;
   const changes = change.kind === 'create' ? diffRecords(undefined, after, fields, masked) : await changed(saved);
   // A save that changed nothing is no entry.

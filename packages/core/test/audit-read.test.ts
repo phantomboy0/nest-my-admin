@@ -100,6 +100,15 @@ class Leaf {
   @DeleteDateColumn() deletedAt: Date | null;
 }
 
+/** A natural key and no trash; the host deletes its rows itself (`DepotAdmin`). */
+@Entity('ar_depot')
+class Depot {
+  @PrimaryColumn({ length: 40 }) slug: string;
+  @Column({ length: 60 }) name: string;
+  @Column({ length: 10, default: 'u1' }) ownerId: string;
+  @Column({ default: false }) archived: boolean;
+}
+
 @Entity('ar_memo')
 class Memo {
   @PrimaryGeneratedColumn() id: number;
@@ -220,6 +229,33 @@ class LeafAdmin extends AdminResourceBase<Leaf> {
   }
 }
 
+/**
+ * A host service of its own. It deletes through its own repository, never `ctx.manager`: on Postgres and MySQL that
+ * is another connection, committed at once, which the admin's transaction on MySQL (REPEATABLE READ) cannot see.
+ * What is named "archive…" is only flagged and stays; a purge of what is named "later…" is left to a queue.
+ */
+@AdminResource(Depot, { title: 'name' })
+class DepotAdmin extends AdminResourceBase<Depot> {
+  constructor(@InjectDataSource() private readonly hostDb: DataSource) {
+    super();
+  }
+
+  @AdminScope('own') own(ctx: AdminContext) {
+    return { ownerId: ctx.user?.id };
+  }
+
+  override async delete(id: RecordId, ctx: AdminContext): Promise<void> {
+    const depot = (await this.findOne(id, ctx))!;
+    if (depot.name.startsWith('archive')) await this.repositoryFor(ctx).update(depot.slug, { archived: true });
+    else await this.hostDb.getRepository(Depot).delete(depot.slug);
+  }
+
+  override async purge(id: RecordId, ctx: AdminContext): Promise<void> {
+    const depot = (await this.findOne(id, ctx))!;
+    if (!depot.name.startsWith('later')) await this.hostDb.getRepository(Depot).delete(depot.slug);
+  }
+}
+
 /** What the host's `query()` was handed, and whether it should fail. */
 const memoQuery: { last?: SelectQueryBuilder<Memo>; broken?: boolean } = {};
 
@@ -261,7 +297,7 @@ const ROLES: RoleDefinition[] = [
   // No audit page; own rows only, no salary.
   { name: 'clerk', permissions: ['employee.view', 'employee.update', 'customer.view', 'site.view', 'site.create', 'leaf.view', 'leaf.create', 'leaf.delete'], fields: { employee: { salary: 'hidden' } }, scopes: { employee: { view: 'own', update: 'own' }, customer: { view: 'own' }, site: { view: 'own' }, leaf: { view: 'own', delete: 'own' } } },
   // Reads the audit page, own rows only.
-  { name: 'ranger', permissions: ['audit.view', 'employee.view', 'employee.update', 'site.view', 'site.create', 'post.view', 'post.create'], scopes: { employee: { view: 'own', update: 'own' }, site: { view: 'own' }, post: { view: 'own' } } },
+  { name: 'ranger', permissions: ['audit.view', 'employee.view', 'employee.update', 'site.view', 'site.create', 'post.view', 'post.create', 'depot.view', 'depot.create'], scopes: { employee: { view: 'own', update: 'own' }, site: { view: 'own' }, post: { view: 'own' }, depot: { view: 'own' } } },
   // Sees every field, runs the action, sees the settings page and the roles.
   { name: 'hr', permissions: ['audit.view', 'employee.view', 'employee.update', 'employee.action.raise', 'employee.field.notes.view', 'page.shop', 'rbac.view'] },
   // Reaches `vault` (may create) without viewing it.
@@ -287,10 +323,10 @@ class TestAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [TestAuth, CustomerAdmin, EmployeeAdmin, VaultAdmin, DocAdmin, SiteAdmin, NoteAdmin, MemoAdmin, ContentAdmin, PostAdmin, LeafAdmin, ShopPage] })
+@Module({ providers: [TestAuth, CustomerAdmin, EmployeeAdmin, VaultAdmin, DocAdmin, SiteAdmin, NoteAdmin, MemoAdmin, ContentAdmin, PostAdmin, LeafAdmin, DepotAdmin, ShopPage] })
 class ReadModule {}
 
-const ENTITIES = [Customer, Employee, Vault, Doc, Site, Note, Memo, Content, Post, Leaf, Setting];
+const ENTITIES = [Customer, Employee, Vault, Doc, Site, Note, Memo, Content, Post, Leaf, Depot, Setting];
 
 async function boot(admin: Partial<AdminModuleOptions> = { audit: {} }, more: { entities?: Function[]; dataSources?: Record<string, Function[]> } = { entities: [...ADMIN_AUDIT_ENTITIES] }) {
   const app = await createTestApp({
@@ -928,6 +964,63 @@ describe('audit log: reading', () => {
     expect((await t.pages('/audit?resource=leaf&record=oak', 'ada'))[0]).toMatchObject({ event: 'leaf.purged', meta: { deleted: true } });
   });
 
+  test('a host `delete()` or `purge()` on another connection ends the record: its key given again opens nothing of it', async () => {
+    const PRED = 'DEPOT-SENTINEL';
+    const mine = [['depot.created', 'r1']];
+    for (const [slug, path, event] of [['north', '/resources/depot/north', 'depot.deleted'], ['south', '/resources/depot/south?purge=true', 'depot.purged']] as const) {
+      expect(await t.create('depot', { slug, name: `${PRED} ${slug}`, ownerId: 'u2' })).toBe(slug);
+      await t.ok(t.http().patch(`/resources/depot/${slug}`, { name: `${PRED} ${slug} 2` }));
+      // No `If-Match`: the admin's transaction has only read the row, so the host's own connection is not kept waiting.
+      expect((await t.http().delete(path)).status).toBe(204);
+      const [ended] = await t.pages(`/audit?resource=depot&record=${slug}`, 'ada');
+      expect([ended!.event, ended!.recordTitle, ended!.meta]).toEqual([event, `${PRED} ${slug} 2`, { deleted: true }]);
+      // The key again, another owner's.
+      expect(await t.create('depot', { slug, name: `Mine ${slug}`, ownerId: 'r1' }, 'r1')).toBe(slug);
+      const history = await t.pages(`/resources/depot/${slug}/history`, 'r1');
+      expect(history.map((entry) => [entry.event, entry.actor?.id])).toEqual(mine);
+      expect(JSON.stringify(history)).not.toContain(PRED);
+      expect((await t.pages(`/audit?resource=depot&record=${slug}`, 'r1')).map((entry) => [entry.event, entry.actor?.id])).toEqual(mine);
+    }
+    const listed = await t.pages('/audit?resource=depot', 'r1');
+    expect(listed).toHaveLength(8);
+    expect(listed.filter((entry) => entry.restricted !== true).map((entry) => [entry.event, entry.recordTitle])).toEqual([['depot.created', 'Mine south'], ['depot.created', 'Mine north']]);
+    expect(JSON.stringify(listed)).not.toContain(PRED);
+    expect(JSON.stringify(await t.pages('/audit', 'r1'))).not.toContain(PRED);
+    // Whoever reads gone records still reads who deleted what.
+    expect(JSON.stringify(await t.pages('/audit?resource=depot', 'ada'))).toContain(PRED);
+  });
+
+  test('a purge ends the record whatever is read back afterwards: the host may delete later, from a queue', async () => {
+    const PRED = 'later DEPOT-SENTINEL';
+    const db = t.app.get<DataSource>(getDataSourceToken() as string, { strict: false });
+    expect(await t.create('depot', { slug: 'west', name: PRED, ownerId: 'u2' })).toBe('west');
+    expect((await t.http().delete('/resources/depot/west?purge=true')).status).toBe(204);
+    // The row is still there on every connection, and the entry says the record ended all the same.
+    expect(await db.getRepository(Depot).countBy({ slug: 'west' })).toBe(1);
+    const [purged] = await t.pages('/audit?resource=depot&record=west', 'ada');
+    expect([purged!.event, purged!.meta]).toEqual(['depot.purged', { deleted: true }]);
+    // The queue gets to it; the key is given again.
+    await db.getRepository(Depot).delete('west');
+    expect(await t.create('depot', { slug: 'west', name: 'Mine west', ownerId: 'r1' }, 'r1')).toBe('west');
+    for (const path of ['/resources/depot/west/history', '/audit?resource=depot&record=west']) {
+      const entries = await t.pages(path, 'r1');
+      expect(entries.map((entry) => [entry.event, entry.actor?.id])).toEqual([['depot.created', 'r1']]);
+      expect(JSON.stringify(entries)).not.toContain('DEPOT-SENTINEL');
+    }
+  });
+
+  test('a host `delete()` that only flags the row ends nothing: no stamp, one history', async () => {
+    const db = t.app.get<DataSource>(getDataSourceToken() as string, { strict: false });
+    expect(await t.create('depot', { slug: 'east', name: 'archive east', ownerId: 'r1' }, 'r1')).toBe('east');
+    expect((await t.http().delete('/resources/depot/east')).status).toBe(204);
+    // Not in a trash and not gone: the row is there, flagged, on every connection.
+    expect(await db.getRepository(Depot).findOneBy({ slug: 'east' })).toMatchObject({ archived: true });
+    for (const path of ['/resources/depot/east/history', '/audit?resource=depot&record=east']) {
+      const entries = await t.pages(path, 'r1');
+      expect(entries.map((entry) => [entry.event, entry.recordTitle, entry.meta])).toEqual([['depot.deleted', 'archive east', undefined], ['depot.created', 'archive east', undefined]]);
+    }
+  });
+
   test('I1: a restriction the host wrote in `findOne` closes the audit page as it closes GET', async () => {
     const sealed = await t.create('note', { title: SEALED });
     const plain = await t.create('note', { title: 'Plain note' });
@@ -1022,7 +1115,7 @@ describe('audit log: reading', () => {
     // What each reader must never be shown.
     const closed: Record<string, string[]> = {
       aud: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL', 'LEAF-SENTINEL'],
-      r1: [NOTES_1, NOTES_2, OUTSIDE, SALARY_OUT, GONE, 'Alice', SALARY_1, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL', 'FAMILY-SENTINEL', 'LEAF-SENTINEL'],
+      r1: [NOTES_1, NOTES_2, OUTSIDE, SALARY_OUT, GONE, 'Alice', SALARY_1, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL', 'FAMILY-SENTINEL', 'LEAF-SENTINEL', 'DEPOT-SENTINEL'],
       max: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, OUTSIDE, GONE, 'Alice', 'employee', VAULT, SHOP, ROLE_PERMISSION, REASON, 'OLD-SENTINEL'],
       u1: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, OUTSIDE, VAULT, 'AGENT-SENTINEL', 'OLD-SENTINEL', 'Globex'],
       u2: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, VAULT, 'Acme', GONE],

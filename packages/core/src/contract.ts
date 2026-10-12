@@ -641,7 +641,11 @@ export interface AuditEntryMeta {
   input?: Record<string, unknown>;
   /** The input was too large to keep. */
   inputTruncated?: true;
-  /** The record was gone for good after this change: a delete without a trash, a purge, or an action that deleted its record. */
+  /**
+   * The record was gone for good once this change was made (no row left, trash included): a delete where there is no
+   * trash or by a host `delete()` that bypasses it, a purge, or an action that deleted the record it ran on. It ends
+   * the record: a record with the same key afterwards is another one.
+   */
   deleted?: true;
   /** `page.{name}.updated`: the page's name. */
   page?: string;

@@ -58,13 +58,14 @@ function anonymousEvent(event: string, resource: string): string {
  *   now (their scopes, the resource's `query()`, a `findOne` override). Otherwise it says that something happened,
  *   by whom and when, and names the resource only when the reader can reach it: no record id, no title, no changes,
  *   no action input;
- * - a record that went for good (purged, deleted where there is no trash, deleted by an action; its last entry is
- *   stamped `meta.deleted` when it is written, see `endings`) took its entries with it: nobody can be checked
- *   against it any more, and its key may belong to another record since. Only what the admin recorded can be
- *   known: a record deleted outside the admin leaves no stamp, and a key given again then reopens its entries. A record's
- *   history starts after the last such entry; on the audit page those entries are closed like the ones above to
- *   every reader a row restriction applies to (`readsGone`), and read by a superuser and by a reader nothing
- *   restricts in that resource;
+ * - a record that went for good (purged, deleted where there is no trash or by a host `delete()` that bypasses it,
+ *   deleted by an action; its last entry is stamped `meta.deleted` when it is written, see `endings`) took its
+ *   entries with it: nobody can be checked against it any more, and its key may belong to another record since. A
+ *   record's history starts after the last such entry; on the audit page those entries are closed like the ones
+ *   above to every reader a row restriction applies to (`readsGone`), and read by a superuser and by a reader
+ *   nothing restricts in that resource. Only what the admin recorded can be known: a record that went without a
+ *   stamp (the cases are listed at `endings`) keeps its entries open to whoever can view a later record with its
+ *   key;
  * - in a full entry, a changed field the reader may not view is `{ field, hidden: true }`;
  * - a settings page's entry needs the page (without it, it names no page), the changes of roles, groups and users
  *   need `rbac.view`, and the changes of an entry of no known kind are a superuser's;
@@ -188,17 +189,22 @@ export class AuditReader {
 
   /**
    * For each of these `_id`s of a resource, the id of the newest entry that ended a record: one stamped
-   * `meta.deleted` when it was written, because no row was left afterwards (`audit-participant.ts`). The stamp
-   * decides, not the event's name or whether the resource has a trash today.
+   * `meta.deleted` when it was written (`recordEntry` in `audit-participant.ts`: every purge, and a delete or an
+   * action that left no row). The stamp decides, not the event's name or whether the resource has a trash today.
    *
    * An entry is stored under the resource its request went through, and a table may have several (the root and the
    * kinds of an inheritance family, or two resources of one entity): a record deleted through one of them is gone
    * for all, so the stamp is looked for under every resource of the table. One query, along the
    * `(resource, recordId, id)` index; `meta` is JSON text, so a pattern narrows the read and the parsed value decides.
    *
-   * What leaves no stamp cannot be seen here, and a key given again then reopens the earlier entries: a record
-   * deleted outside the admin, or by a `target: 'resource'` action (which names no record), or by a host service
-   * on another connection under MySQL's REPEATABLE READ (the admin's transaction still reads the row).
+   * What leaves no stamp cannot be seen here, and a key given again then reopens the earlier entries:
+   * - a delete (not a purge) that completes after the host method returned: queued, or fire and forget;
+   * - rows a database cascade removes when another record is deleted;
+   * - a delete whose entry was lost: the insert after commit failed (the audit table on another DataSource, or
+   *   `transactions: false`);
+   * - a record deleted outside the admin, or by a `target: 'resource'` action (which names no record);
+   * - an action that deletes its record on another connection under MySQL's REPEATABLE READ (the admin's
+   *   transaction still reads the row, and an action's entry is not checked a second time).
    */
   private async endings(name: string, ids: string[]): Promise<Map<string, number>> {
     const ends = new Map<string, number>();
