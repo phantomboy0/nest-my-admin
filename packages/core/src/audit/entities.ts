@@ -9,7 +9,12 @@ export interface AuditMeta {
   input?: Record<string, unknown>;
   /** The input was too large to keep. */
   inputTruncated?: true;
-  /** The action deleted the record it ran on. */
+  /**
+   * The record was gone for good once this change was made (no row left, trash included): a delete where there is
+   * no trash or by a host `delete()` that does not use it, a purge, or an action that deleted the record it ran on.
+   * Read back from the database after the write. It ends the record: entries up to this one are that record's, and
+   * a record with the same key afterwards is another one.
+   */
   deleted?: true;
   /** `page.{name}.updated` entries: the page's name. */
   page?: string;

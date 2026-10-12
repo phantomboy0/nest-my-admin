@@ -113,11 +113,16 @@ async function recordEntry(entry: RegisteredResource, change: WriteChange, state
   }
   const fields = storedFields(entry);
   const masked = sensitiveFields(entry.fieldConfig);
-  const gone = change.kind === 'delete' || change.kind === 'purge';
+  const removes = change.kind === 'delete' || change.kind === 'purge';
   // What is stored now, read back: a host method may answer nothing, or an entity from before it finished.
   const known = change.id ?? (change.existing ? keyOf(entry, change.existing) : saved ? keyOf(entry, saved) : undefined);
-  const current = gone ? undefined : ((known !== undefined ? await load(entry, known, manager) : undefined) ?? saved ?? undefined);
+  const stored = known !== undefined ? await load(entry, known, manager) : undefined;
+  const current = removes ? undefined : (stored ?? saved ?? undefined);
   const after = current ? await serializeFull(entry, current, manager) : undefined;
+  // The record is gone for good when no row is left, trash included: whatever the event's name and the resource's
+  // trash say (a delete where there is no trash, a purge, a host `delete()` that does not use the trash). The entry
+  // that says so ends the record's history: a later record with the same key is another record (`AuditReader`).
+  const ended = removes && known !== undefined && !stored ? { deleted: true as const } : undefined;
   const recordId = current ? recordIdOf(current, entry.schema.primaryKeys) : (state.recordId ?? (change.id !== undefined ? recordIdOf(whereOf(entry, change.id), entry.schema.primaryKeys) : undefined));
   const title = current ? titleOf(entry, current) : state.title;
   const record = { entry, ...(recordId !== undefined ? { recordId } : {}), ...(title !== undefined ? { title } : {}) };
@@ -139,7 +144,7 @@ async function recordEntry(entry: RegisteredResource, change: WriteChange, state
   if (change.kind === 'action' || change.kind === 'page') return undefined;
   const event = `${name}.${EVENTS[change.kind]}`;
   if (change.kind === 'restore') return { ...record, event, changes: [] };
-  if (gone) return { ...record, event, changes: diffRecords(state.before, undefined, fields, masked) };
+  if (removes) return { ...record, event, changes: diffRecords(state.before, undefined, fields, masked), ...(ended ? { meta: ended } : {}) };
   if (!after) return undefined;
   const changes = change.kind === 'create' ? diffRecords(undefined, after, fields, masked) : await changed(saved);
   // A save that changed nothing is no entry.

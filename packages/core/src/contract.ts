@@ -641,7 +641,7 @@ export interface AuditEntryMeta {
   input?: Record<string, unknown>;
   /** The input was too large to keep. */
   inputTruncated?: true;
-  /** The action deleted its record. */
+  /** The record was gone for good after this change: a delete without a trash, a purge, or an action that deleted its record. */
   deleted?: true;
   /** `page.{name}.updated`: the page's name. */
   page?: string;

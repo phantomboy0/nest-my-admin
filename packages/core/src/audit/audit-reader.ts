@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Brackets, QueryFailedError, type SelectQueryBuilder } from 'typeorm';
+import { QueryFailedError, type SelectQueryBuilder } from 'typeorm';
 import { AdminApiService } from '../api/admin-api.service.js';
 import { SINGLE_CONNECTION_DRIVERS } from '../api/write-queue.js';
 import type { AuditEntry, AuditEntryChange, AuditEntryMeta, AuditResponse } from '../contract.js';
@@ -58,8 +58,10 @@ function anonymousEvent(event: string, resource: string): string {
  *   now (their scopes, the resource's `query()`, a `findOne` override). Otherwise it says that something happened,
  *   by whom and when, and names the resource only when the reader can reach it: no record id, no title, no changes,
  *   no action input;
- * - a record that went for good (purged, deleted where there is no trash, deleted by an action) took its entries
- *   with it: nobody can be checked against it any more, and its key may belong to another record since. A record's
+ * - a record that went for good (purged, deleted where there is no trash, deleted by an action; its last entry is
+ *   stamped `meta.deleted` when it is written, see `endings`) took its entries with it: nobody can be checked
+ *   against it any more, and its key may belong to another record since. Only what the admin recorded can be
+ *   known: a record deleted outside the admin leaves no stamp, and a key given again then reopens its entries. A record's
  *   history starts after the last such entry; on the audit page those entries are closed like the ones above to
  *   every reader a row restriction applies to (`readsGone`), and read by a superuser and by a reader nothing
  *   restricts in that resource;
@@ -185,30 +187,35 @@ export class AuditReader {
   }
 
   /**
-   * For each of these `_id`s of a resource, the id of the newest entry that ended a record: a purge, a delete where
-   * the resource has no trash, or an action that deleted its record. One query, along the `(resource, recordId, id)`
-   * index; only the few entries that can be such an end are read.
+   * For each of these `_id`s of a resource, the id of the newest entry that ended a record: one stamped
+   * `meta.deleted` when it was written, because no row was left afterwards (`audit-participant.ts`). The stamp
+   * decides, not the event's name or whether the resource has a trash today.
+   *
+   * An entry is stored under the resource its request went through, and a table may have several (the root and the
+   * kinds of an inheritance family, or two resources of one entity): a record deleted through one of them is gone
+   * for all, so the stamp is looked for under every resource of the table. One query, along the
+   * `(resource, recordId, id)` index; `meta` is JSON text, so a pattern narrows the read and the parsed value decides.
+   *
+   * What leaves no stamp cannot be seen here, and a key given again then reopens the earlier entries: a record
+   * deleted outside the admin, or by a `target: 'resource'` action (which names no record), or by a host service
+   * on another connection under MySQL's REPEATABLE READ (the admin's transaction still reads the row).
    */
   private async endings(name: string, ids: string[]): Promise<Map<string, number>> {
     const ends = new Map<string, number>();
     if (ids.length === 0) return ends;
     const entry = this.registry.find(name);
-    // In the trash is not gone: the record can come back, and it is still there to be checked.
-    const final = [`${name}.purged`, ...(entry?.schema.softDelete ? [] : [`${name}.deleted`])];
-    const action = `${name}.action.`;
+    const family = entry ? this.registry.list().filter((other) => other.dataSource === entry.dataSource && other.metadata.tablePath === entry.metadata.tablePath).map((other) => other.schema.name) : [name];
     const rows = await this.audit.db
       .getRepository(NmaAuditEntry)
       .createQueryBuilder('entry')
-      .select(['entry.id', 'entry.recordId', 'entry.event', 'entry.meta'])
-      .where('entry.resource = :name AND entry.recordId IN (:...ids)', { name, ids })
-      // `meta` is JSON text: the pattern narrows the read, and the parsed value below decides.
-      .andWhere(new Brackets((or) => or.where('entry.event IN (:...final)', { final }).orWhere("(entry.event LIKE :action ESCAPE '!' AND entry.meta LIKE :deleted)", { action: likePattern(action, 'start'), deleted: '%"deleted":true%' })))
+      .select(['entry.id', 'entry.recordId', 'entry.meta'])
+      .where('entry.resource IN (:...family) AND entry.recordId IN (:...ids)', { family, ids })
+      .andWhere('entry.meta LIKE :deleted', { deleted: '%"deleted":true%' })
       .getMany();
     const wanted = new Set(ids);
     for (const row of rows) {
-      // Exactly this record and these events, whatever the collation matched.
-      if (row.recordId === null || !wanted.has(row.recordId)) continue;
-      if (!final.includes(row.event) && !(row.event.startsWith(action) && row.meta?.deleted === true)) continue;
+      // Exactly this record (whatever the collation matched), and the stamp itself, not an input that reads like it.
+      if (row.recordId === null || !wanted.has(row.recordId) || row.meta?.deleted !== true) continue;
       const id = Number(row.id);
       if (id > (ends.get(row.recordId) ?? 0)) ends.set(row.recordId, id);
     }
@@ -299,9 +306,15 @@ export class AuditReader {
       seen = new Set([...seen].filter((raw) => within.has(raw)));
     }
     if (overridden) {
-      // The host's own finder decides, as it does for GET; a finder that throws shows nothing.
+      // The host's own finder decides, as it does for GET. One that throws (before or after it answers a promise)
+      // shows nothing.
       for (const raw of [...seen]) {
-        const found = await entry.resource.findOne(ids.get(raw)!, ctx, { withDeleted: true }).catch(() => null);
+        let found: unknown;
+        try {
+          found = await entry.resource.findOne(ids.get(raw)!, ctx, { withDeleted: true });
+        } catch {
+          found = null;
+        }
         if (!found) seen.delete(raw);
       }
     }

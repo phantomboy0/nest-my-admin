@@ -4,7 +4,7 @@ import { InjectDataSource, getDataSourceToken } from '@nestjs/typeorm';
 import { IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 import request from 'supertest';
 import type { IncomingMessage } from 'node:http';
-import { Column, DeleteDateColumn, DeleteQueryBuilder, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, QueryFailedError, type DataSource, type SelectQueryBuilder } from 'typeorm';
+import { ChildEntity, Column, DeleteDateColumn, DeleteQueryBuilder, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, QueryFailedError, TableInheritance, type DataSource, type SelectQueryBuilder } from 'typeorm';
 import {
   ADMIN_AUDIT_ENTITIES,
   ADMIN_RBAC_ENTITIES,
@@ -77,6 +77,27 @@ class Site {
   @PrimaryColumn({ length: 40 }) slug: string;
   @Column({ length: 60 }) name: string;
   @Column({ length: 10, default: 'u1' }) ownerId: string;
+}
+
+/** One table, two kinds, a natural key: `post` records are also reached through the root, `content`. */
+@Entity('ar_content')
+@TableInheritance({ column: { type: 'varchar', name: 'kind', length: 20 } })
+class Content {
+  @PrimaryColumn({ length: 40 }) slug: string;
+  @Column({ length: 60 }) title: string;
+  @Column({ length: 10, default: 'u1' }) ownerId: string;
+}
+
+@ChildEntity('post')
+class Post extends Content {}
+
+/** A natural key and a trash. */
+@Entity('ar_leaf')
+class Leaf {
+  @PrimaryColumn({ length: 40 }) slug: string;
+  @Column({ length: 60 }) name: string;
+  @Column({ length: 10, default: 'u1' }) ownerId: string;
+  @DeleteDateColumn() deletedAt: Date | null;
 }
 
 @Entity('ar_memo')
@@ -167,9 +188,35 @@ const SEALED = 'FINDONE-SENTINEL note';
 /** The host's rule lives in `findOne` alone: no scope, no `query()`. */
 @AdminResource(Note, { title: 'title' })
 class NoteAdmin extends AdminResourceBase<Note> {
-  override async findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<Note | null> {
-    const note = await super.findOne(id, ctx, options);
-    return note && note.title === SEALED && ctx.user?.id !== 'ada' ? null : note;
+  /** Not `async`: when it throws, it throws before there is a promise. */
+  override findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<Note | null> {
+    if (noteFinder.explodes) throw new Error('the finder blew up');
+    return super.findOne(id, ctx, options).then((note) => (note && note.title === SEALED && ctx.user?.id !== 'ada' ? null : note));
+  }
+}
+const noteFinder: { explodes?: boolean } = {};
+
+@AdminResource(Content, { title: 'title' })
+class ContentAdmin extends AdminResourceBase<Content> {}
+
+@AdminResource(Post, { title: 'title' })
+class PostAdmin extends AdminResourceBase<Post> {
+  @AdminScope('own') own(ctx: AdminContext) {
+    return { ownerId: ctx.user?.id };
+  }
+}
+
+/** The host deletes for good what is named "shred…", whatever the trash is for. */
+@AdminResource(Leaf, { title: 'name' })
+class LeafAdmin extends AdminResourceBase<Leaf> {
+  @AdminScope('own') own(ctx: AdminContext) {
+    return { ownerId: ctx.user?.id };
+  }
+
+  override async delete(id: RecordId, ctx: AdminContext): Promise<void> {
+    const leaf = await this.findOne(id, ctx);
+    if (leaf?.name.startsWith('shred')) await this.repositoryFor(ctx).delete(leaf.slug);
+    else await super.delete(id, ctx);
   }
 }
 
@@ -210,11 +257,11 @@ for (const [id, isSuperuser] of [['ada', true], ['aud', false], ['u1', false], [
 const ROLES_OF: Record<string, string[]> = { aud: ['auditor'], u1: ['clerk'], u2: ['clerk'], r1: ['ranger'], hana: ['hr'], max: ['maker'] };
 const ROLES: RoleDefinition[] = [
   // Review Focus 2: reads the audit page, and `salary` is hidden from them (`notes` is restricted: hidden unless granted).
-  { name: 'auditor', permissions: ['audit.view', 'employee.view', 'customer.view', 'doc.view', 'note.view', 'memo.view'], fields: { employee: { salary: 'hidden', address: 'hidden' } } },
+  { name: 'auditor', permissions: ['audit.view', 'employee.view', 'customer.view', 'doc.view', 'note.view', 'memo.view', 'post.view'], fields: { employee: { salary: 'hidden', address: 'hidden' } } },
   // No audit page; own rows only, no salary.
-  { name: 'clerk', permissions: ['employee.view', 'employee.update', 'customer.view', 'site.view', 'site.create'], fields: { employee: { salary: 'hidden' } }, scopes: { employee: { view: 'own', update: 'own' }, customer: { view: 'own' }, site: { view: 'own' } } },
+  { name: 'clerk', permissions: ['employee.view', 'employee.update', 'customer.view', 'site.view', 'site.create', 'leaf.view', 'leaf.create', 'leaf.delete'], fields: { employee: { salary: 'hidden' } }, scopes: { employee: { view: 'own', update: 'own' }, customer: { view: 'own' }, site: { view: 'own' }, leaf: { view: 'own', delete: 'own' } } },
   // Reads the audit page, own rows only.
-  { name: 'ranger', permissions: ['audit.view', 'employee.view', 'employee.update', 'site.view', 'site.create'], scopes: { employee: { view: 'own', update: 'own' }, site: { view: 'own' } } },
+  { name: 'ranger', permissions: ['audit.view', 'employee.view', 'employee.update', 'site.view', 'site.create', 'post.view', 'post.create'], scopes: { employee: { view: 'own', update: 'own' }, site: { view: 'own' }, post: { view: 'own' } } },
   // Sees every field, runs the action, sees the settings page and the roles.
   { name: 'hr', permissions: ['audit.view', 'employee.view', 'employee.update', 'employee.action.raise', 'employee.field.notes.view', 'page.shop', 'rbac.view'] },
   // Reaches `vault` (may create) without viewing it.
@@ -240,10 +287,10 @@ class TestAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [TestAuth, CustomerAdmin, EmployeeAdmin, VaultAdmin, DocAdmin, SiteAdmin, NoteAdmin, MemoAdmin, ShopPage] })
+@Module({ providers: [TestAuth, CustomerAdmin, EmployeeAdmin, VaultAdmin, DocAdmin, SiteAdmin, NoteAdmin, MemoAdmin, ContentAdmin, PostAdmin, LeafAdmin, ShopPage] })
 class ReadModule {}
 
-const ENTITIES = [Customer, Employee, Vault, Doc, Site, Note, Memo, Setting];
+const ENTITIES = [Customer, Employee, Vault, Doc, Site, Note, Memo, Content, Post, Leaf, Setting];
 
 async function boot(admin: Partial<AdminModuleOptions> = { audit: {} }, more: { entities?: Function[]; dataSources?: Record<string, Function[]> } = { entities: [...ADMIN_AUDIT_ENTITIES] }) {
   const app = await createTestApp({
@@ -643,7 +690,9 @@ describe('audit log: reading', () => {
     expect((await t.http('r1').get(`/audit?resource=employee&record=${gone}`)).body).toEqual({ entries: [] });
     const seen = await t.pages('/audit?event=employee.deleted', 'r1');
     expect(seen).toHaveLength(1);
-    expect(Object.keys(seen[0]!).sort()).toEqual(['actor', 'at', 'correlationId', 'event', 'id', 'resource', 'restricted']);
+    // (That the record is gone is said: the entry is stamped when it is written.)
+    expect(Object.keys(seen[0]!).sort()).toEqual(['actor', 'at', 'correlationId', 'event', 'id', 'meta', 'resource', 'restricted']);
+    expect(seen[0]!.meta).toEqual({ deleted: true });
     expect(JSON.stringify(await t.pages('/audit', 'r1'))).not.toContain(GONE);
     // Viewing as someone else, the superuser reads what that user reads.
     const quiet = spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
@@ -807,6 +856,65 @@ describe('audit log: reading', () => {
     expect((await t.pages('/audit?resource=site&record=beta', 'ada')).map((entry) => entry.event)).toEqual(['site.deleted', 'site.created', 'site.action.scrap', 'site.updated', 'site.created']);
   });
 
+  test('C1 across an inheritance family: a record deleted through the root ends the entries written through its kind', async () => {
+    const PRED = 'FAMILY-SENTINEL post';
+    expect(await t.create('post', { slug: 'rex', title: PRED, ownerId: 'u2' })).toBe('rex');
+    await t.ok(t.http().patch('/resources/post/rex', { title: `${PRED} 2` }));
+    // Deleted through the root resource: the entry is `content.deleted`, and it is stamped.
+    expect((await t.http().delete('/resources/content/rex')).status).toBe(204);
+    const [ended] = await t.pages('/audit?resource=content&record=rex', 'ada');
+    expect(ended).toMatchObject({ event: 'content.deleted', meta: { deleted: true } });
+    // The key again, another owner's.
+    expect(await t.create('post', { slug: 'rex', title: 'Mine rex', ownerId: 'r1' }, 'r1')).toBe('rex');
+
+    const mine = [['post.created', 'r1']];
+    // History is the record's own, for anyone.
+    for (const reader of ['r1', 'aud', 'ada']) {
+      const history = await t.pages('/resources/post/rex/history', reader);
+      expect([reader, history.map((entry) => [entry.event, entry.actor?.id])]).toEqual([reader, mine]);
+      expect(JSON.stringify(history)).not.toContain(PRED);
+    }
+    // The scoped auditor: their record's entries, and the earlier record's closed.
+    expect((await t.pages('/audit?resource=post&record=rex', 'r1')).map((entry) => [entry.event, entry.actor?.id])).toEqual(mine);
+    const listed = await t.pages('/audit?resource=post', 'r1');
+    expect(listed.map((entry) => [entry.event, entry.recordId, entry.restricted])).toEqual([['post.created', 'rex', undefined], ['post.updated', undefined, true], ['post.created', undefined, true]]);
+    expect(JSON.stringify(await t.pages('/audit', 'r1'))).not.toContain(PRED);
+    // An auditor no scope restricts reads who made and changed the record that is gone; so does a superuser.
+    for (const reader of ['aud', 'ada']) {
+      const all = await t.pages('/audit?resource=post&record=rex', reader);
+      expect([reader, all.map((entry) => [entry.event, entry.recordTitle])]).toEqual([reader, [['post.created', 'Mine rex'], ['post.updated', `${PRED} 2`], ['post.created', PRED]]]);
+    }
+    // Viewing as the scoped auditor, the superuser reads what they read.
+    const quiet = spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      expect((await t.pages('/audit?resource=post&record=rex', 'ada', { 'X-View-As': 'r1' })).map((entry) => [entry.event, entry.actor?.id])).toEqual(mine);
+      expect(JSON.stringify(await t.pages('/audit?resource=post', 'ada', { 'X-View-As': 'r1' }))).not.toContain(PRED);
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
+  test('a host `delete()` that deletes for good where there is a trash ends the record; the trash and back does not', async () => {
+    const PRED = 'shred LEAF-SENTINEL';
+    expect(await t.create('leaf', { slug: 'oak', name: PRED, ownerId: 'u2' })).toBe('oak');
+    expect((await t.http().delete('/resources/leaf/oak')).status).toBe(204);
+    // The event is a plain delete; what says the record is gone is the stamp, read back after the write.
+    const [shredded] = await t.pages('/audit?resource=leaf&record=oak', 'ada');
+    expect(shredded).toMatchObject({ event: 'leaf.deleted', meta: { deleted: true }, recordTitle: PRED });
+    expect(await t.create('leaf', { slug: 'oak', name: 'Mine oak', ownerId: 'u1' }, 'u1')).toBe('oak');
+    expect((await t.pages('/resources/leaf/oak/history', 'u1')).map((entry) => [entry.event, entry.actor?.id])).toEqual([['leaf.created', 'u1']]);
+    // Into the trash and back: the same record, one history, and no stamp.
+    expect((await t.http('u1').delete('/resources/leaf/oak')).status).toBe(204);
+    await t.ok(t.http().post('/resources/leaf/oak/restore'));
+    const history = await t.pages('/resources/leaf/oak/history', 'u1');
+    expect(history.map((entry) => entry.event)).toEqual(['leaf.restored', 'leaf.deleted', 'leaf.created']);
+    expect(history[1]!.meta).toBeUndefined();
+    expect(JSON.stringify(history)).not.toContain('LEAF-SENTINEL');
+    // A purge is stamped too.
+    expect((await t.http().delete('/resources/leaf/oak?purge=true')).status).toBe(204);
+    expect((await t.pages('/audit?resource=leaf&record=oak', 'ada'))[0]).toMatchObject({ event: 'leaf.purged', meta: { deleted: true } });
+  });
+
   test('I1: a restriction the host wrote in `findOne` closes the audit page as it closes GET', async () => {
     const sealed = await t.create('note', { title: SEALED });
     const plain = await t.create('note', { title: 'Plain note' });
@@ -819,6 +927,22 @@ describe('audit log: reading', () => {
     expect((await t.pages(`/audit?resource=note&record=${plain}`, 'aud')).map((entry) => entry.event)).toEqual(['note.created']);
     expect(JSON.stringify(await t.pages('/audit', 'aud'))).not.toContain(SEALED);
     expect((await t.pages(`/audit?resource=note&record=${sealed}`, 'ada'))[0]).toMatchObject({ recordId: sealed, recordTitle: SEALED });
+  });
+
+  test('a `findOne` override that throws before it answers a promise closes the records, and the page still answers', async () => {
+    const id = await t.create('note', { title: 'Brittle note' });
+    noteFinder.explodes = true;
+    try {
+      const res = await t.http('aud').get('/audit?resource=note');
+      expect(res.status).toBe(200);
+      const entries = (res.body as AuditResponse).entries;
+      expect(entries.length).toBeGreaterThan(0);
+      expect(entries.every((entry) => entry.restricted === true && entry.recordId === undefined)).toBe(true);
+      expect((await t.http('aud').get(`/audit?resource=note&record=${id}`)).body).toEqual({ entries: [] });
+    } finally {
+      noteFinder.explodes = false;
+    }
+    expect((await t.pages(`/audit?resource=note&record=${id}`, 'aud')).map((entry) => entry.recordTitle)).toEqual(['Brittle note']);
   });
 
   test('M2, M3: a `query()` that starts its own `where()` still checks only the page’s records; one that fails closes them without failing the page', async () => {
@@ -884,8 +1008,8 @@ describe('audit log: reading', () => {
   test('sentinel: nothing a reader may not see is anywhere in any page of history or of the audit page', async () => {
     // What each reader must never be shown.
     const closed: Record<string, string[]> = {
-      aud: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL'],
-      r1: [NOTES_1, NOTES_2, OUTSIDE, SALARY_OUT, GONE, 'Alice', SALARY_1, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL'],
+      aud: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL', 'LEAF-SENTINEL'],
+      r1: [NOTES_1, NOTES_2, OUTSIDE, SALARY_OUT, GONE, 'Alice', SALARY_1, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL', 'FAMILY-SENTINEL', 'LEAF-SENTINEL'],
       max: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, OUTSIDE, GONE, 'Alice', 'employee', VAULT, SHOP, ROLE_PERMISSION, REASON, 'OLD-SENTINEL'],
       u1: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, OUTSIDE, VAULT, 'AGENT-SENTINEL', 'OLD-SENTINEL', 'Globex'],
       u2: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, VAULT, 'Acme', GONE],
