@@ -16,6 +16,8 @@ import {
   AdminUnsupportedMediaTypeError,
   AdminValidationError,
 } from '../errors.js';
+import { AuditReader } from '../audit/audit-reader.js';
+import { addAuditRoutes } from '../audit/audit-routes.js';
 import { AdminAudit, clientOf } from '../audit/audit.service.js';
 import type { AuditMeta } from '../audit/entities.js';
 import type { AdminAuthAdapter, AdminPrincipal } from '../auth/auth-adapter.js';
@@ -87,6 +89,7 @@ export class AdminHttpServer implements OnModuleInit {
     private readonly rbac: AdminRbac,
     private readonly files: FilesService,
     private readonly audit: AdminAudit,
+    auditReader: AuditReader,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {
     this.router
@@ -242,6 +245,7 @@ export class AdminHttpServer implements OnModuleInit {
       });
     addFileRoutes(this.router, { files: this.files });
     addPageRoutes(this.router, { api: this.api });
+    addAuditRoutes(this.router, { reader: auditReader });
     addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry, audit: this.audit });
   }
 

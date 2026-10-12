@@ -2,6 +2,7 @@ import { Module, type DynamicModule } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 import { AdminApiService } from './api/admin-api.service.js';
 import { ADMIN_OPTIONS } from './constants.js';
+import { AuditReader } from './audit/audit-reader.js';
 import { AdminAudit } from './audit/audit.service.js';
 import { AdminAuthService } from './auth/auth.service.js';
 import { AdminPolicy } from './policy/admin-policy.service.js';
@@ -29,6 +30,7 @@ export class AdminModule {
         FilesService,
         AdminPolicy,
         AdminApiService,
+        AuditReader,
         AdminHttpServer,
       ],
       exports: [ResourceRegistry],

@@ -1,12 +1,14 @@
 import 'reflect-metadata';
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { Injectable, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { fileURLToPath } from 'node:url';
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { IsOptional, IsString } from 'class-validator';
 import {
+  ADMIN_AUDIT_ENTITIES,
   AdminAction,
+  AdminForbiddenError,
   AdminModule,
   AdminNotFoundError,
   AdminResource,
@@ -20,7 +22,7 @@ import {
   type ListConfig,
   type ListParams,
 } from '@nest-my-admin/core';
-import { AdminApiService, AdminPolicy, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
+import { AdminApiService, AdminPolicy, AuditReader, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
 import { TEST_DB, testDatabase, type TestDatabase } from '../../core/test/helpers/test-db.js';
@@ -133,13 +135,15 @@ let db: TestDatabase;
 let admin: AdminTesting;
 
 beforeAll(async () => {
-  db = await testDatabase([Project, Task, Parcel]);
+  db = await testDatabase([Project, Task, Parcel, ...ADMIN_AUDIT_ENTITIES]);
   admin = await createAdminTestingModule({
     imports: [
       TypeOrmModule.forRoot({ ...db.options, retryAttempts: 0 }),
       AdminModule.forRoot({
         uiDistPath: UI,
+        audit: {},
         roles: [
+          { name: 'auditor', permissions: ['audit.view', 'project.view'], fields: { project: { secret: 'hidden' } }, scopes: { project: { view: 'own' } } },
           { name: 'member', permissions: ['project.view', 'project.create', 'project.update', 'task.view'], fields: { project: { secret: 'hidden' } }, scopes: { project: { view: 'own', update: 'own' } } },
           { name: 'nosy', permissions: ['project.view', 'leaky-task.view'], scopes: { project: { view: 'own' } } },
           { name: 'leaky', permissions: ['leaky-project.view'], fields: { 'leaky-project': { secret: 'hidden' } } },
@@ -260,6 +264,51 @@ describe(`@nest-my-admin/testing (${TEST_DB})`, () => {
     expect(report.calls).toBeGreaterThan(5);
     // A user who cannot reach the resource at all.
     expect((await admin.expectNoLeaks('project', { as: { id: 'u9', roles: [] } })).leaks).toEqual([]);
+  });
+
+  test('history() and audit(): a record’s entries for whoever sees it, the audit page with `audit.view`', async () => {
+    const apollo = String((await admin.superuser.list('project', { search: 'Apollo' })).items[0]!._id);
+    const mine = await admin.as({ id: 'u1', roles: ['member'] }).history('project', apollo);
+    expect(mine.entries.at(-1)!.event).toBe('project.created');
+    expect(mine.entries.at(-1)!.changes).toContainEqual({ field: 'secret', hidden: true });
+    expect(mine.entries.at(-1)!.changes).toContainEqual({ field: 'name', after: 'Apollo' });
+    await expect(admin.as({ id: 'u2', roles: ['member'] }).history('project', apollo)).rejects.toBeInstanceOf(AdminNotFoundError);
+    await expect(admin.as({ id: 'u1', roles: ['member'] }).audit()).rejects.toBeInstanceOf(AdminForbiddenError);
+    // The auditor sees their own projects' entries in full and the others closed, with no record named.
+    const page = await admin.as({ id: 'u1', roles: ['auditor'] }).audit({ resource: 'project' });
+    const all = await admin.superuser.audit({ event: 'project.*' });
+    expect(page.entries.map((entry) => entry.id)).toEqual(all.entries.map((entry) => entry.id));
+    const owned = new Set((await admin.as({ id: 'u1', roles: ['auditor'] }).list('project')).items.map((item) => String(item._id)));
+    expect(owned.has(apollo)).toBe(true);
+    for (const [index, entry] of page.entries.entries()) {
+      const full = all.entries[index]!;
+      if (owned.has(full.recordId!)) expect(entry).toMatchObject({ recordId: full.recordId });
+      else expect([entry.recordId, entry.recordTitle, entry.changes, entry.restricted]).toEqual([undefined, undefined, undefined, true]);
+    }
+    expect(page.entries.some((entry) => entry.restricted)).toBe(true);
+  });
+
+  test('expectNoLeaks reads the history and the audit page too, and what a hidden field held before is a secret', async () => {
+    const apollo = String((await admin.superuser.list('project', { search: 'Apollo' })).items[0]!._id);
+    await admin.superuser.update('project', apollo, { secret: 'FORMERSECRET-9' });
+    await admin.superuser.update('project', apollo, { secret: 'TOPSECRET-1' });
+    const before = await admin.expectNoLeaks('project', { as: { id: 'u1', roles: ['member'] } });
+    expect(before.leaks).toEqual([]);
+    expect((await admin.expectNoLeaks('project', { as: { id: 'u1', roles: ['auditor'] } })).leaks).toEqual([]);
+    // A history that showed the former value would be caught.
+    const reader = admin.app.get(AuditReader, { strict: false });
+    const real = reader.history.bind(reader);
+    const leaky = spyOn(reader, 'history').mockImplementation(async (resource, id, query, ctx) => {
+      const answer = await real(resource, id, query, ctx);
+      return ctx.user?.isSuperuser ? answer : { entries: answer.entries.map((entry) => ({ ...entry, changes: [{ field: 'secret', before: 'FORMERSECRET-9' }] })) };
+    });
+    try {
+      const error = await admin.expectNoLeaks('project', { as: { id: 'u1', roles: ['member'] } }).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(AdminLeakError);
+      expect((error as AdminLeakError).report.leaks.some((leak) => leak.kind === 'hidden-value' && leak.field === 'secret' && leak.value === 'FORMERSECRET-9' && leak.where.startsWith(`history project ${apollo}`))).toBe(true);
+    } finally {
+      leaky.mockRestore();
+    }
   });
 
   test('expectNoLeaks finds a hidden value in a title (Review Focus 4)', async () => {

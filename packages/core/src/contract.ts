@@ -620,6 +620,85 @@ export interface AdminErrorBody {
   correlationId: string;
 }
 
+/**
+ * One changed field of an audit entry, as its reader may see it:
+ * - `before` and `after`: the values (`before` is absent for a create, `after` for a delete). A related record is its
+ *   id, a many-to-many its ids; decimals and bigints are strings, dates ISO text, files their keys. `truncated`: a
+ *   long text was cut, or a large value left out.
+ * - `changed: true`: a sensitive or secret field. Its values are not stored, so nobody is shown any.
+ * - `hidden: true`: the field changed, and this reader may not see it (a field rule, a restricted field, or a field
+ *   the resource no longer has).
+ */
+export type AuditEntryChange = { field: string; before?: unknown; after?: unknown; truncated?: true } | { field: string; changed: true } | { field: string; hidden: true };
+
+/** What an audit entry says besides its changes. */
+export interface AuditEntryMeta {
+  /** `{resource}.action.{name}`: the action's name. */
+  action?: string;
+  /** The action's input without its sensitive keys; only for readers who hold the action. */
+  input?: Record<string, unknown>;
+  /** The input was too large to keep. */
+  inputTruncated?: true;
+  /** The action deleted its record. */
+  deleted?: true;
+  /** `page.{name}.updated`: the page's name. */
+  page?: string;
+  /** Where the request came from (`auth.*` entries); only for readers with `audit.view`. */
+  ip?: string;
+  userAgent?: string;
+  /** `auth.login_failed`: what was typed as the username, and why it failed (`UNAUTHENTICATED`, `RATE_LIMITED`, `WRONG_CODE`, `SUPPRESSED`). */
+  username?: string;
+  reason?: string;
+  /** `auth.login_failed`: the last failure recorded for its address in that minute; `suppressed` counts the ones left out. */
+  limited?: true;
+  suppressed?: number;
+  /** `auth.sessions_revoked`: which sessions ended. */
+  sessions?: 'others' | 'one';
+}
+
+/**
+ * One entry of the audit log, cut to its reader (`GET /api/resources/:resource/:id/history` and `GET /api/audit`).
+ * A key the reader may not see is absent, never null.
+ */
+export interface AuditEntry {
+  /** A numeric string that grows with every entry; page with it (`before`). */
+  id: string;
+  /** ISO time (UTC). */
+  at: string;
+  /**
+   * `product.updated`, `order.action.ship`, `page.shop.updated`, `rbac.role.changed`, `auth.login`… For an entry of
+   * a resource the reader cannot reach, the resource's name is `*` and an action's name is left out: `*.updated`,
+   * `*.action`.
+   */
+  event: string;
+  /** Who did it, with their display name at the time; null when nobody was signed in (a failed sign-in). */
+  actor: { id: string; name: string | null } | null;
+  /** The superuser who was viewing the admin as `actor`. */
+  viewAsBy?: string;
+  /** The resource of a record or action entry. */
+  resource?: string;
+  /** The record's `_id`; for `rbac.*` a role's name or a group's or user's id; for `auth.*` the user concerned. */
+  recordId?: string;
+  /** The record's title when the entry was written. */
+  recordTitle?: string;
+  /** The changed fields. Absent when the entry describes no record change (a sign-in, a resource action) or when `restricted`; `[]` for a restore. */
+  changes?: AuditEntryChange[];
+  meta?: AuditEntryMeta;
+  /**
+   * The reader may not see what this entry is about: its changes are withheld, and, for a record they cannot view
+   * (the resource, or a record outside their scopes), the record's id and title too.
+   */
+  restricted?: true;
+  /** The request's correlation id, as in its error responses and log lines. */
+  correlationId: string;
+}
+
+/** A page of audit entries, newest first. `next` is the `before` of the following page; absent on the last one. */
+export interface AuditResponse {
+  entries: AuditEntry[];
+  next?: string;
+}
+
 /** A label in one language, or per language (`{ en: 'Orders', fa: 'سفارش‌ها' }`). */
 export type LocalizedLabel = string | Record<string, string>;
 

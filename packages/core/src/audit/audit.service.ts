@@ -12,6 +12,7 @@ import { AdminContext } from '../resource/admin-context.js';
 import { fitChanges, type AuditChange } from './diff.js';
 import { NmaAuditEntry, type AuditMeta } from './entities.js';
 import { LoginFailures, WINDOW_MS } from './login-failures.js';
+import { deleteEntriesBefore } from './retention.js';
 
 /** What to record. */
 export interface AuditInput {
@@ -43,6 +44,10 @@ const MAX_WAITING = 1_000;
 /** A recorded action input larger than this (bytes of JSON) is left out. */
 const INPUT_LIMIT = 8_000;
 
+const DAY_MS = 86_400_000;
+/** The first retention sweep after boot: soon, and not while the app is still starting. */
+const FIRST_SWEEP_MS = 60_000;
+
 const cut = (text: unknown, length: number): string => String(text ?? '').slice(0, length);
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -73,6 +78,8 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
   private dropWarnedAt = 0;
   private readonly loginFailures = new LoginFailures();
   private loginTimer?: ReturnType<typeof setTimeout>;
+  private retentionTimers: Array<ReturnType<typeof setTimeout>> = [];
+  private sweeping?: Promise<number>;
 
   constructor(
     private readonly moduleRef: ModuleRef,
@@ -100,6 +107,42 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
     }
     if (!this.dataSource.hasMetadata(NmaAuditEntry)) {
       throw new Error(`nest-my-admin: audit: add ADMIN_AUDIT_ENTITIES to the entities of the DataSource "${name ?? 'default'}" (NmaAuditEntry is missing)`);
+    }
+    if (this.options.audit.retentionDays !== undefined) {
+      // Shortly after boot, then once a day. Neither timer keeps the process alive.
+      const first = setTimeout(() => void this.sweepQuietly(), FIRST_SWEEP_MS);
+      const daily = setInterval(() => void this.sweepQuietly(), DAY_MS);
+      first.unref();
+      daily.unref();
+      this.retentionTimers = [first, daily];
+    }
+  }
+
+  /** Whether the retention timers are running (`audit.retentionDays`, until the module is destroyed). */
+  get retentionArmed(): boolean {
+    return this.retentionTimers.length > 0;
+  }
+
+  /**
+   * Deletes the entries older than `audit.retentionDays`, in batches of 1,000, and answers how many; 0 without
+   * `retentionDays`. The daily timer runs it (through `sweepQuietly`); a sweep already running is joined, not doubled.
+   */
+  sweep(now = Date.now()): Promise<number> {
+    const days = this.options.audit?.retentionDays;
+    if (days === undefined) return Promise.resolve(0);
+    this.sweeping ??= deleteEntriesBefore(this.db, new Date(now - days * DAY_MS)).finally(() => {
+      this.sweeping = undefined;
+    });
+    return this.sweeping;
+  }
+
+  /** What the timers call: a sweep that fails is logged, and the next one runs as planned. */
+  async sweepQuietly(): Promise<void> {
+    try {
+      const deleted = await this.sweep();
+      if (deleted > 0) this.logger.log(`audit: deleted ${deleted} entries older than ${this.options.audit?.retentionDays} days`);
+    } catch (error) {
+      this.logger.warn(`audit: the retention sweep failed (${message(error)}); it runs again in a day`);
     }
   }
 
@@ -186,6 +229,9 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
   onModuleDestroy(): void {
     if (this.loginTimer) clearTimeout(this.loginTimer);
     this.loginTimer = undefined;
+    // clearTimeout stops an interval too.
+    for (const timer of this.retentionTimers) clearTimeout(timer);
+    this.retentionTimers = [];
   }
 
   /** Resolves once every detached entry queued so far has been written (tests, shutdown). */

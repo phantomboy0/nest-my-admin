@@ -8,6 +8,8 @@ import {
   type AdminContext,
   type AdminRecord,
   type AdminUser,
+  type AuditEntry,
+  type AuditResponse,
   type ListResponse,
   type MetaResponse,
   type OptionsResponse,
@@ -15,7 +17,7 @@ import {
   type ResourceSchema,
   type SearchResponse,
 } from '@nest-my-admin/core';
-import { AdminApiService, AdminPolicy, AdminRbac, EffectivePermissions, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
+import { AdminApiService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
 
 /** Who a test acts as. With `roles`, exactly these roles (code or stored); without, the admin resolves them as for a request. */
 export interface TestUser extends Partial<Omit<AdminUser, 'id'>> {
@@ -119,6 +121,14 @@ export class AdminClient {
   savePage(name: string, changes: object): Promise<PageResponse> {
     return this.run((api, ctx) => api.savePage(name, changes, ctx));
   }
+  /** A record's audit entries, newest first, 50 a page (`{ before }` is the page before's `next`). */
+  history(resource: string, id: string | number, query?: TestQuery): Promise<AuditResponse> {
+    return this.run((_api, ctx) => this.app.get(AuditReader, { strict: false }).history(resource, String(id), toParams(query), ctx));
+  }
+  /** The audit page (`actor`, `event`, `resource`, `record`, `from`, `to`, `before`); needs `audit.view`. */
+  audit(query?: TestQuery): Promise<AuditResponse> {
+    return this.run((_api, ctx) => this.app.get(AuditReader, { strict: false }).list(toParams(query), ctx));
+  }
 }
 
 /** One thing a user saw that they should not have. */
@@ -184,7 +194,9 @@ export class AdminTesting {
   /**
    * Crawls everything `options.as` can reach around `resource` and fails (with `AdminLeakError`) when any value of a
    * field hidden from them, or any record outside their scopes, shows up: in meta, the schema, every list page, each
-   * record, global search for the hidden values, and other resources' relation columns and pickers.
+   * record, global search for the hidden values, and other resources' relation columns and pickers. With the audit
+   * log on, also in each record's history and (for a user with `audit.view`) the audit page, where the values the
+   * hidden fields held before count too.
    */
   async expectNoLeaks(resource: string, options: NoLeaksOptions): Promise<LeakReport> {
     const root = this.superuser;
@@ -247,6 +259,21 @@ export class AdminTesting {
       }
     }
 
+    // With the audit log on: what the hidden fields held before is as secret as what they hold now.
+    const audited = this.app.get(AdminAudit, { strict: false }).enabled;
+    if (audited) {
+      for (const record of all) {
+        for (const entry of await crawlAudit((before) => root.history(resource, idOf(record), before), maxPages).catch((error: unknown) => (isAdminError(error) ? [] : Promise.reject(error)))) {
+          for (const item of entry.changes ?? []) {
+            if (!hiddenFields.includes(item.field)) continue;
+            for (const value of [...leaves((item as { before?: unknown }).before), ...leaves((item as { after?: unknown }).after)]) {
+              if (value.length >= 4 && !allowed.has(value) && !secrets.has(value)) secrets.set(value, { kind: 'hidden-value', record: idOf(record), field: item.field });
+            }
+          }
+        }
+      }
+    }
+
     const scan = (where: string, body: unknown, ownRecords: boolean) => {
       walk(body, '$', (path, value, parent) => {
         if (typeof value === 'string' || typeof value === 'number') {
@@ -268,6 +295,19 @@ export class AdminTesting {
     for (const record of seen) scan(`get ${resource} ${idOf(record)}`, await call(() => user.get(resource, idOf(record))), true);
     for (const record of outside) {
       if (!(await answersNotFound(() => call(() => user.get(resource, idOf(record)))))) leaks.push({ kind: 'out-of-scope-record', resource, record: idOf(record), where: `get ${resource} ${idOf(record)}` });
+    }
+    if (audited) {
+      for (const record of seen) scan(`history ${resource} ${idOf(record)}`, await crawlAudit((before) => call(() => user.history(resource, idOf(record), before)), maxPages), false);
+      for (const record of outside) {
+        if (!(await answersNotFound(() => call(() => user.history(resource, idOf(record)))))) leaks.push({ kind: 'out-of-scope-record', resource, record: idOf(record), where: `history ${resource} ${idOf(record)}` });
+      }
+      if (await user.can('audit.view')) {
+        const entries = await crawlAudit((before) => call(() => user.audit(before)), maxPages);
+        scan('audit', entries, false);
+        for (const entry of entries) {
+          if (entry.resource === resource && entry.recordId !== undefined && outsideIds.has(entry.recordId)) leaks.push({ kind: 'out-of-scope-record', resource, record: entry.recordId, where: `audit entry ${entry.id}` });
+        }
+      }
     }
     const hiddenValues = [...secrets.entries()].filter(([, owner]) => owner.kind === 'hidden-value').map(([secret]) => secret);
     for (const secret of hiddenValues.slice(0, options.maxSearches ?? 20)) {
@@ -337,6 +377,19 @@ async function crawlList(client: AdminClient, resource: string, maxPages: number
     } else if (result.items.length < result.pageSize || (result.total !== null && page * result.pageSize >= result.total) || result.hasMore === false) break;
   }
   return records;
+}
+
+/** Every page of an audit listing (50 entries each), up to `maxPages`. */
+async function crawlAudit(fetch: (query: { before?: string }) => Promise<AuditResponse>, maxPages: number): Promise<AuditEntry[]> {
+  const entries: AuditEntry[] = [];
+  let before: string | undefined;
+  for (let page = 1; page <= maxPages; page++) {
+    const result = await fetch(before ? { before } : {});
+    entries.push(...result.entries);
+    if (!result.next) break;
+    before = result.next;
+  }
+  return entries;
 }
 
 async function answersNotFound(fn: () => Promise<unknown>): Promise<boolean> {
