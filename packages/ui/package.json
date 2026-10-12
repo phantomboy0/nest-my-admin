@@ -1,6 +1,6 @@
 {
   "name": "@nest-my-admin/ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Prebuilt admin UI served by @nest-my-admin/core",
   "license": "MIT",
   "type": "module",

@@ -44,7 +44,7 @@ export function ActionButton({ resource, action, ids, subject, size = 'default',
       if (outcome.kind !== 'bulk') toast(outcome.message ?? t(outcome.kind === 'record' && outcome.record === null ? 'action.doneGone' : 'action.done', { action: action.label }));
       else if (outcome.message) toast(outcome.message);
       onDone(outcome, ids ?? []);
-      for (const key of ['list', 'count', 'record']) void queryClient.invalidateQueries({ queryKey: [key, resource] });
+      for (const key of ['list', 'count', 'record', 'history']) void queryClient.invalidateQueries({ queryKey: [key, resource] });
     },
     // Without a dialog there is nowhere else to say why it failed.
     onError: (error) => {

@@ -3,7 +3,9 @@
 A Django-admin-class admin panel for **NestJS + TypeORM**: declarative resources, forms from your DTOs,
 admin writes that go through your own services, and a prebuilt shadcn UI served by Nest itself.
 
-> Status: pre-alpha (M3 in progress: sign-in done, permissions next). APIs will change.
+> Status: pre-alpha, version 0.2 (lists and forms, sign-in, permissions, files and rich text, actions, settings pages, audit log). APIs will change.
+>
+> **Upgrading from 0.1:** `sensitive`, `secret` and `widget: 'password'` on a field inside a group (a nested DTO or an embedded entity) now fail at boot, with or without the audit log: move the field to the top level. See [Audit log](#audit-log).
 
 Requires NestJS 11 or 12, TypeORM 0.3.20+ or 1.x, Node 20.19+ (or Bun), and Postgres, MySQL 8 or SQLite.
 The package is ESM; CommonJS apps load it through Node's `require(esm)`. A CommonJS app compiled with
@@ -508,7 +510,8 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   - fields: `{r}.field.{f}.view` and `{r}.field.{f}.edit`;
   - actions: `{r}.action.{name}` ([Actions](#actions));
   - settings pages: `page.{name}` and `page.{name}.update` ([Settings pages](#settings-pages));
-  - custom codes, per resource or global.
+  - custom codes, per resource or global;
+  - `audit.view`, with the [audit log](#audit-log) on.
   - Wildcards: `*`, `{r}.*`, `*.view`. Page codes are granted only by `*` and by patterns that start with `page`.
   - `update` implies `view`.
   - Anything unknown in a role (code, resource, field, scope) fails at boot with a suggestion.
@@ -556,7 +559,7 @@ AdminModule.forRoot({ rbac: {}, roles: [/* system roles */], auth: builtinAuth({
   - for a record id: whether the user may view, change and delete it, and why not (no permission, outside their rows, an `@AdminCan` rule, no such record), and the actions they may run on it.
 
   The answers come from the code the API enforces with, and a test checks them against the API for random role combinations.
-- **View as.** A superuser opens a user and chooses *View as this user*. The admin then shows exactly what that user sees (the UI sends `X-View-As: <id>`), under a banner with *Stop viewing*. It is read-only: the server refuses every write (actions and settings pages included, so the UI offers neither), and the account pages are closed. The server logs each start with both ids; the audit log arrives with M4.
+- **View as.** A superuser opens a user and chooses *View as this user*. The admin then shows exactly what that user sees (the UI sends `X-View-As: <id>`), under a banner with *Stop viewing*. It is read-only: the server refuses every write (actions and settings pages included, so the UI offers neither), and the account pages are closed. Each start is recorded in the [audit log](#audit-log) (`auth.view_as`, at most once an hour per pair); without the audit log the server logs it with both ids. History and the audit page work while viewing as someone, with that user's permissions.
 
 ### Testing permissions
 
@@ -590,6 +593,67 @@ await admin.expectNoLeaks('employee', { as: { id: 'u7', roles: ['operator'] } })
 - **`adminTesting(app)`** gives the same helpers for an app you already created.
 
 Host `APP_GUARD`s do not protect the admin, by design (it is mounted on the HTTP adapter, not as Nest controllers); middleware registered in `main.ts` before `listen` still runs. Do not enable wildcard CORS for it. Catch-all routes the host registered earlier take precedence over the admin.
+
+## Audit log
+
+```ts
+import { ADMIN_AUDIT_ENTITIES } from '@nest-my-admin/core';
+
+TypeOrmModule.forRoot({ /* … */ entities: [/* yours */, ...ADMIN_AUDIT_ENTITIES] }),
+AdminModule.forRoot({ audit: { retentionDays: 365 } }),   // `audit: {}` keeps entries for ever
+
+@AdminResource(Employee)
+export class EmployeeAdmin extends AdminResourceBase<Employee> {
+  fields: FieldsConfig<Employee> = { salary: { sensitive: true } };   // recorded as "changed", without values
+}
+```
+
+- **Enabling it.** `audit: {}` and `ADMIN_AUDIT_ENTITIES` (one table, `nma_audit`) in the entities of the default DataSource, or of the one named by `audit.dataSource`. Without `audit` nothing is recorded, records have no History tab, and the two routes answer 404. Boot fails when the table's entity is missing.
+- **What is recorded.** Every entry has the time, the actor (id and display name at the time; none for a failed sign-in), the event, the request's correlation id, and for a record its resource, id and title.
+
+  | event | what it holds |
+  |---|---|
+  | `{r}.created`, `{r}.updated`, `{r}.deleted`, `{r}.restored`, `{r}.purged` | the changed fields: after only for a create, before only for a delete or purge, both for an update, none for a restore |
+  | `{r}.action.{name}` | the fields the action changed on the record (none for a resource action), and its input |
+  | `page.{name}.updated` | the changed fields of a settings page |
+  | `rbac.role.changed`, `rbac.group.changed`, `rbac.user_roles.changed` | permissions, field rules and scopes of a role; roles and members of a group; a user's roles and groups. A deleted role also names the users and groups that lost it |
+  | `rbac.user.created`, `rbac.user.changed`, `rbac.user.password_reset`, `rbac.user.two_factor_reset` | username, display name, email, active and superuser flags; never a password |
+  | `auth.login`, `auth.logout`, `auth.login_failed`, `auth.view_as` | address and browser; for a failure the username that was typed and why (`UNAUTHENTICATED`, `RATE_LIMITED`, `WRONG_CODE`, `SUPPRESSED`) |
+  | `auth.password_changed`, `auth.two_factor_enabled`, `auth.two_factor_disabled`, `auth.recovery_codes_regenerated`, `auth.sessions_revoked` | the user's own account changes |
+
+  - The diff is computed by the admin from the stored row before and after your method ran, so it also covers resources that override `create`/`update`/`delete`, and fields your service changed that the form did not send (a computed total).
+  - An update or a page save that changes nothing writes no entry. Bulk runs write one entry per record. The update-date, version and discriminator columns are never diffed.
+  - Related records are stored as ids (a many-to-many as its sorted ids), files as their storage keys, decimals and bigints as strings.
+  - A text over 4,000 characters is cut, a larger value of another kind is left out, and an action's input over 8 kB is left out; the entry says so (`truncated`, `inputTruncated`).
+- **How writes are observed.** `AdminApiService` runs every write through its *write participants* (`before` → your method → `after`, then `onCommit` or `onRollback`). File handling is one participant and the audit log the other; nothing in your resource has to call it.
+- **An entry exists if and only if its change committed.** The entry is inserted with `ctx.manager`, inside the write's transaction: a rollback discards it, and if the entry cannot be written the write fails with it (500). Two setups are weaker:
+  - **the audit table on another DataSource** (`audit.dataSource`): the entry is written right after the commit, on its own connection. A crash or a failed insert in between loses it; the failure is logged with the correlation id.
+  - **`transactions: false`**: the entry is written after your method returns. A method that throws after it changed something leaves the change without an entry.
+- **Sensitive fields.** `sensitive: true` on a field (of a resource, a settings page, or an action's input DTO) records only that it changed. `widget: 'password'` fields and a page's `secret` fields are sensitive by themselves. The option is opt-in: a `passwordHash` or token column is stored in clear unless you mark it.
+  - **`sensitive`, `secret` and `widget: 'password'` are refused at boot on a property inside a group** (a nested DTO, an embedded entity), where they would not be applied: move the field to the top level, or mark the group itself.
+  - When the title column is sensitive (or the title is a function and the resource has a sensitive field), no title is stored.
+- **What is never stored:** passwords, one-time codes, recovery codes, two-factor keys, session tokens, the values of sensitive and secret fields (not even hashed), and sensitive keys of an action's input.
+- **Failed sign-ins** are written without making the sign-in wait, and are capped: per address and username a minute's first 5 are recorded and the 6th is marked as the last (`limited`); per address across usernames 50; of a lockout's answers only the first. One `SUPPRESSED` entry per minute then carries the count of the rest. The counters live in memory, per process.
+  - **Whatever was typed into the username box is stored**, cut to 200 characters. A password typed there by mistake ends up in the log.
+- **Reading.**
+  - `GET /api/resources/:r/:id/history` (the History tab on a record) is for whoever may open the record: the same 403 and 404 as GET, a record in the trash included. It needs no extra permission.
+  - `GET /api/audit?actor=&event=&resource=&record=&from=&to=` (user menu → Audit log) needs the global code **`audit.view`**, which exists only with `audit`. `event` is a whole name or a family ending in `.*` (`order.*`, `auth.*`); `record` needs `resource`, and alone matches only entries without a resource (a role's name, a user's id); `from`/`to` are days (UTC) or instants.
+  - Both answer 50 entries a page, newest first, with `next` to send as `before`.
+- **Who sees what.** Entries are cut for their reader, and reading the log never shows more than the record itself would:
+  - a field the reader may not view (a field rule, `restricted` without the grant) is served as `{ field, hidden: true }`; a sensitive field as `{ field, changed: true }` for everyone;
+  - an action's input only to holders of that action's code; the address and browser only to holders of `audit.view`;
+  - a record outside the reader's row scopes or the resource's `query()` is listed without its id, title and changes (`restricted: true`). A resource they cannot reach is listed as `*.updated`, without even its name, and a settings page they cannot view as `page.*.updated`;
+  - role, group and user changes show their details only with `rbac.view`;
+  - filters never match by something the reader is not shown.
+- **Records that are gone.** A record's history is the history of the record that holds the key now: entries from before a purge, a hard delete or an action that deleted it are left out, so a reused key does not open its predecessor's history. On the audit page those entries are shown in full to a superuser and to a reader whom nothing restricts in that resource (no scope, no global scope, no `query()` or `findOne()` override), and closed to everyone else, because their scopes can no longer be checked against a row that does not exist.
+- **If you override `findOne`** to hide records, the audit page honours it: each record is also asked of your `findOne(id, ctx, { withDeleted: true })`, and one it does not return stays closed. Keep `withDeleted` working there, or records in the trash are closed on the audit page too.
+- **Retention.** With `retentionDays`, entries older than that are deleted a minute after boot and then once a day, 1,000 at a time. Without it nothing is ever deleted.
+- **Limits.**
+  - Changes made outside the admin (your own controllers, jobs, SQL) are not recorded. That includes deletions: a row deleted elsewhere leaves no closing entry, and if its key is given again, the earlier entries read as the new record's.
+  - **MySQL and services that ignore `ctx.manager`:** such a write happens on another connection, which the admin's transaction (REPEATABLE READ) does not see. The admin then diffs against the entity your method returned, which covers columns but not relations: a relation changed that way is not recorded. Pass `ctx.manager`.
+  - User and account entries (`rbac.user.*`, `auth.*`) are written after the auth adapter's call, not in a transaction with it.
+  - The address is Express's `req.ip`. Behind a proxy set `trust proxy` to the proxies you run, never to `true` on an open network: a forwarded header anyone can send would then be recorded as the address.
+  - On Postgres and MySQL the entry id is a 32-bit integer (2.1 billion entries).
 
 ## Develop
 

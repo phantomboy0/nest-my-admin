@@ -6,8 +6,8 @@ import { Dialog } from 'radix-ui';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { api } from '@/lib/api';
-import { navigationItems, type PaletteItem } from '@/lib/palette';
-import { useMeta } from '@/lib/queries';
+import { matches, navigationItems, type PaletteItem } from '@/lib/palette';
+import { useMeta, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 /** Waits until `value` has stopped changing for `ms`. */
@@ -29,6 +29,7 @@ export function CommandPalette() {
   const { t } = useLocale();
   const navigate = useNavigate();
   const meta = useMeta();
+  const session = useSession();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -50,8 +51,12 @@ export function CommandPalette() {
   const searching = term.length >= 2 && (meta.data?.groups.some((group) => group.resources.some((resource) => resource.searchable)) ?? false);
   const records = useQuery({ queryKey: ['search', term], queryFn: () => api.search(term), enabled: open && searching, staleTime: 10_000 });
 
+  const navigation = meta.data ? navigationItems(meta.data, query, (name) => t('palette.new', { name })) : [];
   const items: PaletteItem[] = [
-    ...(meta.data ? navigationItems(meta.data, query, (name) => t('palette.new', { name })) : []),
+    ...navigation.filter((item) => item.section === 'go'),
+    // The audit page (also the way to it in an admin without sign-in, which has no user menu).
+    ...(session.data?.audit.view && matches(t('audit.title'), query) ? [{ id: 'audit', section: 'go' as const, label: t('audit.title'), to: '/-/audit' }] : []),
+    ...navigation.filter((item) => item.section !== 'go'),
     ...(searching && query.trim() === term
       ? (records.data?.groups ?? []).flatMap((group) =>
           group.items.map((item) => ({

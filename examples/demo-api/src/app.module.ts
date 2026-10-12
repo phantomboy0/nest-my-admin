@@ -8,6 +8,7 @@ import { ContentModule } from './content/content.module.js';
 import { databaseOptions } from './database.js';
 import { SalesModule } from './sales/sales.module.js';
 import { SettingsModule } from './settings/settings.module.js';
+import { StaffModule } from './staff/staff.module.js';
 
 @Module({
   imports: [
@@ -36,6 +37,10 @@ import { SettingsModule } from './settings/settings.module.js';
       resolveRoles: (user) => (user.username === 'editor' ? ['catalog-editor'] : []),
       // Roles, groups and users are also managed in the admin (Administration section; the seed adds a Support role).
       rbac: {},
+      // Every change made through the admin, every sign-in and every permission change is recorded (`nma_audit`), and
+      // entries older than a year are deleted. Records get a History tab; the audit page (user menu → Audit log) needs
+      // `audit.view`, which the editor's role does not have: they see the history of the records they can open, no more.
+      audit: { retentionDays: 365 },
       // Uploads of file, image and rich-text fields are kept on disk (git-ignored); tests point NMA_UPLOAD_DIR at a
       // temporary directory. Downloads go through the admin, which checks permissions for every file.
       files: { storage: localStorage({ dir: process.env.NMA_UPLOAD_DIR ?? 'var/uploads' }) },
@@ -51,6 +56,7 @@ import { SettingsModule } from './settings/settings.module.js';
     ContentModule,
     BillingModule,
     SettingsModule,
+    StaffModule,
   ],
 })
 export class AppModule {}

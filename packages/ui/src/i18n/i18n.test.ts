@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { en } from './en';
 import { fa } from './fa';
-import { formatNumber, isRtl, translate } from './index';
+import { applyDisplay, formatNumber, formatRelative, isRtl, translate } from './index';
 
 describe('message bundles', () => {
   test('Persian translates every English key and nothing else', () => {
@@ -50,5 +50,27 @@ describe('layout follows the direction', () => {
         .filter(({ text }) => /className|cn\(/.test(text) && physical.test(text)),
     );
     expect(offenders.map(({ file, line, text }) => `${file}:${line}: ${text.trim()}`)).toEqual([]);
+  });
+});
+
+describe('formatRelative', () => {
+  const now = new Date('2026-10-12T12:00:00Z');
+  const ago = (seconds: number, locale = 'en') => formatRelative(new Date(now.getTime() - seconds * 1000), now, locale);
+
+  test('picks the largest unit that fits', () => {
+    expect(ago(3)).toBe('now');
+    expect(ago(40)).toBe('40 seconds ago');
+    expect(ago(60)).toBe('1 minute ago');
+    expect(ago(3 * 3600 + 59)).toBe('3 hours ago');
+    expect(ago(86_400)).toBe('yesterday');
+    expect(ago(40 * 86_400)).toBe('last month');
+    expect(ago(800 * 86_400)).toBe('2 years ago');
+  });
+
+  test('follows the language and the chosen digits', () => {
+    expect(ago(3 * 3600, 'fa')).toBe('3 ساعت پیش');
+    applyDisplay({ calendar: 'persian', digits: 'arabext' });
+    expect(ago(3 * 3600, 'fa')).toBe('۳ ساعت پیش');
+    applyDisplay({ calendar: 'gregorian', digits: 'latn' });
   });
 });

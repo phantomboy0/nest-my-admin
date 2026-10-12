@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router';
 import { AccountPage } from '@/app/account-page';
+import { AuditPage } from '@/app/admin/audit-page';
 import { DebuggerPage } from '@/app/admin/debugger-page';
 import { GroupEditorPage, GroupsPage } from '@/app/admin/groups-page';
 import { RoleEditorPage } from '@/app/admin/role-editor';
@@ -51,6 +52,7 @@ const router = createBrowserRouter(
         { path: '-/roles/new', element: <RoleEditorPage /> },
         { path: '-/roles/:name', element: <RoleEditorPage /> },
         { path: '-/debugger', element: <DebuggerPage /> },
+        { path: '-/audit', element: <AuditPage /> },
         { path: 'g/:group', element: <GroupPage /> },
         // Settings pages live under /p, like groups under /g.
         { path: 'p/:page', element: <SettingsPage /> },

@@ -11,6 +11,7 @@ import { Tag } from './catalog/tag.entity.js';
 import { Article } from './content/article.entity.js';
 import { Order } from './sales/order.entity.js';
 import { ShopSetting } from './settings/shop-setting.entity.js';
+import { Employee } from './staff/employee.entity.js';
 
 export async function seedProducts(app: INestApplication): Promise<void> {
   const products = app.get<Repository<Product>>(getRepositoryToken(Product));
@@ -56,6 +57,16 @@ export async function seedSales(app: INestApplication): Promise<void> {
     { number: 'SO-1003', customer: 'مریم میرزاخانی', total: '7.00', status: 'paid' },
     { number: 'SO-1004', customer: 'Alan Turing', total: '499.00', status: 'draft' },
     { number: 'SO-1005', customer: 'Katherine Johnson', total: '1299.00', status: 'cancelled' },
+  ]);
+}
+
+/** Two employees: their salary is a sensitive field (the audit log never holds its values). */
+export async function seedStaff(app: INestApplication): Promise<void> {
+  const employees = app.get<Repository<Employee>>(getRepositoryToken(Employee));
+  if ((await employees.count()) > 0) return;
+  await employees.save([
+    { name: 'Hedy Lamarr', position: 'Warehouse lead', salary: '4200.00', hiredOn: '2022-05-02' },
+    { name: 'پروین اعتصامی', position: 'Support', salary: '3100.00', hiredOn: '2024-01-15' },
   ]);
 }
 

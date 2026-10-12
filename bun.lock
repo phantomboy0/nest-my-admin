@@ -38,7 +38,7 @@
     },
     "packages/auth": {
       "name": "@nest-my-admin/auth",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@nest-my-admin/core": "workspace:*",
         "@nestjs/common": "12.1.1",
@@ -67,7 +67,7 @@
     },
     "packages/core": {
       "name": "@nest-my-admin/core",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@nest-my-admin/ui": "workspace:*",
       },
@@ -107,7 +107,7 @@
     },
     "packages/testing": {
       "name": "@nest-my-admin/testing",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@nest-my-admin/core": "workspace:*",
         "@nestjs/common": "12.1.1",
@@ -133,7 +133,7 @@
     },
     "packages/ui": {
       "name": "@nest-my-admin/ui",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@fontsource-variable/geist": "5.3.0",
         "@fontsource-variable/vazirmatn": "5.3.0",

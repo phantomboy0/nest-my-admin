@@ -321,6 +321,32 @@ describe('the catalog-editor role (editor)', () => {
     expect(page.body.schema.readonly).toBe(true);
     expect((await editor.patch('/admin/api/pages/shop').send({ shopName: 'Not mine' })).status).toBe(403);
   });
+
+  test('the audit log: a salary is recorded as changed without values; the editor reads histories but not the audit page', async () => {
+    const employees = '/admin/api/resources/employee';
+    const created = (await agent.post(employees).send({ name: 'Audited Person', position: 'Tester', salary: '5123.00' })).body;
+    expect((await agent.patch(`${employees}/${created._id}`).send({ salary: '6789.00', position: 'Lead' })).status).toBe(200);
+    const history = await agent.get(`${employees}/${created._id}/history`);
+    expect(history.status).toBe(200);
+    expect(history.body.entries.map((entry: { event: string }) => entry.event)).toEqual(['employee.updated', 'employee.created']);
+    expect(history.body.entries[0].changes).toEqual([
+      { field: 'position', before: 'Tester', after: 'Lead' },
+      { field: 'salary', changed: true },
+    ]);
+    expect(JSON.stringify(history.body)).not.toMatch(/5123|6789/);
+    // The record itself still shows the salary to whoever may view employees.
+    expect((await agent.get(`${employees}/${created._id}`)).body.salary).toBe('6789.00');
+
+    expect((await agent.get('/admin/api/session')).body.audit).toEqual({ enabled: true, view: true });
+    expect((await editor.get('/admin/api/session')).body.audit).toEqual({ enabled: true, view: false });
+    expect((await editor.get('/admin/api/audit')).status).toBe(403);
+    expect((await editor.get(`${employees}/${created._id}/history`)).status).toBe(404);
+    const order = (await agent.post('/admin/api/resources/order').send({ number: 'ED-AUDIT-1', customer: 'Ada', total: '5.00' })).body;
+    const theirs = await editor.get(`/admin/api/resources/order/${order._id}/history`);
+    expect(theirs.body.entries.map((entry: { event: string }) => entry.event)).toEqual(['order.created']);
+    const all = await agent.get('/admin/api/audit?resource=employee');
+    expect(all.body.entries.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe('orders (actions)', () => {

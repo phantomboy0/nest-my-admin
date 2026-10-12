@@ -7,6 +7,7 @@ import { FieldInput, RichText } from '@/app/field-input';
 import { RecordActions } from '@/app/action-button';
 import { LeaveBar, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
 import { FormLayout } from '@/app/form-layout';
+import { HistoryTab, historyKey } from '@/app/history-tab';
 import { ObjectInput } from '@/app/object-input';
 import { DisplayValue, ValueBadge } from '@/app/widgets/badge';
 import { PageMessage } from '@/components/page-message';
@@ -16,7 +17,7 @@ import { shownErrors } from '@/lib/form-errors';
 import { useT } from '@/i18n';
 import { formatCell } from '@/lib/format';
 import { dependencyValues, toFormValues, toPayload, withoutImages, type FormValue, type FormValues } from '@/lib/form-values';
-import { useRecord, useSchema } from '@/lib/queries';
+import { useRecord, useSchema, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { isShown } from '@/lib/show-if';
 import { slugify } from '@/lib/slug';
@@ -116,6 +117,11 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged }: Reco
   const dependencies = dependencyValues(fields, values);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  // With the audit log on, an existing record has a History tab next to its form. The form stays mounted under it,
+  // so edits, the unsaved-changes guard and ⌘S are the same on either tab.
+  const session = useSession();
+  const hasHistory = mode === 'edit' && id !== undefined && session.data?.audit.enabled === true;
+  const [tab, setTab] = useState<RecordTab>('details');
   // Slug fields fill themselves from `slugFrom` until someone types in them (or they already hold a value).
   const typedSlugs = useRef(new Set(fields.filter((field) => field.widget === 'slug' && initial[field.name] !== '').map((field) => field.name)));
 
@@ -151,6 +157,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged }: Reco
     mutationFn: ({ payload, version: expected }: { payload: Record<string, unknown>; version?: unknown; then: After }) =>
       mode === 'create' ? api.create(schema.name, payload) : api.update(schema.name, id!, payload, expected),
     onSuccess: async (stored, { then }) => {
+      void queryClient.invalidateQueries({ queryKey: historyKey(schema.name) });
       await queryClient.invalidateQueries({ queryKey: ['list', schema.name] });
       const title = typeof stored._title === 'string' ? stored._title : `#${String(stored._id)}`;
       if (then === 'stay' && mode === 'edit') {
@@ -170,6 +177,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged }: Reco
       else navigate(`/${schema.name}`);
     },
     onError: (error) => {
+      setTab('details'); // field errors and the conflict's choices are on the form
       if (!(error instanceof ApiError)) {
         setFormError(error.message);
         return;
@@ -226,6 +234,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged }: Reco
     setFieldErrors(allErrors);
     setFormError(null);
     if (Object.keys(allErrors).length === 0) save.mutate({ payload, version, then });
+    else setTab('details'); // ⌘S from the History tab: the errors are on the form
   }
 
   /** Save anyway: send the same changes against the version that is stored now. */
@@ -304,6 +313,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged }: Reco
         </p>
       )}
       <LeaveBar blocker={blocker} />
+      {hasHistory && <RecordTabs active={tab} onChange={setTab} />}
       {conflict && (
         <ConflictNotice
           fields={fields}
@@ -319,63 +329,119 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged }: Reco
           {formError}
         </div>
       )}
-      <FormLayout layout={schema.form.layout} names={allFields.map((field) => field.name)} errors={fieldErrors} render={renderField} />
-      <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
-        {canUpdate && (
-          <Button type="submit" value="list" disabled={save.isPending || uploads.busy} aria-keyshortcuts="Control+S Meta+S">
-            {t(save.isPending ? 'form.saving' : 'form.save')}
-          </Button>
-        )}
-        {canUpdate && schema.creatable && (
-          <Button type="submit" value="new" variant="outline" disabled={save.isPending || uploads.busy}>
-            {t('form.saveAndNew')}
-          </Button>
-        )}
-        <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
-          {t(canUpdate ? 'common.cancel' : 'form.back')}
-        </Button>
-        {mode === 'edit' && schema.creatable && (
-          <Button asChild variant="outline">
-            <Link to={`/${schema.name}/new?${new URLSearchParams({ from: id! })}`}>
-              <Copy />
-              {t('form.duplicate')}
-            </Link>
-          </Button>
-        )}
-        {mode === 'edit' &&
-          canDelete &&
-          (confirmingDelete ? (
-            <div className="ms-auto flex gap-2">
-              <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
-                {t(remove.isPending ? 'form.deleting' : schema.softDelete ? 'form.confirmMoveToTrash' : 'form.confirmDelete')}
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
-                {t('form.keep')}
-              </Button>
-            </div>
-          ) : (
-            <Button type="button" variant="outline" className="ms-auto" onClick={() => setConfirmingDelete(true)}>
-              {t(schema.softDelete ? 'form.moveToTrash' : 'form.delete')}
-            </Button>
-          ))}
-      </div>
-      {mode === 'edit' && record && schema.related.length > 0 && (
-        <nav aria-label={t('form.related')} className="flex flex-col gap-2 border-t pt-4">
-          <h2 className="text-sm font-medium text-muted-foreground">{t('form.related')}</h2>
-          <ul className="flex flex-wrap gap-2">
-            {schema.related.map((related) => (
-              <li key={`${related.resource}:${related.field}`}>
-                <Button asChild variant="outline" size="sm">
-                  <Link to={`/${related.resource}?${new URLSearchParams({ [`filter[${related.field}][${related.operator}]`]: String(record[schema.primaryKeys[0]!]) })}`}>
-                    {related.label}
-                  </Link>
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </nav>
+      {hasHistory && tab === 'history' && (
+        <div role="tabpanel" id="record-panel-history" aria-labelledby="record-tab-history">
+          <HistoryTab schema={schema} id={id!} record={record} />
+        </div>
       )}
+      {/* `contents`: the form's own blocks keep their place in the column; hidden (not unmounted) under History. */}
+      <div
+        className={tab === 'details' ? 'contents' : 'hidden'}
+        {...(hasHistory ? { role: 'tabpanel', id: 'record-panel-details', 'aria-labelledby': 'record-tab-details' } : {})}
+      >
+        <FormLayout layout={schema.form.layout} names={allFields.map((field) => field.name)} errors={fieldErrors} render={renderField} />
+        <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
+          {canUpdate && (
+            <Button type="submit" value="list" disabled={save.isPending || uploads.busy} aria-keyshortcuts="Control+S Meta+S">
+              {t(save.isPending ? 'form.saving' : 'form.save')}
+            </Button>
+          )}
+          {canUpdate && schema.creatable && (
+            <Button type="submit" value="new" variant="outline" disabled={save.isPending || uploads.busy}>
+              {t('form.saveAndNew')}
+            </Button>
+          )}
+          <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
+            {t(canUpdate ? 'common.cancel' : 'form.back')}
+          </Button>
+          {mode === 'edit' && schema.creatable && (
+            <Button asChild variant="outline">
+              <Link to={`/${schema.name}/new?${new URLSearchParams({ from: id! })}`}>
+                <Copy />
+                {t('form.duplicate')}
+              </Link>
+            </Button>
+          )}
+          {mode === 'edit' &&
+            canDelete &&
+            (confirmingDelete ? (
+              <div className="ms-auto flex gap-2">
+                <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                  {t(remove.isPending ? 'form.deleting' : schema.softDelete ? 'form.confirmMoveToTrash' : 'form.confirmDelete')}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
+                  {t('form.keep')}
+                </Button>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" className="ms-auto" onClick={() => setConfirmingDelete(true)}>
+                {t(schema.softDelete ? 'form.moveToTrash' : 'form.delete')}
+              </Button>
+            ))}
+        </div>
+        {mode === 'edit' && record && schema.related.length > 0 && (
+          <nav aria-label={t('form.related')} className="flex flex-col gap-2 border-t pt-4">
+            <h2 className="text-sm font-medium text-muted-foreground">{t('form.related')}</h2>
+            <ul className="flex flex-wrap gap-2">
+              {schema.related.map((related) => (
+                <li key={`${related.resource}:${related.field}`}>
+                  <Button asChild variant="outline" size="sm">
+                    <Link to={`/${related.resource}?${new URLSearchParams({ [`filter[${related.field}][${related.operator}]`]: String(record[schema.primaryKeys[0]!]) })}`}>
+                      {related.label}
+                    </Link>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        )}
+      </div>
     </form>
+  );
+}
+
+type RecordTab = 'details' | 'history';
+const RECORD_TABS: RecordTab[] = ['details', 'history'];
+
+/** Details · History on an existing record. Arrow keys move between the two, as in the form's own tabs. */
+function RecordTabs({ active, onChange }: { active: RecordTab; onChange: (tab: RecordTab) => void }) {
+  const t = useT();
+  const buttons = useRef<Partial<Record<RecordTab, HTMLButtonElement | null>>>({});
+  return (
+    <div
+      role="tablist"
+      aria-label={t('audit.recordTabs')}
+      className="flex gap-1 overflow-x-auto border-b"
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
+        event.preventDefault();
+        const next = event.key === 'Home' ? 'details' : event.key === 'End' ? 'history' : active === 'details' ? 'history' : 'details';
+        onChange(next);
+        buttons.current[next]?.focus();
+      }}
+    >
+      {RECORD_TABS.map((name) => (
+        <button
+          key={name}
+          ref={(element) => {
+            buttons.current[name] = element;
+          }}
+          id={`record-tab-${name}`}
+          type="button"
+          role="tab"
+          aria-selected={name === active}
+          aria-controls={`record-panel-${name}`}
+          tabIndex={name === active ? 0 : -1}
+          onClick={() => onChange(name)}
+          className={cn(
+            '-mb-px border-b-2 px-3 py-2 text-sm whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+            name === active ? 'border-primary font-medium' : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {t(name === 'details' ? 'audit.details' : 'audit.history')}
+        </button>
+      ))}
+    </div>
   );
 }
 

@@ -194,3 +194,37 @@ Open after the final review of M4-1 (its fixes: octet-stream uploads and a 400 f
 - UI: the sidebar's pins and recents hold resources only, not settings pages; toasts are a small store of our own (no swipe, no pause on hover).
 - UI: a settings page sends a group of fields whole once one field of it changed, and then requires the group's required fields; the API itself accepts a partial group.
 - Flaky test fixed here: `products.pw.ts` two-factor sign-in now waits for the recovery codes.
+
+## M4-3 follow-ups
+Deferred by the plan:
+- `source: 'all'`: a TypeORM subscriber that also audits writes made outside the admin (today those, deletions included, are invisible to the log; a key reused after such a deletion reads the earlier entries as the new record's).
+- Reverting a field from the History tab.
+- Exporting the audit log.
+- `@OnAdminEvent` for host code (the audit table is the record; hosts keep calling their services from overrides).
+
+Open after the reviews of Tasks 1–3:
+- No index on `event`: a filter by a rare event alone walks the primary key backwards. Adding one is a schema change to `nma_audit`.
+- User and account entries (`rbac.user.*`, `auth.*`) are written after the adapter's call, not in a transaction with it: a crash in between loses the entry.
+- A function title that needs joins is computed from the stored row alone; and a function title is dropped whenever the resource has any sensitive field (it could be built from one).
+- `select: false` columns: the before and after images are read with the default selection, so a change to such a column is not diffed.
+- An action that soft-deletes its record shows as a `deletedAt` diff, not as a deletion (`meta.deleted` is set only when the row is gone).
+- Action names are visible to readers who reach the resource but do not hold the action (`{r}.action.{name}` in `event` and `meta.action`); only the input is withheld.
+- `correlationId` is served on anonymised entries (`*.updated`): it joins them to log lines and to other entries of the same request.
+- `ip` is Express's `req.ip`: with a lax `trust proxy` it is whatever `X-Forwarded-For` says. The admin does not check the setting (documented in the README).
+- `nma_audit.id` is a 32-bit integer on Postgres and MySQL (`bigint` + `AUTOINCREMENT` fails on SQLite with one entity class); ids are strings in the contract, so widening later changes nothing there.
+- `at` is stored in the server's local wall time on Postgres and MySQL (`@CreateDateColumn`): the hour repeated at a daylight-saving change is ambiguous.
+- MySQL: a host service that ignores `ctx.manager` and changes only a relation records nothing (the fallback diff covers columns of the returned entity only). MySQL also compares `actor`/`resource` filters without case.
+- The terminal-entry check uses the resource's soft-delete setting as it is now; a `findOne` override that ignores `withDeleted` closes its trashed records on the audit page.
+- Hidden field names are served (`{ field, hidden: true }`): a reader learns that a field they cannot see exists and changed. A restricted entry still tells that someone did something at a time.
+- Failed sign-in caps are per process and in memory; many users behind one proxy share an address's 50 a minute.
+- `expectNoLeaks` makes one history crawl per record (as the superuser and as the user) when the audit log is on.
+- UI: relation values are ids; a title is shown only when the open record still references that id (History tab). The audit page shows ids only. Resolving titles through `fields/:field/options?ids=` (one request per field per page) is not done.
+- UI: the audit page's actor filter is a user id typed or picked by clicking a name in an entry; there is no user picker. The event filter is free text with suggestions, not a list of the events that exist.
+- UI: `from`/`to` are sent as the start and end of the reader's local day; a URL shared across time zones filters different instants.
+- UI: role, group and user changes show the stored keys (`permissions`, `roles`, `members`) as field names and raw values (no labels, no added/removed view of a permission list). An action's label comes from the reader's schema, so a reader without the action (or viewing as someone) sees its name.
+- UI: the History tab hides the form's buttons while it is open (⌘S still saves); a record's related links are under Details. Two tab rows are stacked on a resource whose form has its own tabs (the product form).
+- UI: the audit page is reached from the user menu and the command palette; an admin without sign-in has no user menu, so only the palette (or the URL) leads there.
+- UI: entries do not refresh by themselves; relative times are computed when the list renders.
+- UI: the audit page and the History tab are not in the screenshot matrix (their times change with every run).
+- UI: the main bundle grew by about 24 kB (6.4 kB gzip); the audit page is not a lazy chunk.
+- UI: on the audit page an entry links to its record unless the entry itself is a deletion; a record that was deleted (or moved to the trash) by a later entry still gets a link, which then shows the record's 404.

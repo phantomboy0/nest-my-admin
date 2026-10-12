@@ -1,6 +1,6 @@
 {
   "name": "@nest-my-admin/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Django-admin-class admin panel for NestJS + TypeORM",
   "license": "MIT",
   "type": "module",

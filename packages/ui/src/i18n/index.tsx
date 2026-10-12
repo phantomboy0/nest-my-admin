@@ -61,6 +61,15 @@ export function formatDate(iso: string, locale = active): string {
   return new Intl.DateTimeFormat(`${locale}${extensions(display)}`, { dateStyle: 'medium', timeZone: 'UTC' }).format(time);
 }
 
+/** How long before `now`: "3 hours ago", "yesterday", "now", in the chosen digits. */
+export function formatRelative(value: Date, now = new Date(), locale = active): string {
+  const seconds = Math.round((value.getTime() - now.getTime()) / 1000);
+  const format = new Intl.RelativeTimeFormat(`${locale}-u-nu-${display.digits}`, { numeric: 'auto' });
+  const units: Array<[Intl.RelativeTimeFormatUnit, number]> = [['year', 365 * 86_400], ['month', 30 * 86_400], ['day', 86_400], ['hour', 3600], ['minute', 60]];
+  for (const [unit, size] of units) if (Math.abs(seconds) >= size) return format.format(Math.trunc(seconds / size), unit);
+  return format.format(Math.abs(seconds) < 10 ? 0 : seconds, 'second');
+}
+
 /** Applies a locale to the page: `<html lang dir>`, and the module state used outside React. */
 export function applyLocale(locale: string): void {
   active = locale;

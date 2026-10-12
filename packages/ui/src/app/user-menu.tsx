@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { LogOut, UserRound } from 'lucide-react';
+import { History, LogOut, UserRound } from 'lucide-react';
 import { Popover } from 'radix-ui';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
@@ -53,6 +53,14 @@ export function UserMenu() {
               <Link to="/account" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
                 <UserRound className="size-4" />
                 {t('auth.account')}
+              </Link>
+            </Popover.Close>
+          )}
+          {data.audit.view && (
+            <Popover.Close asChild>
+              <Link to="/-/audit" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
+                <History className="size-4" />
+                {t('audit.title')}
               </Link>
             </Popover.Close>
           )}

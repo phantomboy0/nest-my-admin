@@ -4,6 +4,7 @@ import type {
   ActionResult,
   AdminErrorBody,
   AdminRecord,
+  AuditResponse,
   BulkResult,
   ListResponse,
   MetaResponse,
@@ -152,6 +153,15 @@ export const api = {
   },
   /** Saves the keys in `changes` (and only those); the answer is the page as it is now. */
   savePage: (name: string, changes: Record<string, unknown>) => request<PageResponse>(`/pages/${enc(name)}`, { method: 'PATCH', body: JSON.stringify(changes) }),
+  /** A record's audit entries, newest first, 50 a page; `before` is the previous page's `next`. */
+  history: (resource: string, id: string, before?: string) =>
+    request<AuditResponse>(`/resources/${enc(resource)}/${enc(id)}/history${before ? `?${new URLSearchParams({ before })}` : ''}`),
+  /** The audit log (`audit.view`), filtered by `query` (actor, event, resource, record, from, to). */
+  audit: (query: string, before?: string) => {
+    const params = new URLSearchParams(query);
+    if (before) params.set('before', before);
+    return request<AuditResponse>(`/audit${params.size ? `?${params}` : ''}`);
+  },
   restore: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}/restore`, { method: 'POST', body: '{}' }),
   get: (resource: string, id: string) => request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`),
   create: (resource: string, body: Record<string, unknown>) =>

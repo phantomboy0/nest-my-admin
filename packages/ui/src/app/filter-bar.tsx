@@ -23,7 +23,7 @@ interface FilterBarProps {
   onChange: (changes: ParamChanges) => void;
 }
 
-const selectClass =
+export const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
 const RANGE_TYPES = new Set(['number', 'decimal', 'bigint', 'date', 'datetime']);
 
