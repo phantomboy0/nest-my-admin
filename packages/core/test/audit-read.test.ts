@@ -4,7 +4,7 @@ import { InjectDataSource, getDataSourceToken } from '@nestjs/typeorm';
 import { IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 import request from 'supertest';
 import type { IncomingMessage } from 'node:http';
-import { Column, DeleteDateColumn, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, type DataSource, type SelectQueryBuilder } from 'typeorm';
+import { Column, DeleteDateColumn, DeleteQueryBuilder, Entity, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, type DataSource, type SelectQueryBuilder } from 'typeorm';
 import {
   ADMIN_AUDIT_ENTITIES,
   ADMIN_RBAC_ENTITIES,
@@ -26,6 +26,7 @@ import {
   type AuditEntryChange,
   type AuditResponse,
   type LoginInput,
+  type RecordId,
   type RoleDefinition,
 } from '../src/index.js';
 import { AdminAudit } from '../src/audit/audit.service.js';
@@ -52,6 +53,11 @@ class Customer {
   @Column({ length: 10, default: 'u1' }) ownerId: string;
 }
 
+class Address {
+  @Column({ type: 'varchar', length: 40, nullable: true }) city: string | null;
+  @Column({ type: 'varchar', length: 40, nullable: true }) street: string | null;
+}
+
 @Entity('ar_employee')
 class Employee {
   @PrimaryGeneratedColumn() id: number;
@@ -61,6 +67,22 @@ class Employee {
   @Column({ type: 'varchar', length: 40, nullable: true }) pin: string | null;
   @Column({ length: 10, default: 'u1' }) ownerId: string;
   @ManyToOne(() => Customer, { nullable: true }) customer: Customer | null;
+  /** A group of columns: one field, hidden or shown as a whole. */
+  @Column(() => Address) address: Address;
+}
+
+/** A natural key: a slug can be given again once its record is gone. */
+@Entity('ar_site')
+class Site {
+  @PrimaryColumn({ length: 40 }) slug: string;
+  @Column({ length: 60 }) name: string;
+  @Column({ length: 10, default: 'u1' }) ownerId: string;
+}
+
+@Entity('ar_note')
+class Note {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 60 }) title: string;
 }
 
 @Entity('ar_vault')
@@ -121,6 +143,30 @@ class DocAdmin extends AdminResourceBase<Doc> {
   }
 }
 
+@AdminResource(Site, { title: 'name' })
+class SiteAdmin extends AdminResourceBase<Site> {
+  @AdminScope('own') own(ctx: AdminContext) {
+    return { ownerId: ctx.user?.id };
+  }
+
+  /** An action that deletes its record. */
+  @AdminAction()
+  async scrap(site: Site, _input: unknown, ctx: AdminContext): Promise<void> {
+    await this.repositoryFor(ctx).delete(site.slug);
+  }
+}
+
+const SEALED = 'FINDONE-SENTINEL note';
+
+/** The host's rule lives in `findOne` alone: no scope, no `query()`. */
+@AdminResource(Note, { title: 'title' })
+class NoteAdmin extends AdminResourceBase<Note> {
+  override async findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<Note | null> {
+    const note = await super.findOne(id, ctx, options);
+    return note && note.title === SEALED && ctx.user?.id !== 'ada' ? null : note;
+  }
+}
+
 class ShopDto {
   @IsString() @Length(2, 40) shopName: string;
 }
@@ -145,11 +191,11 @@ for (const [id, isSuperuser] of [['ada', true], ['aud', false], ['u1', false], [
 const ROLES_OF: Record<string, string[]> = { aud: ['auditor'], u1: ['clerk'], u2: ['clerk'], r1: ['ranger'], hana: ['hr'], max: ['maker'] };
 const ROLES: RoleDefinition[] = [
   // Review Focus 2: reads the audit page, and `salary` is hidden from them (`notes` is restricted: hidden unless granted).
-  { name: 'auditor', permissions: ['audit.view', 'employee.view', 'customer.view', 'doc.view'], fields: { employee: { salary: 'hidden' } } },
+  { name: 'auditor', permissions: ['audit.view', 'employee.view', 'customer.view', 'doc.view', 'note.view'], fields: { employee: { salary: 'hidden', address: 'hidden' } } },
   // No audit page; own rows only, no salary.
-  { name: 'clerk', permissions: ['employee.view', 'employee.update', 'customer.view'], fields: { employee: { salary: 'hidden' } }, scopes: { employee: { view: 'own', update: 'own' }, customer: { view: 'own' } } },
+  { name: 'clerk', permissions: ['employee.view', 'employee.update', 'customer.view', 'site.view', 'site.create'], fields: { employee: { salary: 'hidden' } }, scopes: { employee: { view: 'own', update: 'own' }, customer: { view: 'own' }, site: { view: 'own' } } },
   // Reads the audit page, own rows only.
-  { name: 'ranger', permissions: ['audit.view', 'employee.view', 'employee.update'], scopes: { employee: { view: 'own', update: 'own' } } },
+  { name: 'ranger', permissions: ['audit.view', 'employee.view', 'employee.update', 'site.view', 'site.create'], scopes: { employee: { view: 'own', update: 'own' }, site: { view: 'own' } } },
   // Sees every field, runs the action, sees the settings page and the roles.
   { name: 'hr', permissions: ['audit.view', 'employee.view', 'employee.update', 'employee.action.raise', 'employee.field.notes.view', 'page.shop', 'rbac.view'] },
   // Reaches `vault` (may create) without viewing it.
@@ -175,10 +221,10 @@ class TestAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [TestAuth, CustomerAdmin, EmployeeAdmin, VaultAdmin, DocAdmin, ShopPage] })
+@Module({ providers: [TestAuth, CustomerAdmin, EmployeeAdmin, VaultAdmin, DocAdmin, SiteAdmin, NoteAdmin, ShopPage] })
 class ReadModule {}
 
-const ENTITIES = [Customer, Employee, Vault, Doc, Setting];
+const ENTITIES = [Customer, Employee, Vault, Doc, Site, Note, Setting];
 
 async function boot(admin: Partial<AdminModuleOptions> = { audit: {} }, more: { entities?: Function[]; dataSources?: Record<string, Function[]> } = { entities: [...ADMIN_AUDIT_ENTITIES] }) {
   const app = await createTestApp({
@@ -561,16 +607,20 @@ describe('audit log: reading', () => {
     expect((await t.pages(`/audit?resource=employee&record=${mine}`, 'r1')).map((entry) => entry.event)).toEqual(['employee.created']);
   });
 
-  test('a record deleted for good: shown to a reader no scope restricts, closed to one whose scope can no longer be checked', async () => {
-    const auditor = await t.pages(`/audit?resource=employee&record=${gone}`, 'aud');
-    expect(auditor.map((entry) => entry.event)).toEqual(['employee.deleted', 'employee.created']);
-    expect(auditor[0]).toMatchObject({ recordId: gone, recordTitle: GONE });
-    expect(change(auditor[0], 'name')).toEqual({ field: 'name', before: GONE });
-    expect(change(auditor[0], 'salary')).toEqual({ field: 'salary', hidden: true });
-    const ranger = (await t.pages('/audit?event=employee.deleted', 'r1'));
-    expect(ranger).toHaveLength(1);
-    expect(ranger[0]).toMatchObject({ restricted: true, resource: 'employee' });
-    expect(JSON.stringify(ranger)).not.toContain(GONE);
+  test('a record deleted for good is a superuser’s to read: nobody else can be checked against a record that is gone', async () => {
+    const root = await t.pages(`/audit?resource=employee&record=${gone}`, 'ada');
+    expect(root.map((entry) => entry.event)).toEqual(['employee.deleted', 'employee.created']);
+    expect(root[0]).toMatchObject({ recordId: gone, recordTitle: GONE });
+    expect(change(root[0], 'name')).toEqual({ field: 'name', before: GONE });
+    for (const reader of ['aud', 'r1', 'hana']) {
+      expect((await t.http(reader).get(`/audit?resource=employee&record=${gone}`)).body).toEqual({ entries: [] });
+      const seen = await t.pages('/audit?event=employee.deleted', reader);
+      expect(seen).toHaveLength(1);
+      expect(Object.keys(seen[0]!).sort()).toEqual(['actor', 'at', 'correlationId', 'event', 'id', 'resource', 'restricted']);
+      expect(JSON.stringify(await t.pages('/audit', reader))).not.toContain(GONE);
+    }
+    // Viewing as someone else, the superuser reads what that user reads.
+    expect((await t.http('ada', { 'X-View-As': 'aud' }).get(`/audit?resource=employee&record=${gone}`)).body).toEqual({ entries: [] });
     expect((await t.http().get(`/resources/employee/${gone}/history`)).status).toBe(404);
   });
 
@@ -586,11 +636,22 @@ describe('audit log: reading', () => {
     expect(Object.keys(seen[1]!).sort()).toEqual(['actor', 'at', 'correlationId', 'event', 'id', 'resource', 'restricted']);
     expect((await t.http('aud').get(`/audit?resource=doc&record=${closed}`)).body).toEqual({ entries: [] });
     expect(JSON.stringify(await t.pages('/audit', 'aud'))).not.toContain(CLOSED);
-    // Deleted for good, `query()` has no row left to decide on: the entries stay closed, to `ada` as well.
+    // Deleted for good, `query()` has no row left to decide on: the entries are closed, and a superuser's to read.
     expect((await t.http().delete(`/resources/doc/${open}?purge=true`)).status).toBe(204);
-    for (const reader of ['aud', 'ada']) {
-      const [purged] = await t.pages('/audit?event=doc.purged', reader);
-      expect([reader, purged!.restricted, purged!.recordId, purged!.changes]).toEqual([reader, true, undefined, undefined]);
+    const [purged] = await t.pages('/audit?event=doc.purged', 'aud');
+    expect([purged!.restricted, purged!.recordId, purged!.changes]).toEqual([true, undefined, undefined]);
+    expect((await t.pages('/audit?resource=doc', 'aud')).filter((entry) => entry.recordId === open)).toEqual([]);
+    const [whole] = await t.pages('/audit?event=doc.purged', 'ada');
+    expect(whole).toMatchObject({ recordId: open, recordTitle: 'Open paper' });
+    expect(change(whole, 'title')).toEqual({ field: 'title', before: 'Open paper' });
+    // In the trash and back is the same record: nothing is cut.
+    const kept = await t.create('doc', { title: 'Kept paper' });
+    expect((await t.http().delete(`/resources/doc/${kept}`)).status).toBe(204);
+    await t.ok(t.http().post(`/resources/doc/${kept}/restore`));
+    for (const path of [`/resources/doc/${kept}/history`, `/audit?resource=doc&record=${kept}`]) {
+      const entries = await t.pages(path, 'aud');
+      expect(entries.map((entry) => entry.event)).toEqual(['doc.restored', 'doc.deleted', 'doc.created']);
+      expect(entries[2]).toMatchObject({ recordId: kept, recordTitle: 'Kept paper' });
     }
   });
 
@@ -604,11 +665,20 @@ describe('audit log: reading', () => {
   });
 
   test('a settings page’s changes need the page; role and user changes need `rbac.view`', async () => {
-    const pageOf = async (user: string) => byEvent(await t.pages('/audit?event=page.shop.updated', user), 'page.shop.updated')[0]!;
-    expect(await pageOf('hana')).toMatchObject({ event: 'page.shop.updated', meta: { page: 'shop' }, changes: [{ field: 'shopName', after: SHOP }] });
-    const closed = await pageOf('aud');
-    expect(closed).toMatchObject({ event: 'page.shop.updated', restricted: true, actor: { id: 'ada' } });
-    expect(closed.changes).toBeUndefined();
+    for (const query of ['event=page.shop.updated', 'event=page.*', 'actor=ada']) {
+      const open = byEvent(await t.pages(`/audit?${query}`, 'hana'), 'page.shop.updated');
+      expect(open).toHaveLength(1);
+      expect(open[0]).toMatchObject({ event: 'page.shop.updated', meta: { page: 'shop' }, changes: [{ field: 'shopName', after: SHOP }] });
+    }
+    // Without the page, the page does not exist: its entry names none, and no event finds it.
+    const id = byEvent(await t.pages('/audit', 'ada'), 'page.shop.updated')[0]!.id;
+    const closed = (await t.pages('/audit', 'aud')).find((entry) => entry.id === id)!;
+    expect(Object.keys(closed).sort()).toEqual(['actor', 'at', 'correlationId', 'event', 'id', 'restricted']);
+    expect(closed).toMatchObject({ event: 'page.*.updated', restricted: true, actor: { id: 'ada' } });
+    for (const query of ['event=page.shop.updated', 'event=page.*', 'event=page.shop.*', 'event=PAGE.shop.updated', 'event=page.*.updated']) {
+      expect((await t.http('aud').get(`/audit?${query}`)).body).toEqual({ entries: [] });
+    }
+    expect(JSON.stringify(await t.pages('/audit', 'aud'))).not.toContain('shop');
 
     const roleOf = async (user: string) => byEvent(await t.pages('/audit?event=rbac.*', user), 'rbac.role.changed')[0]!;
     const open = await roleOf('hana');
@@ -618,6 +688,120 @@ describe('audit log: reading', () => {
     expect(shut).toMatchObject({ event: 'rbac.role.changed', recordId: 'temp', restricted: true });
     expect(shut.changes).toBeUndefined();
     expect(JSON.stringify(await t.pages('/audit', 'aud'))).not.toContain(ROLE_PERMISSION);
+  });
+
+  test('an entry of no known family keeps its changes for superusers', async () => {
+    await t.audit.record({ event: 'billing.exported', recordId: 'run-7', changes: [{ field: 'rows', after: 'EXPORT-SENTINEL' }] }, { correlationId: 'custom', user: users.get('ada')! });
+    const [open] = await t.pages('/audit?event=billing.exported', 'ada');
+    expect(open).toMatchObject({ recordId: 'run-7', changes: [{ field: 'rows', after: 'EXPORT-SENTINEL' }] });
+    for (const reader of ['aud', 'hana']) {
+      const [closed] = await t.pages('/audit?event=billing.exported', reader);
+      expect(closed).toMatchObject({ event: 'billing.exported', restricted: true });
+      expect(closed!.changes).toBeUndefined();
+    }
+  });
+
+  test('a group of columns under a hidden field shows none of its parts', async () => {
+    const id = await t.create('employee', { name: 'Housed', ownerId: 'u1', address: { city: 'CITY-SENTINEL', street: 'STREET-SENTINEL 1' } });
+    await t.ok(t.http().patch(`/resources/employee/${id}`, { address: { city: 'CITY-SENTINEL-2', street: 'STREET-SENTINEL 2' } }));
+    const open = await t.pages(`/resources/employee/${id}/history`, 'hana');
+    expect(change(open[0], 'address')).toEqual({ field: 'address', before: { city: 'CITY-SENTINEL', street: 'STREET-SENTINEL 1' }, after: { city: 'CITY-SENTINEL-2', street: 'STREET-SENTINEL 2' } });
+    for (const path of [`/resources/employee/${id}/history`, `/audit?resource=employee&record=${id}`]) {
+      const entries = await t.pages(path, 'aud');
+      expect(entries.map((entry) => change(entry, 'address'))).toEqual([{ field: 'address', hidden: true }, { field: 'address', hidden: true }]);
+      expect(JSON.stringify(entries)).not.toContain('CITY-SENTINEL');
+      expect(JSON.stringify(entries)).not.toContain('STREET-SENTINEL');
+    }
+  });
+
+  test('C1: a key given again does not open the history of the record that had it before', async () => {
+    const PRED = 'PRED-SENTINEL site';
+    // Three ways a record goes for good: a delete (no trash here), an action that deletes, and both in a row.
+    for (const slug of ['acme', 'beta']) {
+      expect(await t.create('site', { slug, name: `${PRED} ${slug}`, ownerId: 'u2' })).toBe(slug);
+      await t.ok(t.http().patch(`/resources/site/${slug}`, { name: `${PRED} ${slug} 2` }));
+    }
+    expect((await t.http().delete('/resources/site/acme')).status).toBe(204);
+    await t.ok(t.http().post('/resources/site/actions/scrap', { ids: ['beta'] }));
+    // The same keys again, now theirs.
+    expect(await t.create('site', { slug: 'acme', name: 'Mine acme', ownerId: 'u1' }, 'u1')).toBe('acme');
+    expect(await t.create('site', { slug: 'beta', name: 'Mine beta', ownerId: 'r1' }, 'r1')).toBe('beta');
+
+    // History: the record's own entries, and nothing of the one before.
+    const history = await t.pages('/resources/site/acme/history', 'u1');
+    expect(history.map((entry) => [entry.event, entry.actor?.id])).toEqual([['site.created', 'u1']]);
+    expect(JSON.stringify(history)).not.toContain(PRED);
+    // …for a superuser too: it is this record's history.
+    expect((await t.pages('/resources/site/acme/history', 'ada')).map((entry) => entry.event)).toEqual(['site.created']);
+    expect((await t.pages('/resources/site/beta/history', 'r1')).map((entry) => [entry.event, entry.actor?.id])).toEqual([['site.created', 'r1']]);
+
+    // The audit page: asking for the record finds its own entries only…
+    const asked = await t.pages('/audit?resource=site&record=beta', 'r1');
+    expect(asked.map((entry) => [entry.event, entry.actor?.id])).toEqual([['site.created', 'r1']]);
+    // …and the earlier record's entries are closed, with no key and no title.
+    const listed = await t.pages('/audit?resource=site', 'r1');
+    expect(listed).toHaveLength(8);
+    const open = listed.filter((entry) => entry.restricted !== true);
+    expect(open.map((entry) => [entry.event, entry.recordId, entry.recordTitle])).toEqual([['site.created', 'beta', 'Mine beta']]);
+    for (const entry of listed.filter((item) => item.restricted)) expect(Object.keys(entry).filter((key) => key !== 'meta').sort()).toEqual(['actor', 'at', 'correlationId', 'event', 'id', 'resource', 'restricted']);
+    expect(JSON.stringify(listed)).not.toContain(PRED);
+    expect(JSON.stringify(await t.pages('/audit', 'r1'))).not.toContain(PRED);
+
+    // A superuser reads who deleted what, the record before included.
+    const root = await t.pages('/audit?resource=site&record=beta', 'ada');
+    expect(root.map((entry) => [entry.event, entry.recordTitle])).toEqual([
+      ['site.created', 'Mine beta'],
+      ['site.action.scrap', `${PRED} beta 2`],
+      ['site.updated', `${PRED} beta 2`],
+      ['site.created', `${PRED} beta`],
+    ]);
+    expect(root[1]!.meta).toEqual({ action: 'scrap', deleted: true });
+    expect(change(root[2], 'name')).toEqual({ field: 'name', before: `${PRED} beta`, after: `${PRED} beta 2` });
+    expect((await t.pages('/audit?resource=site&record=acme', 'ada')).map((entry) => entry.event)).toEqual(['site.created', 'site.deleted', 'site.updated', 'site.created']);
+    // Unless they are viewing as someone else.
+    const quiet = spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      const viewed = await t.pages('/audit?resource=site&record=beta', 'ada', { 'X-View-As': 'r1' });
+      expect(viewed.map((entry) => [entry.event, entry.actor?.id])).toEqual([['site.created', 'r1']]);
+      expect(JSON.stringify(await t.pages('/audit?resource=site', 'ada', { 'X-View-As': 'r1' }))).not.toContain(PRED);
+      expect((await t.pages('/resources/site/beta/history', 'ada', { 'X-View-As': 'r1' })).map((entry) => entry.event)).toEqual(['site.created']);
+    } finally {
+      quiet.mockRestore();
+    }
+    // Gone a second time: both lives are closed, and the key alone finds nothing.
+    expect((await t.http().delete('/resources/site/beta')).status).toBe(204);
+    expect((await t.http('r1').get('/audit?resource=site&record=beta')).body).toEqual({ entries: [] });
+    expect((await t.pages('/audit?resource=site', 'r1')).every((entry) => entry.restricted === true && entry.recordId === undefined)).toBe(true);
+    expect((await t.pages('/audit?resource=site&record=beta', 'ada')).map((entry) => entry.event)).toEqual(['site.deleted', 'site.created', 'site.action.scrap', 'site.updated', 'site.created']);
+  });
+
+  test('I1: a restriction the host wrote in `findOne` closes the audit page as it closes GET', async () => {
+    const sealed = await t.create('note', { title: SEALED });
+    const plain = await t.create('note', { title: 'Plain note' });
+    expect((await t.http('aud').get(`/resources/note/${sealed}`)).status).toBe(404);
+    expect((await t.http('aud').get(`/resources/note/${sealed}/history`)).status).toBe(404);
+    expect((await t.http('aud').get(`/resources/note/${plain}/history`)).status).toBe(200);
+    const seen = await t.pages('/audit?resource=note', 'aud');
+    expect(seen.map((entry) => [entry.recordId, entry.recordTitle, entry.restricted])).toEqual([[plain, 'Plain note', undefined], [undefined, undefined, true]]);
+    expect((await t.http('aud').get(`/audit?resource=note&record=${sealed}`)).body).toEqual({ entries: [] });
+    expect((await t.pages(`/audit?resource=note&record=${plain}`, 'aud')).map((entry) => entry.event)).toEqual(['note.created']);
+    expect(JSON.stringify(await t.pages('/audit', 'aud'))).not.toContain(SEALED);
+    expect((await t.pages(`/audit?resource=note&record=${sealed}`, 'ada'))[0]).toMatchObject({ recordId: sealed, recordTitle: SEALED });
+  });
+
+  test('S1: the session says whether the audit log is on and whether the user may read it', async () => {
+    const audit = async (user: string, headers: Record<string, string> = {}) => ((await t.ok(t.http(user, headers).get('/session'))) as { audit?: unknown }).audit;
+    expect(await audit('ada')).toEqual({ enabled: true, view: true });
+    expect(await audit('aud')).toEqual({ enabled: true, view: true });
+    expect(await audit('u1')).toEqual({ enabled: true, view: false });
+    const quiet = spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    try {
+      // The viewed user's, not the superuser's.
+      expect(await audit('ada', { 'X-View-As': 'u1' })).toEqual({ enabled: true, view: false });
+      expect(await audit('ada', { 'X-View-As': 'aud' })).toEqual({ enabled: true, view: true });
+    } finally {
+      quiet.mockRestore();
+    }
   });
 
   test('view-as reads history and the audit page with the viewed user’s permissions, never the superuser’s', async () => {
@@ -643,8 +827,8 @@ describe('audit log: reading', () => {
   test('sentinel: nothing a reader may not see is anywhere in any page of history or of the audit page', async () => {
     // What each reader must never be shown.
     const closed: Record<string, string[]> = {
-      aud: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, VAULT, 'vault', SHOP, ROLE_PERMISSION, REASON, 'OLD-SENTINEL'],
-      r1: [NOTES_1, NOTES_2, OUTSIDE, SALARY_OUT, GONE, 'Alice', SALARY_1, VAULT, 'vault', SHOP, ROLE_PERMISSION, REASON, 'OLD-SENTINEL'],
+      aud: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', GONE, SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL'],
+      r1: [NOTES_1, NOTES_2, OUTSIDE, SALARY_OUT, GONE, 'Alice', SALARY_1, VAULT, 'vault', SHOP, 'shop', ROLE_PERMISSION, REASON, 'OLD-SENTINEL', SEALED, 'PRED-SENTINEL', 'CITY-SENTINEL', 'EXPORT-SENTINEL'],
       max: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, OUTSIDE, GONE, 'Alice', 'employee', VAULT, SHOP, ROLE_PERMISSION, REASON, 'OLD-SENTINEL'],
       u1: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, OUTSIDE, VAULT, 'AGENT-SENTINEL', 'OLD-SENTINEL', 'Globex'],
       u2: [SALARY_1, SALARY_2, SALARY_OUT, NOTES_1, NOTES_2, VAULT, 'Acme', GONE],
@@ -705,6 +889,29 @@ describe('audit log: retention', () => {
     }
   });
 
+  test('a batch that deletes nothing ends the sweep: it cannot go around for ever', async () => {
+    const t = await boot({ audit: { retentionDays: 30 } });
+    try {
+      const repo = t.auditDb.getRepository(NmaAuditEntry);
+      const old = Array.from({ length: 1500 }, (_item, index) => row(new Date(Date.now() - 40 * DAY - index * 1000), `old-${index}`));
+      for (let i = 0; i < old.length; i += 100) await repo.insert(old.slice(i, i + 100) as never);
+      // A delete that reports no row, then one that reports nothing at all (some drivers do not count).
+      for (const [answer, counted] of [[{ raw: [], affected: 0 }, 0], [{ raw: [] }, 1000]] as const) {
+        const stuck = spyOn(DeleteQueryBuilder.prototype, 'execute').mockImplementation(async () => answer);
+        try {
+          expect(await t.audit.sweep()).toBe(counted);
+          expect(stuck.mock.calls.length).toBe(1);
+        } finally {
+          stuck.mockRestore();
+        }
+      }
+      expect(await repo.count()).toBe(1500);
+      expect(await t.audit.sweep()).toBe(1500);
+    } finally {
+      await t.app.close();
+    }
+  });
+
   test('without `retentionDays` nothing is ever deleted, and no timer is armed', async () => {
     const t = await boot({ audit: {} });
     try {
@@ -759,6 +966,7 @@ describe('audit log: reading, elsewhere', () => {
     try {
       const id = await t.create('employee', { name: 'Quiet', ownerId: 'u1' });
       expect((await t.http().get(`/resources/employee/${id}`)).status).toBe(200);
+      expect(((await t.http().get('/session')).body as { audit?: unknown }).audit).toEqual({ enabled: false, view: false });
       for (const path of [`/resources/employee/${id}/history`, '/audit', '/audit?resource=employee']) {
         const res = await t.http().get(path);
         expect([path, res.status, res.body.code]).toEqual([path, 404, 'NOT_FOUND']);

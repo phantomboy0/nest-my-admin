@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { QueryFailedError, type SelectQueryBuilder } from 'typeorm';
+import { Brackets, QueryFailedError, type SelectQueryBuilder } from 'typeorm';
 import { AdminApiService } from '../api/admin-api.service.js';
 import { SINGLE_CONNECTION_DRIVERS } from '../api/write-queue.js';
 import type { AuditEntry, AuditEntryChange, AuditEntryMeta, AuditResponse } from '../contract.js';
 import { likePattern } from '../crud/list-query-builder.js';
 import { parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { AdminForbiddenError, AdminNotFoundError } from '../errors.js';
+import { PageRegistry } from '../pages/page-registry.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
 import type { EffectivePermissions, FieldLevel } from '../policy/effective.js';
 import { actionCode } from '../policy/roles.js';
@@ -26,6 +27,11 @@ const INT32_MAX = 2_147_483_647;
 
 /** The records a reader can view among those a page of entries names: resource → `_id`s. */
 type Viewable = ReadonlyMap<string, ReadonlySet<string>>;
+/**
+ * Where records ended: resource → `_id` → the id of the newest entry that says the record went for good. That entry
+ * and every earlier one of the same `_id` belong to a record that is gone, whatever has the key now.
+ */
+type Endings = ReadonlyMap<string, ReadonlyMap<string, number>>;
 
 /** `value` without its undefined keys; undefined when nothing is left. */
 function compact<T extends object>(value: T): T | undefined {
@@ -48,11 +54,17 @@ function anonymousEvent(event: string, resource: string): string {
  * here is decided per reader and per entry, when it is read, so that reading the log never shows more than the
  * reader could see on the record itself:
  *
- * - a record entry is shown in full only when the reader can view the resource and the record is within their
- *   scopes (and the resource's `query()`) now. Otherwise it says that something happened, by whom and when, and
- *   names the resource only when the reader can reach it: no record id, no title, no changes, no action input;
+ * - a record entry is shown in full only when the reader can view the resource and GET would show them the record
+ *   now (their scopes, the resource's `query()`, a `findOne` override). Otherwise it says that something happened,
+ *   by whom and when, and names the resource only when the reader can reach it: no record id, no title, no changes,
+ *   no action input;
+ * - a record that went for good (purged, deleted where there is no trash, deleted by an action) took its entries
+ *   with it: nobody can be checked against it any more, and its key may belong to another record since. A record's
+ *   history starts after the last such entry; on the audit page those entries are closed like the ones above, to
+ *   everyone but a superuser (one not viewing as someone else), who reads them in full;
  * - in a full entry, a changed field the reader may not view is `{ field, hidden: true }`;
- * - the changes of a settings page need the page, those of roles, groups and users `rbac.view`;
+ * - a settings page's entry needs the page (without it, it names no page), the changes of roles, groups and users
+ *   need `rbac.view`, and the changes of an entry of no known kind are a superuser's;
  * - no entry is ever left out of a page, so the number of entries tells nothing a filter did not already; and a
  *   filter never matches by something the reader is not shown.
  */
@@ -63,6 +75,7 @@ export class AuditReader {
     private readonly registry: ResourceRegistry,
     private readonly policy: AdminPolicy,
     private readonly api: AdminApiService,
+    private readonly pages: PageRegistry,
   ) {}
 
   /**
@@ -76,9 +89,14 @@ export class AuditReader {
     const { before } = parseAuditQuery(query, ['before']);
     // The record's own `_id`, which is what its entries were written under (the URL may spell it another way).
     const id = String(record._id);
-    const found = await this.rows(before, (qb) => qb.andWhere('entry.resource = :resource AND entry.recordId = :record', { resource: name, record: id }));
+    // A record that had this key before and is gone is another record: this one's history starts after its end.
+    const end = (await this.endings(name, [id])).get(id);
+    const found = await this.rows(before, (qb) => {
+      qb.andWhere('entry.resource = :resource AND entry.recordId = :record', { resource: name, record: id });
+      if (end !== undefined) qb.andWhere('entry.id > :end', { end });
+    });
     // A case-insensitive collation also finds the entries of a record whose id differs by case: they are not this record's.
-    return this.respond(found, ctx, { viewable: new Map([[name, new Set([id])]]), keep: (row) => row.resource === name && row.recordId === id });
+    return this.respond(found, ctx, { viewable: new Map([[name, new Set([id])]]), endings: new Map(), keep: (row) => row.resource === name && row.recordId === id });
   }
 
   /**
@@ -92,12 +110,25 @@ export class AuditReader {
     const filter = parseAuditQuery(query, AUDIT_FILTERS);
     const nothing: AuditResponse = { entries: [] };
     const { resource, record } = filter;
+    let ended: { upTo?: number; after?: number } = {};
     if (resource !== undefined) {
       const entry = this.registry.find(resource);
       // A resource the reader cannot reach does not exist for them; one that is gone is a superuser's to read.
       if (entry ? !perms.canReach(resource) : !perms.superuser) return nothing;
-      // Asking for one record is seeing it: one they cannot view matches nothing, like one that never existed.
-      if (entry && record !== undefined && (!perms.canOn(resource, 'view') || !(await this.asked(entry, record, ctx)))) return nothing;
+      if (entry && record !== undefined) {
+        // Asking for one record is seeing it: one they cannot view matches nothing, like one that never existed.
+        const live = perms.canOn(resource, 'view') && (await this.asked(entry, record, ctx));
+        const end = (await this.endings(resource, [record])).get(record);
+        if (this.readsGone(perms, ctx)) {
+          // A superuser also finds the records that had this key and are gone; a live one they cannot view stays out.
+          if (!live && end === undefined) return nothing;
+          if (!live) ended = { upTo: end! };
+        } else {
+          if (!live) return nothing;
+          // The key names the record that has it now, never the one that had it before.
+          if (end !== undefined) ended = { after: end };
+        }
+      }
     }
     const found = await this.rows(filter.before, (qb) => {
       if (filter.actor !== undefined) qb.andWhere('entry.actorId = :actor', { actor: filter.actor });
@@ -112,8 +143,14 @@ export class AuditReader {
           const reachable = this.registry.list().map((entry) => entry.schema.name).filter((name) => perms.canReach(name));
           if (reachable.length > 0) qb.andWhere('(entry.resource IS NULL OR entry.resource IN (:...reachable))', { reachable });
           else qb.andWhere('entry.resource IS NULL');
+          // Nor may one find a settings page they cannot view: its entry names no page (`page.*.updated`).
+          const pages = this.pages.list().filter((page) => perms.canPage(page.name, 'view')).map((page) => `page.${page.name}.updated`);
+          if (pages.length > 0) qb.andWhere("(entry.resource IS NOT NULL OR entry.event NOT LIKE 'page.%' OR entry.event IN (:...pages))", { pages });
+          else qb.andWhere("(entry.resource IS NOT NULL OR entry.event NOT LIKE 'page.%')");
         }
       }
+      if (ended.upTo !== undefined) qb.andWhere('entry.id <= :upTo', { upTo: ended.upTo });
+      if (ended.after !== undefined) qb.andWhere('entry.id > :after', { after: ended.after });
       if (filter.from) qb.andWhere('entry.at >= :from', { from: filter.from });
       if (filter.to) qb.andWhere(`entry.at ${filter.to.inclusive ? '<=' : '<'} :to`, { to: filter.to.at });
     });
@@ -128,6 +165,42 @@ export class AuditReader {
       if (error instanceof QueryFailedError) return false;
       throw error;
     }
+  }
+
+  /** Entries of records that are gone for good are read by superusers, as themselves. */
+  private readsGone(perms: EffectivePermissions, ctx: AdminContext): boolean {
+    return perms.superuser && !ctx.viewAs;
+  }
+
+  /**
+   * For each of these `_id`s of a resource, the id of the newest entry that ended a record: a purge, a delete where
+   * the resource has no trash, or an action that deleted its record. One query, along the `(resource, recordId, id)`
+   * index; only the few entries that can be such an end are read.
+   */
+  private async endings(name: string, ids: string[]): Promise<Map<string, number>> {
+    const ends = new Map<string, number>();
+    if (ids.length === 0) return ends;
+    const entry = this.registry.find(name);
+    // In the trash is not gone: the record can come back, and it is still there to be checked.
+    const final = [`${name}.purged`, ...(entry?.schema.softDelete ? [] : [`${name}.deleted`])];
+    const action = `${name}.action.`;
+    const rows = await this.audit.db
+      .getRepository(NmaAuditEntry)
+      .createQueryBuilder('entry')
+      .select(['entry.id', 'entry.recordId', 'entry.event', 'entry.meta'])
+      .where('entry.resource = :name AND entry.recordId IN (:...ids)', { name, ids })
+      // `meta` is JSON text: the pattern narrows the read, and the parsed value below decides.
+      .andWhere(new Brackets((or) => or.where('entry.event IN (:...final)', { final }).orWhere("(entry.event LIKE :action ESCAPE '!' AND entry.meta LIKE :deleted)", { action: likePattern(action, 'start'), deleted: '%"deleted":true%' })))
+      .getMany();
+    const wanted = new Set(ids);
+    for (const row of rows) {
+      // Exactly this record and these events, whatever the collation matched.
+      if (row.recordId === null || !wanted.has(row.recordId)) continue;
+      if (!final.includes(row.event) && !(row.event.startsWith(action) && row.meta?.deleted === true)) continue;
+      const id = Number(row.id);
+      if (id > (ends.get(row.recordId) ?? 0)) ends.set(row.recordId, id);
+    }
+    return ends;
   }
 
   private requireEnabled(): void {
@@ -148,60 +221,82 @@ export class AuditReader {
    * The page as the reader may see it. Entries are cut after paging and never dropped for what they hold, so a
    * page's length says nothing about what was withheld (`keep` only drops another record's entries).
    */
-  private async respond(found: NmaAuditEntry[], ctx: AdminContext, options: { viewable?: Viewable; keep?: (row: NmaAuditEntry) => boolean } = {}): Promise<AuditResponse> {
+  private async respond(found: NmaAuditEntry[], ctx: AdminContext, options: { viewable?: Viewable; endings?: Endings; keep?: (row: NmaAuditEntry) => boolean } = {}): Promise<AuditResponse> {
     const page = found.slice(0, AUDIT_PAGE_SIZE);
     const next = found.length > AUDIT_PAGE_SIZE ? String(page.at(-1)!.id) : undefined;
     const rows = options.keep ? page.filter(options.keep) : page;
-    const viewable = options.viewable ?? (await this.viewable(rows, ctx));
-    const perms = this.policy.permissionsOf(ctx);
-    const levels = new Map<string, Map<string, FieldLevel>>();
-    const entries = rows.map((row) => this.entry(row, perms, viewable, levels, ctx));
-    return { entries, ...(next !== undefined ? { next } : {}) };
-  }
-
-  /** Which of the records these entries name the reader can view now. */
-  private async viewable(rows: NmaAuditEntry[], ctx: AdminContext): Promise<Viewable> {
-    const perms = this.policy.permissionsOf(ctx);
+    // The records the page names, by resource: two queries per resource at most (where each ended, which are in view).
     const named = new Map<string, Set<string>>();
     for (const row of rows) {
       if (row.resource === null || row.recordId === null) continue;
       if (!named.has(row.resource)) named.set(row.resource, new Set());
       named.get(row.resource)!.add(row.recordId);
     }
+    const endings = options.endings ?? new Map(await Promise.all([...named].map(async ([name, ids]) => [name, await this.endings(name, [...ids])] as const)));
+    const viewable = options.viewable ?? (await this.viewable(named, ctx));
+    const perms = this.policy.permissionsOf(ctx);
+    const levels = new Map<string, Map<string, FieldLevel>>();
+    const entries = rows.map((row) => this.entry(row, perms, viewable, endings, levels, ctx));
+    return { entries, ...(next !== undefined ? { next } : {}) };
+  }
+
+  /** Which of the records a page names the reader can view now. */
+  private async viewable(named: ReadonlyMap<string, ReadonlySet<string>>, ctx: AdminContext): Promise<Viewable> {
+    const perms = this.policy.permissionsOf(ctx);
     const viewable = new Map<string, Set<string>>();
     for (const [name, ids] of named) {
       const entry = this.registry.find(name);
-      if (entry && perms.canOn(name, 'view')) viewable.set(name, await this.inView(entry, [...ids], ctx));
+      if (!entry || !perms.canOn(name, 'view')) continue;
+      try {
+        viewable.set(name, await this.inView(entry, [...ids], ctx));
+      } catch (error) {
+        // An id the database refuses fails the statement for all of them: none is shown, and the page still answers.
+        if (!(error instanceof QueryFailedError)) throw error;
+      }
     }
     return viewable;
   }
 
   /**
-   * The `_id`s among `rawIds` that the reader's view scopes and the resource's `query()` let through, trashed
-   * records included (a list shows them too). When nothing restricts the resource every id passes, also that of a
-   * record deleted for good; when something does, a record that is gone cannot be checked, and stays closed.
+   * The `_id`s among `rawIds` that GET would show the reader now: within their view scopes and the resource's
+   * `query()`, and found by its `findOne` when the host overrides that. Trashed records count (a list shows them).
+   * When nothing restricts the resource every id passes; when something does, a record that is not there cannot be
+   * checked, and stays closed.
    */
   private async inView(entry: RegisteredResource, rawIds: string[], ctx: AdminContext): Promise<Set<string>> {
-    const narrowed = entry.resource.query !== AdminResourceBase.prototype.query;
-    if (!narrowed && !this.policy.scoped(entry, 'view', ctx)) return new Set(rawIds);
+    const narrowed = entry.resource.query !== AdminResourceBase.prototype.query || this.policy.scoped(entry, 'view', ctx);
+    const overridden = entry.resource.findOne !== AdminResourceBase.prototype.findOne;
+    if (!narrowed && !overridden) return new Set(rawIds);
     const keys = entry.schema.primaryKeys;
-    const ids: RecordId[] = [];
+    const ids = new Map<string, RecordId>();
     for (const raw of rawIds) {
       try {
-        ids.push(parseRecordId(raw, entry.schema));
+        ids.set(raw, parseRecordId(raw, entry.schema));
       } catch {
         // Not an id of this resource: no record has it.
       }
     }
-    if (ids.length === 0) return new Set();
-    const qb = entry.dataSource.getRepository(entry.metadata.target).createQueryBuilder('entity').withDeleted().whereInIds(ids);
-    const restricted = this.policy.applyScopes(entry.resource.query(qb, ctx), entry, 'view', ctx);
-    const found = await restricted.select(keys.map((key) => `${restricted.alias}.${key}`)).getMany();
-    const seen = new Set(found.map((row) => recordIdOf(row as object, keys)));
-    return new Set(rawIds.filter((raw) => seen.has(raw)));
+    if (ids.size === 0) return new Set();
+    let seen = new Set(ids.keys());
+    if (narrowed) {
+      const qb = entry.dataSource.getRepository(entry.metadata.target).createQueryBuilder('entity').withDeleted();
+      // The ids go on last: a `query()` that starts its own `where()` must not leave the select unbounded.
+      const restricted = this.policy.applyScopes(entry.resource.query(qb, ctx), entry, 'view', ctx).andWhereInIds([...ids.values()]);
+      const found = await restricted.select(keys.map((key) => `${restricted.alias}.${key}`)).getMany();
+      const within = new Set(found.map((row) => recordIdOf(row as object, keys)));
+      seen = new Set([...seen].filter((raw) => within.has(raw)));
+    }
+    if (overridden) {
+      // The host's own finder decides, as it does for GET; a finder that throws shows nothing.
+      for (const raw of [...seen]) {
+        const found = await entry.resource.findOne(ids.get(raw)!, ctx, { withDeleted: true }).catch(() => null);
+        if (!found) seen.delete(raw);
+      }
+    }
+    return seen;
   }
 
-  private entry(row: NmaAuditEntry, perms: EffectivePermissions, viewable: Viewable, levels: Map<string, Map<string, FieldLevel>>, ctx: AdminContext): AuditEntry {
+  private entry(row: NmaAuditEntry, perms: EffectivePermissions, viewable: Viewable, endings: Endings, levels: Map<string, Map<string, FieldLevel>>, ctx: AdminContext): AuditEntry {
     const base: AuditEntry = {
       id: String(row.id),
       at: new Date(row.at).toISOString(),
@@ -217,9 +312,12 @@ export class AuditReader {
     const about = { ...(row.recordId !== null ? { recordId: row.recordId } : {}), ...(row.recordTitle !== null ? { recordTitle: row.recordTitle } : {}) };
 
     if (row.resource === null) {
-      // A settings page's values belong to the page, role and user changes to whoever may read roles and users.
       const page = /^page\.(.+)\.updated$/.exec(row.event)?.[1];
-      const open = page !== undefined ? perms.canPage(page, 'view') : row.event.startsWith('rbac.') ? perms.can('rbac.view') || perms.can('rbac.manage') : true;
+      // A settings page the reader cannot view does not exist for them (nor does one that is gone, but for a superuser).
+      if (page !== undefined && !perms.superuser && !(this.pages.find(page) && perms.canPage(page, 'view'))) return { ...base, event: 'page.*.updated', restricted: true };
+      // Role and user changes are for whoever may read roles and users; sign-ins carry none; what else a host or a
+      // later version records is a superuser's until something says who may see it.
+      const open = page !== undefined || row.event.startsWith('auth.') || (row.event.startsWith('rbac.') ? perms.can('rbac.view') || perms.can('rbac.manage') : perms.superuser);
       const meta = compact<AuditEntryMeta>({ ...stored, ...client });
       if (row.changes === null) return { ...base, ...about, ...(meta ? { meta } : {}) };
       return { ...base, ...about, ...(open ? { changes: row.changes } : {}), ...(meta ? { meta } : {}), ...(open ? {} : { restricted: true as const }) };
@@ -229,7 +327,10 @@ export class AuditReader {
     const entry = this.registry.find(name);
     // A resource that is gone has no permissions left to check: only a superuser reads its entries.
     if (entry ? !perms.canReach(name) : !perms.superuser) return { ...base, event: anonymousEvent(row.event, name), restricted: true };
-    const viewed = !entry || (perms.canOn(name, 'view') && (row.recordId === null || viewable.get(name)?.has(row.recordId) === true));
+    // An entry at or before the end of its record is of a record that is gone: a superuser's, whoever has the key now.
+    const end = row.recordId === null ? undefined : endings.get(name)?.get(row.recordId);
+    const gone = end !== undefined && Number(row.id) <= end;
+    const viewed = gone ? this.readsGone(perms, ctx) : !entry || (perms.canOn(name, 'view') && (row.recordId === null || viewable.get(name)?.has(row.recordId) === true));
     if (!viewed) {
       const meta = compact<AuditEntryMeta>({ action: stored.action, deleted: stored.deleted });
       return { ...base, resource: name, ...(meta ? { meta } : {}), restricted: true };

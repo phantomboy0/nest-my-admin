@@ -458,6 +458,8 @@ export interface SessionResponse {
   auth: AuthCapabilities;
   /** Roles/groups/users pages (with `rbac`): may this user see them, change them. */
   rbac: { enabled: boolean; view: boolean; manage: boolean };
+  /** The audit log (with `audit`): is it on (records have a history), and may this user read the audit page (`audit.view`). */
+  audit: { enabled: boolean; view: boolean };
   /** Changes when roles or memberships change: refetch meta and schemas. */
   permissionsVersion: number;
   /** A superuser looking through another user's eyes (`X-View-As`): `user` is the target, `by` the superuser. Read-only. */
@@ -668,7 +670,7 @@ export interface AuditEntry {
   /**
    * `product.updated`, `order.action.ship`, `page.shop.updated`, `rbac.role.changed`, `auth.login`… For an entry of
    * a resource the reader cannot reach, the resource's name is `*` and an action's name is left out: `*.updated`,
-   * `*.action`.
+   * `*.action`; for a settings page they cannot view, `page.*.updated`.
    */
   event: string;
   /** Who did it, with their display name at the time; null when nobody was signed in (a failed sign-in). */
@@ -686,7 +688,7 @@ export interface AuditEntry {
   meta?: AuditEntryMeta;
   /**
    * The reader may not see what this entry is about: its changes are withheld, and, for a record they cannot view
-   * (the resource, or a record outside their scopes), the record's id and title too.
+   * (the resource, a record outside their scopes, or a record that is gone for good), the record's id and title too.
    */
   restricted?: true;
   /** The request's correlation id, as in its error responses and log lines. */

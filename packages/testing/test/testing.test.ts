@@ -18,6 +18,7 @@ import {
   type ActionOutcome,
   type AdminContext,
   type AdminSettingsSource,
+  type AuditEntry,
   type FieldsConfig,
   type ListConfig,
   type ListParams,
@@ -309,6 +310,34 @@ describe(`@nest-my-admin/testing (${TEST_DB})`, () => {
     } finally {
       leaky.mockRestore();
     }
+    // And so would an audit page that showed it, or that named a record out of scope with what it was called before.
+    const borealis = String((await admin.superuser.list('project', { search: 'Borealis' })).items[0]!._id);
+    await admin.superuser.update('project', borealis, { name: 'Formerly Aurora' });
+    await admin.superuser.update('project', borealis, { name: 'Borealis' });
+    const realList = reader.list.bind(reader);
+    for (const [leak, kind, value] of [
+      [{ changes: [{ field: 'secret', before: 'FORMERSECRET-9' }] }, 'hidden-value', 'FORMERSECRET-9'],
+      [{ recordTitle: 'Formerly Aurora' }, 'out-of-scope-record', 'Formerly Aurora'],
+      [{ resource: 'project', recordId: borealis }, 'out-of-scope-record', undefined],
+    ] as const) {
+      const leakyList = spyOn(reader, 'list').mockImplementation(async (query, ctx) => {
+        const answer = await realList(query, ctx);
+        return ctx.user?.isSuperuser ? answer : { ...answer, entries: answer.entries.map((entry) => ({ ...entry, ...leak }) as AuditEntry) };
+      });
+      try {
+        const error = await admin.expectNoLeaks('project', { as: { id: 'u1', roles: ['auditor'] } }).catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(AdminLeakError);
+        expect((error as AdminLeakError).report.leaks.some((found) => found.kind === kind && found.where.startsWith('audit') && found.value === value)).toBe(true);
+      } finally {
+        leakyList.mockRestore();
+      }
+    }
+    // A crawl that could not read every page says so.
+    expect(before.auditTruncated).toBe(false);
+    for (let i = 0; i < 55; i++) await admin.superuser.update('project', apollo, { name: `Apollo ${i}` });
+    await admin.superuser.update('project', apollo, { name: 'Apollo' });
+    expect((await admin.expectNoLeaks('project', { as: { id: 'u1', roles: ['member'] }, maxPages: 1 })).auditTruncated).toBe(true);
+    expect((await admin.expectNoLeaks('project', { as: { id: 'u1', roles: ['member'] } })).auditTruncated).toBe(false);
   });
 
   test('expectNoLeaks finds a hidden value in a title (Review Focus 4)', async () => {

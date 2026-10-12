@@ -152,6 +152,11 @@ export interface LeakReport {
   records: number;
   hiddenFields: string[];
   outOfScope: number;
+  /**
+   * With the audit log on: a history or the audit page had more pages than `maxPages` (50 entries each), so the
+   * crawl did not read all of it. Raise `maxPages` to cover the rest.
+   */
+  auditTruncated?: boolean;
   leaks: Leak[];
 }
 
@@ -211,8 +216,15 @@ export class AdminTesting {
 
     const full = await root.schema(resource);
     const all = await crawlList(root, resource, maxPages);
+    let auditTruncated: boolean | undefined;
+    /** Every page of an audit listing, up to `maxPages`; the report says when there was more. */
+    const auditPages = async (fetch: (query: { before?: string }) => Promise<AuditResponse>): Promise<AuditEntry[]> => {
+      const { entries, truncated } = await crawlAudit(fetch, maxPages);
+      auditTruncated = auditTruncated === true || truncated;
+      return entries;
+    };
     const report = (hiddenFields: string[], outOfScope: number): LeakReport => {
-      const result = { calls, records: all.length, hiddenFields, outOfScope, leaks };
+      const result = { calls, records: all.length, hiddenFields, outOfScope, ...(auditTruncated !== undefined ? { auditTruncated } : {}), leaks };
       if (leaks.length > 0) throw new AdminLeakError(result);
       return result;
     };
@@ -259,16 +271,24 @@ export class AdminTesting {
       }
     }
 
-    // With the audit log on: what the hidden fields held before is as secret as what they hold now.
+    // With the audit log on, what was is as secret as what is: the values the hidden fields held before, and the
+    // titles and texts the records out of scope had.
     const audited = this.app.get(AdminAudit, { strict: false }).enabled;
     if (audited) {
+      const texts = new Set(full.fields.filter((field) => field.type === 'string' || field.type === 'text').map((field) => field.name));
+      const add = (value: string, owner: { kind: Leak['kind']; record: string; field?: string }) => {
+        if (value.length >= 4 && !allowed.has(value) && !secrets.has(value)) secrets.set(value, owner);
+      };
       for (const record of all) {
-        for (const entry of await crawlAudit((before) => root.history(resource, idOf(record), before), maxPages).catch((error: unknown) => (isAdminError(error) ? [] : Promise.reject(error)))) {
+        const id = idOf(record);
+        // A record the superuser cannot open (in the trash since it was listed) has no history to read: only that.
+        const entries = await auditPages((before) => root.history(resource, id, before)).catch((error: unknown) => (isAdminError(error) && error.code === 'NOT_FOUND' ? [] : Promise.reject(error)));
+        for (const entry of entries) {
+          if (outsideIds.has(id) && entry.recordTitle) add(entry.recordTitle, { kind: 'out-of-scope-record', record: id });
           for (const item of entry.changes ?? []) {
-            if (!hiddenFields.includes(item.field)) continue;
-            for (const value of [...leaves((item as { before?: unknown }).before), ...leaves((item as { after?: unknown }).after)]) {
-              if (value.length >= 4 && !allowed.has(value) && !secrets.has(value)) secrets.set(value, { kind: 'hidden-value', record: idOf(record), field: item.field });
-            }
+            const values = [...leaves((item as { before?: unknown }).before), ...leaves((item as { after?: unknown }).after)];
+            if (hiddenFields.includes(item.field)) for (const value of values) add(value, { kind: 'hidden-value', record: id, field: item.field });
+            else if (outsideIds.has(id) && texts.has(item.field)) for (const value of values) add(value, { kind: 'out-of-scope-record', record: id });
           }
         }
       }
@@ -297,12 +317,12 @@ export class AdminTesting {
       if (!(await answersNotFound(() => call(() => user.get(resource, idOf(record)))))) leaks.push({ kind: 'out-of-scope-record', resource, record: idOf(record), where: `get ${resource} ${idOf(record)}` });
     }
     if (audited) {
-      for (const record of seen) scan(`history ${resource} ${idOf(record)}`, await crawlAudit((before) => call(() => user.history(resource, idOf(record), before)), maxPages), false);
+      for (const record of seen) scan(`history ${resource} ${idOf(record)}`, await auditPages((before) => call(() => user.history(resource, idOf(record), before))), false);
       for (const record of outside) {
         if (!(await answersNotFound(() => call(() => user.history(resource, idOf(record)))))) leaks.push({ kind: 'out-of-scope-record', resource, record: idOf(record), where: `history ${resource} ${idOf(record)}` });
       }
       if (await user.can('audit.view')) {
-        const entries = await crawlAudit((before) => call(() => user.audit(before)), maxPages);
+        const entries = await auditPages((before) => call(() => user.audit(before)));
         scan('audit', entries, false);
         for (const entry of entries) {
           if (entry.resource === resource && entry.recordId !== undefined && outsideIds.has(entry.recordId)) leaks.push({ kind: 'out-of-scope-record', resource, record: entry.recordId, where: `audit entry ${entry.id}` });
@@ -379,17 +399,17 @@ async function crawlList(client: AdminClient, resource: string, maxPages: number
   return records;
 }
 
-/** Every page of an audit listing (50 entries each), up to `maxPages`. */
-async function crawlAudit(fetch: (query: { before?: string }) => Promise<AuditResponse>, maxPages: number): Promise<AuditEntry[]> {
+/** Every page of an audit listing (50 entries each), up to `maxPages`; `truncated` when there were more. */
+async function crawlAudit(fetch: (query: { before?: string }) => Promise<AuditResponse>, maxPages: number): Promise<{ entries: AuditEntry[]; truncated: boolean }> {
   const entries: AuditEntry[] = [];
   let before: string | undefined;
   for (let page = 1; page <= maxPages; page++) {
     const result = await fetch(before ? { before } : {});
     entries.push(...result.entries);
-    if (!result.next) break;
+    if (!result.next) return { entries, truncated: false };
     before = result.next;
   }
-  return entries;
+  return { entries, truncated: true };
 }
 
 async function answersNotFound(fn: () => Promise<unknown>): Promise<boolean> {

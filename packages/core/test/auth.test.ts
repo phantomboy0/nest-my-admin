@@ -139,6 +139,7 @@ describe(`authentication (${TEST_DB})`, () => {
       open: false,
       auth: { login: true, logout: true, sessions: true, revokeOthers: false, password: false, twoFactor: false },
       rbac: { enabled: false, view: false, manage: false },
+      audit: { enabled: false, view: false },
       permissionsVersion: expect.any(Number),
     });
     expect((await http().get('/admin/api/meta').set('Cookie', cookie)).status).toBe(200);

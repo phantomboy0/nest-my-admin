@@ -302,6 +302,7 @@ export class AdminHttpServer implements OnModuleInit {
       open: this.auth.adapter === undefined,
       auth: this.auth.capabilities,
       rbac: { enabled, view: enabled && (permissions.can('rbac.view') || permissions.can('rbac.manage')), manage: enabled && permissions.can('rbac.manage') },
+      audit: { enabled: this.audit.enabled, view: this.audit.enabled && permissions.can('audit.view') },
       permissionsVersion: this.rbac.permissionsVersion,
       ...(viewAs ? { viewAs: { by: toSessionUser(viewAs.by) } } : {}),
     };
