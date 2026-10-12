@@ -32,7 +32,7 @@ export function HistoryTab({ schema, id, record }: { schema: ResourceSchema; id:
   const schemaOf = (resource: string) => (resource === schema.name ? schema : undefined);
   return (
     <div className="flex flex-col gap-3">
-      <AuditEntries entries={entries} names={auditNames(meta.data, schemaOf)} schemaOf={schemaOf} titleOf={(field, refId) => referenceTitle(record, field, refId)} />
+      <AuditEntries entries={entries} now={new Date(history.dataUpdatedAt)} names={auditNames(meta.data, schemaOf)} schemaOf={schemaOf} titleOf={(field, refId) => referenceTitle(record, field, refId)} />
       {history.isError && <PageMessage tone="error">{describeError(history.error)}</PageMessage>}
       {history.hasNextPage && (
         <Button type="button" variant="outline" size="sm" className="self-center" disabled={history.isFetchingNextPage} onClick={() => void history.fetchNextPage()}>

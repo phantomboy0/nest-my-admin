@@ -73,6 +73,14 @@ describe('eventLabel', () => {
     expect(eventDetail(entry('auth.login_failed', { actor: null, meta: { reason: 'SUPPRESSED', suppressed: 3 } }))).toBe('They came in the same minute and were not recorded one by one.');
     expect(eventDetail(entry('auth.login_failed', { actor: null, meta: { reason: 'UNAUTHENTICATED' } }))).toBeUndefined();
     expect(eventDetail(entry('order.action.cancel', { resource: 'order', meta: { action: 'cancel', deleted: true } }))).toBe('The action deleted the record.');
+    expect(eventDetail(entry('order.action.ship', { resource: 'order', meta: { action: 'ship' } }))).toBeUndefined();
+  });
+
+  test('a delete or purge whose record is gone (`meta.deleted`) says nothing about an action', () => {
+    expect(eventDetail(entry('order.deleted', { resource: 'order', recordId: '4', meta: { deleted: true } }))).toBeUndefined();
+    expect(eventDetail(entry('product.purged', { resource: 'product', recordId: '4', meta: { deleted: true } }))).toBeUndefined();
+    expect(eventLabel(entry('order.deleted', { resource: 'order', meta: { deleted: true } }), names)).toBe('Deleted');
+    expect(eventLabel(entry('product.purged', { resource: 'product', meta: { deleted: true } }), names)).toBe('Deleted for good');
   });
 
   test('roles, users and the account', () => {
@@ -223,6 +231,10 @@ describe('formatAuditValue', () => {
     expect(formatAuditValue(4, category, (id) => (id === '3' ? 'Lighting' : undefined))).toBe('#4');
     // A stored `{ id, title }` (an older entry) is read by its id alone.
     expect(formatAuditValue({ id: 3, title: 'Secret' }, category)).toBe('#3');
+    // Something that is no id at all is shown as it is, never as `#undefined`.
+    expect(formatAuditValue({ title: 'No id' }, category)).toBe('{"title":"No id"}');
+    expect(formatAuditValue([1, { name: 'x' }], field('relation', { name: 'tags' }))).toBe('[1,{"name":"x"}]');
+    expect(formatAuditValue({ id: null }, category)).toBe('{"id":null}');
   });
 
   test('files are names, never links', () => {

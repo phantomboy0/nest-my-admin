@@ -228,3 +228,4 @@ Open after the reviews of Tasks 1–3:
 - UI: the audit page and the History tab are not in the screenshot matrix (their times change with every run).
 - UI: the main bundle grew by about 24 kB (6.4 kB gzip); the audit page is not a lazy chunk.
 - UI: on the audit page an entry links to its record unless the entry itself is a deletion; a record that was deleted (or moved to the trash) by a later entry still gets a link, which then shows the record's 404.
+- UI (from the review of Task 3): the Persian audit texts write the ezafe as `‌ی` (`اجازه‌ی`), check against the rest of `fa.ts`; `RecordTabs` should move out of `form-page.tsx` (557+ lines); relative times follow the data (`dataUpdatedAt`) and do not tick while a page stays open.

@@ -67,6 +67,13 @@ describe('formatRelative', () => {
     expect(ago(800 * 86_400)).toBe('2 years ago');
   });
 
+  test('an instant after `now` is "now", never "in 40 seconds"', () => {
+    expect(ago(-40)).toBe('now');
+    expect(ago(-3 * 3600)).toBe('now');
+    expect(ago(-400 * 86_400)).toBe('now');
+    expect(ago(-40, 'fa')).toBe('اکنون');
+  });
+
   test('follows the language and the chosen digits', () => {
     expect(ago(3 * 3600, 'fa')).toBe('3 ساعت پیش');
     applyDisplay({ calendar: 'persian', digits: 'arabext' });

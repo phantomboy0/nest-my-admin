@@ -104,7 +104,8 @@ export function eventDetail(entry: Entry): string | undefined {
     if (entry.meta?.reason === 'SUPPRESSED') return tr('audit.suppressedNote');
     if (entry.meta?.limited) return tr('audit.limitedNote');
   }
-  if (entry.meta?.deleted) return tr('audit.actionDeleted');
+  // Every entry whose record is gone carries `deleted`; only for an action is that worth a sentence.
+  if (entry.meta?.action !== undefined && entry.meta.deleted) return tr('audit.actionDeleted');
   return undefined;
 }
 
@@ -186,7 +187,11 @@ export function formatAuditValue(value: unknown, field: FieldSchema | undefined,
   if (value === null || value === undefined || value === '') return EMPTY;
   if (!field) return raw(value);
   if (field.type === 'relation') {
-    const ids = (Array.isArray(value) ? value : [value]).map((item) => String(typeof item === 'object' && item !== null ? (item as { id?: unknown }).id : item));
+    const items = Array.isArray(value) ? value : [value];
+    const idOf = (item: unknown) => (typeof item === 'object' && item !== null ? (item as { id?: unknown }).id : item);
+    // Not ids (an object without one): shown as it is rather than as `#undefined`.
+    if (items.some((item) => !['string', 'number', 'bigint'].includes(typeof idOf(item)))) return raw(value);
+    const ids = items.map((item) => String(idOf(item)));
     if (ids.length === 0) return EMPTY;
     return ids
       .map((id) => {

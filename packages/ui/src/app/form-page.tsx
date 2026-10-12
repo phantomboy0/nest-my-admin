@@ -43,6 +43,11 @@ export function FormPage({ mode }: { mode: Mode }) {
   const record = useRecord(resource, loads);
   // An action changed the record under the form: the form starts over from what the record is now.
   const [revision, setRevision] = useState(0);
+  // Which tab of the record is open. Kept here, above the form, so an action (which remounts the form) leaves the
+  // user on History; it belongs to one record, so another record starts on Details.
+  const tabOf = `${resource}:${id}`;
+  const [openTab, setOpenTab] = useState<{ of: string; tab: RecordTab }>({ of: tabOf, tab: 'details' });
+  const tab = openTab.of === tabOf ? openTab.tab : 'details';
 
   if (schema.isPending || (loads !== undefined && record.isPending)) return <PageMessage>{t('common.loading')}</PageMessage>;
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
@@ -60,6 +65,8 @@ export function FormPage({ mode }: { mode: Mode }) {
       // "Saved" is said once: a form that starts over after an action does not repeat it.
       saved={revision === 0 ? saved : undefined}
       onChanged={() => setRevision((count) => count + 1)}
+      tab={tab}
+      onTab={(next) => setOpenTab({ of: tabOf, tab: next })}
     />
   );
 }
@@ -92,9 +99,12 @@ interface RecordFormProps {
   saved?: string;
   /** An action changed the record (the cache already holds it as it is now). */
   onChanged: () => void;
+  /** Details or History (existing records, with the audit log on). */
+  tab: RecordTab;
+  onTab: (tab: RecordTab) => void;
 }
 
-function RecordForm({ schema, mode, id, record, source, saved, onChanged }: RecordFormProps) {
+function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: openTab, onTab: setTab }: RecordFormProps) {
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -121,7 +131,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged }: Reco
   // so edits, the unsaved-changes guard and ⌘S are the same on either tab.
   const session = useSession();
   const hasHistory = mode === 'edit' && id !== undefined && session.data?.audit.enabled === true;
-  const [tab, setTab] = useState<RecordTab>('details');
+  const tab: RecordTab = hasHistory ? openTab : 'details';
   // Slug fields fill themselves from `slugFrom` until someone types in them (or they already hold a value).
   const typedSlugs = useRef(new Set(fields.filter((field) => field.widget === 'slug' && initial[field.name] !== '').map((field) => field.name)));
 
@@ -430,7 +440,8 @@ function RecordTabs({ active, onChange }: { active: RecordTab; onChange: (tab: R
           type="button"
           role="tab"
           aria-selected={name === active}
-          aria-controls={`record-panel-${name}`}
+          // The History panel exists only while it is open; the form's panel is always there (hidden).
+          aria-controls={name === 'details' || active === 'history' ? `record-panel-${name}` : undefined}
           tabIndex={name === active ? 0 : -1}
           onClick={() => onChange(name)}
           className={cn(

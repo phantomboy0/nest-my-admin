@@ -333,7 +333,9 @@ describe('the catalog-editor role (editor)', () => {
       { field: 'position', before: 'Tester', after: 'Lead' },
       { field: 'salary', changed: true },
     ]);
-    expect(JSON.stringify(history.body)).not.toMatch(/5123|6789/);
+    // The create entry holds no salary either (a search of the whole answer for the digits could hit a correlation id).
+    expect(history.body.entries[1].changes.find((change: { field: string }) => change.field === 'salary')).toEqual({ field: 'salary', changed: true });
+    for (const entry of history.body.entries) expect(JSON.stringify(entry.changes)).not.toMatch(/5123|6789/);
     // The record itself still shows the salary to whoever may view employees.
     expect((await agent.get(`${employees}/${created._id}`)).body.salary).toBe('6789.00');
 

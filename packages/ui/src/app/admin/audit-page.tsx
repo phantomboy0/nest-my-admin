@@ -14,7 +14,7 @@ import { useLocale } from '@/i18n';
 import { ApiError, api, describeError } from '@/lib/api';
 import { auditFilterChanges, auditNames, auditQueryFromUrl, clearAuditFilters, hasAuditFilters, type AuditFilter } from '@/lib/audit';
 import { withChanges } from '@/lib/list-state';
-import { useMeta } from '@/lib/queries';
+import { useMeta, useSession } from '@/lib/queries';
 
 /** Events worth suggesting; the filter takes any event, or a family with `.*`. */
 const EVENT_HINTS = ['auth.*', 'auth.login', 'auth.login_failed', 'auth.view_as', 'rbac.*', 'rbac.role.changed', 'rbac.user_roles.changed', 'page.*'];
@@ -28,6 +28,9 @@ export function AuditPage() {
   const { t, locale } = useLocale();
   const [params, setParams] = useSearchParams();
   const meta = useMeta();
+  // The session says whether this reader may be here: without `audit.view` nothing of the page is shown or asked for.
+  const session = useSession();
+  const allowed = session.data?.audit.view === true;
   const query = auditQueryFromUrl(params);
   const audit = useInfiniteQuery({
     queryKey: ['audit', query],
@@ -35,6 +38,7 @@ export function AuditPage() {
     queryFn: ({ pageParam }) => api.audit(query, pageParam),
     getNextPageParam: (last) => last.next,
     staleTime: 0,
+    enabled: allowed,
     retry: false, // a refusal (403, 404) or an unreadable filter (422) will not get better
   });
   const entries = audit.data?.pages.flatMap((page) => page.entries) ?? [];
@@ -52,14 +56,16 @@ export function AuditPage() {
   const pageSchemas = useQueries({ queries: wantedPages.map((name) => ({ queryKey: ['page', name, locale], queryFn: () => api.page(name), retry: false })) });
   const pageFieldsOf = (name: string) => pageSchemas[wantedPages.indexOf(name)]?.data?.schema.fields;
 
-  const set = (key: AuditFilter, value: string) => setParams(withChanges(params, auditFilterChanges(key, value)));
+  // From the URL as it is when the change is made (as the list page does), not as it was at the last render.
+  const set = (key: AuditFilter, value: string) => setParams((current) => withChanges(current, auditFilterChanges(key, value)));
   const refused = audit.error instanceof ApiError && (audit.error.status === 403 || audit.error.status === 404);
 
-  if (refused) {
+  if (session.isPending) return <PageMessage>{t('common.loading')}</PageMessage>;
+  if (!allowed || refused) {
     return (
       <div className="flex max-w-4xl flex-col gap-4">
         <PageTitle>{t('audit.title')}</PageTitle>
-        <PageMessage tone="error">{describeError(audit.error!)}</PageMessage>
+        <PageMessage tone="error">{refused ? describeError(audit.error!) : t(session.data?.audit.enabled ? 'audit.notAllowed' : 'audit.off')}</PageMessage>
       </div>
     );
   }
@@ -106,7 +112,7 @@ export function AuditPage() {
         ))}
         {hasAuditFilters(params) && (
           <div className="flex items-end sm:col-span-2 lg:col-span-3">
-            <Button type="button" variant="ghost" size="sm" onClick={() => setParams(withChanges(params, clearAuditFilters()))}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setParams((current) => withChanges(current, clearAuditFilters()))}>
               {t('filters.clear')}
             </Button>
           </div>
@@ -118,7 +124,7 @@ export function AuditPage() {
       ) : entries.length === 0 ? (
         !audit.isError && <PageMessage>{t(hasAuditFilters(params) ? 'audit.noMatches' : 'audit.empty')}</PageMessage>
       ) : (
-        <AuditEntries entries={entries} names={auditNames(meta.data, schemaOf)} schemaOf={schemaOf} pageFieldsOf={pageFieldsOf} onActor={(id) => set('actor', id)} showSubject />
+        <AuditEntries entries={entries} now={new Date(audit.dataUpdatedAt)} names={auditNames(meta.data, schemaOf)} schemaOf={schemaOf} pageFieldsOf={pageFieldsOf} onActor={(id) => set('actor', id)} showSubject />
       )}
       {audit.hasNextPage && (
         <Button type="button" variant="outline" size="sm" className="self-center" disabled={audit.isFetchingNextPage} onClick={() => void audit.fetchNextPage()}>

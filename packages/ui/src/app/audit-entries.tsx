@@ -8,6 +8,11 @@ import { changeRow, entrySubject, eventDetail, eventLabel, formatAuditValue, isA
 
 interface AuditEntriesProps {
   entries: AuditEntry[];
+  /**
+   * When the entries were fetched (the query's `dataUpdatedAt`): "2 minutes ago" is counted from there, so a list that
+   * reloads under a mounted page moves on with its data.
+   */
+  now: Date;
   names: AuditNames;
   /** The reader's schema of a resource, when they have one (labels and formatters for its fields). */
   schemaOf: (resource: string) => ResourceSchema | undefined;
@@ -21,10 +26,8 @@ interface AuditEntriesProps {
 }
 
 /** Audit entries, newest first: what happened, who did it and when, then the changed fields. */
-export function AuditEntries({ entries, names, schemaOf, pageFieldsOf, titleOf, onActor, showSubject = false }: AuditEntriesProps) {
+export function AuditEntries({ entries, now, names, schemaOf, pageFieldsOf, titleOf, onActor, showSubject = false }: AuditEntriesProps) {
   const { t } = useLocale();
-  // One clock for the whole list, so "2 minutes ago" is not recomputed entry by entry.
-  const [now] = useState(() => new Date());
   return (
     <ol aria-label={t('audit.entries')} className="flex flex-col divide-y rounded-lg border">
       {entries.map((entry) => (
@@ -46,7 +49,6 @@ export function AuditEntries({ entries, names, schemaOf, pageFieldsOf, titleOf, 
 
 interface EntryProps extends Omit<AuditEntriesProps, 'entries' | 'schemaOf' | 'pageFieldsOf'> {
   entry: AuditEntry;
-  now: Date;
   schema: ResourceSchema | undefined;
   pageFields: FieldSchema[] | undefined;
 }

@@ -307,6 +307,8 @@ export const fa: Messages = {
   'audit.details': 'جزئیات',
   'audit.recordTabs': 'رکورد و تاریخچه‌ی آن',
   'audit.entries': 'تغییرهای ثبت‌شده',
+  'audit.notAllowed': 'اجازه‌ی خواندن گزارش تغییرات را ندارید',
+  'audit.off': 'گزارش تغییرات در این پنل فعال نیست',
   'audit.empty': 'هنوز چیزی ثبت نشده است.',
   'audit.noMatches': 'موردی پیدا نشد.',
   'audit.noActor': 'بدون ورود',

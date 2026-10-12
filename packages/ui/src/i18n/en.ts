@@ -305,6 +305,8 @@ export const en = {
   'audit.details': 'Details',
   'audit.recordTabs': 'Record and its history',
   'audit.entries': 'Recorded changes',
+  'audit.notAllowed': 'You may not read the audit log',
+  'audit.off': 'The audit log is not enabled in this admin',
   'audit.empty': 'Nothing has been recorded yet.',
   'audit.noMatches': 'No entries match.',
   'audit.noActor': 'Nobody signed in',

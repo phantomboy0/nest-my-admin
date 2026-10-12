@@ -595,6 +595,19 @@ describe('audit log: reading', () => {
     // Nothing recorded by the seeding is in the future.
     expect((await t.pages(`/audit?to=${seeded.toISOString()}&from=2020-01-01`, 'ada')).length).toBeGreaterThan(70);
     await repo.delete({ actorId: 'clock' });
+
+    // What the UI sends for a day: the reader's local midnight and local 23:59:59.999, as ISO instants with
+    // milliseconds. Both ends are included, and a millisecond outside either is not.
+    const start = new Date(2031, 2, 5, 0, 0, 0, 0);
+    const end = new Date(2031, 2, 5, 23, 59, 59, 999);
+    const local = [new Date(start.getTime() - 1), start, new Date(2031, 2, 5, 12, 0, 0, 0), end, new Date(end.getTime() + 1)].map((time) => time.toISOString());
+    for (const time of local) await repo.insert({ at: new Date(time), actorId: 'local', actorName: null, viewAsBy: null, event: 'auth.login', resource: null, recordId: null, recordTitle: null, changes: null, meta: null, correlationId: time } as never);
+    const day = async (query: string) => (await t.pages(`/audit?actor=local&${query}`, 'ada')).map((entry) => entry.at).reverse();
+    expect(await day('')).toEqual(local);
+    expect(await day(new URLSearchParams({ from: start.toISOString(), to: end.toISOString() }).toString())).toEqual(local.slice(1, 4));
+    expect(await day(new URLSearchParams({ from: start.toISOString() }).toString())).toEqual(local.slice(1));
+    expect(await day(new URLSearchParams({ to: end.toISOString() }).toString())).toEqual(local.slice(0, 4));
+    await repo.delete({ actorId: 'local' });
   });
 
   test('a filter value nothing matches is an empty answer; a malformed one is a 422, never a 500', async () => {
