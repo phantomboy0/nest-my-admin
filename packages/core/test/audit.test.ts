@@ -5,9 +5,13 @@ import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Length, Max, Min, ValidateNested } from 'class-validator';
 import request from 'supertest';
 import type { IncomingMessage } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Column, DeleteDateColumn, Entity, JoinTable, ManyToMany, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, UpdateDateColumn, VersionColumn, type DataSource } from 'typeorm';
 import {
   ADMIN_AUDIT_ENTITIES,
+  ADMIN_FILE_ENTITIES,
   ADMIN_RBAC_ENTITIES,
   AdminAction,
   AdminAuth,
@@ -20,6 +24,8 @@ import {
   AdminTwoFactorRequiredError,
   AdminUnauthenticatedError,
   NmaAuditEntry,
+  NmaFile,
+  localStorage,
   type AdminAuthAdapter,
   type AdminContext,
   type AdminModuleOptions,
@@ -43,6 +49,14 @@ const APPROVAL = 'APPROVAL-SENTINEL-77';
 const PASSWORD = 'ada-pass';
 const WRONG_PASSWORD = 'WRONG-SENTINEL-PASS';
 const OTP = '918273';
+const NEW_PASSWORD = 'new-user-SENTINEL-pw';
+const RESET_PASSWORD = 'reset-SENTINEL-pw';
+const OWN_PASSWORD = 'own-SENTINEL-pw';
+const CARD_NUMBER = 'CARD-SENTINEL-5599';
+const SENTINELS = [PIN, API_KEY, APPROVAL, PASSWORD, WRONG_PASSWORD, OTP, NEW_PASSWORD, RESET_PASSWORD, OWN_PASSWORD, CARD_NUMBER, 'smtp-SENTINEL', 'door-SENTINEL', 'manager-SENTINEL', 'RECOVERY-SENTINEL', 'TOTP-SENTINEL'];
+
+// A PDF by its first bytes.
+const PDF = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(100, 0x20)]);
 
 @Entity('au_customer')
 class Customer {
@@ -82,6 +96,37 @@ class Badge {
   @Column({ length: 40, default: '' }) holder: string;
 }
 
+/** Its title is a function, and one of its fields is sensitive: the function may put that field in the title. */
+@Entity('au_card')
+class Card {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 40 }) holder: string;
+  @Column({ length: 40 }) number: string;
+}
+
+/** Its host service writes through its own repository: outside the admin's transaction. */
+@Entity('au_memo')
+class Memo {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 40 }) text: string;
+  @Column({ type: 'int', default: 0 }) edits: number;
+}
+
+@Entity('au_sheet')
+class Sheet {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 40 }) name: string;
+  @Column({ type: 'varchar', length: 500, nullable: true }) manual: string | null;
+}
+
+/** A composite key. */
+@Entity('au_slot')
+class Slot {
+  @PrimaryColumn({ length: 10 }) depot: string;
+  @PrimaryColumn({ type: 'int' }) no: number;
+  @Column({ length: 40 }) name: string;
+}
+
 @Entity('au_doc')
 class Doc {
   @PrimaryGeneratedColumn() id: number;
@@ -93,6 +138,10 @@ class Doc {
 class Setting {
   @PrimaryColumn({ length: 40 }) name: string;
   @Column({ type: 'text' }) value: string;
+}
+
+class CardLikeDto {
+  @AdminField({ sensitive: true }) @IsString() number: string;
 }
 
 class DiscountDto {
@@ -172,6 +221,40 @@ class BadgeAdmin extends AdminResourceBase<Badge> {
   fields = { code: { sensitive: true } };
 }
 
+@AdminResource(Card, { title: (card: Card) => `${card.holder} ${card.number}` })
+class CardAdmin extends AdminResourceBase<Card> {
+  fields = { number: { sensitive: true } };
+}
+
+@AdminResource(Memo, { title: 'text' })
+class MemoAdmin extends AdminResourceBase<Memo> {
+  constructor(@InjectDataSource() private readonly own: DataSource) {
+    super();
+  }
+
+  /** Ignores `ctx.manager`: on Postgres and MySQL this commits on another connection, at once. */
+  override async update(id: RecordId, dto: object): Promise<Memo> {
+    const repo = this.own.getRepository(Memo);
+    const row = await repo.findOneByOrFail({ id: id as number });
+    await repo.update(row.id, { ...(dto as Partial<Memo>), edits: row.edits + 1 });
+    return repo.findOneByOrFail({ id: row.id });
+  }
+}
+
+@AdminResource(Sheet, { title: 'name' })
+class SheetAdmin extends AdminResourceBase<Sheet> {
+  fields = { manual: { widget: 'file' as const } };
+
+  override async update(id: RecordId, dto: object, ctx: AdminContext): Promise<Sheet> {
+    const saved = await super.update(id, dto, ctx);
+    if (saved.name === 'EXPLODE') throw new BadRequestException('The printer jammed');
+    return saved;
+  }
+}
+
+@AdminResource(Slot, { title: 'name' })
+class SlotAdmin extends AdminResourceBase<Slot> {}
+
 /** The same host service without actions: an `atomic` action does not boot with `transactions: false`. */
 @AdminResource(Product, { title: 'name' })
 class LooseProductAdmin extends ProductBase {}
@@ -228,10 +311,45 @@ class TestAuth implements AdminAuthAdapter {
     const user = users.get(input.username);
     if (!user || input.password !== `${input.username}-pass`) throw new AdminUnauthenticatedError('Wrong username or password');
     if (input.username === 'u2' && input.otp === undefined) throw new AdminTwoFactorRequiredError();
-    if (input.username === 'u2' && input.otp !== '000000') throw new AdminUnauthenticatedError('Wrong code');
+    // Like the built-in adapter: a wrong code is answered as "second factor required", with another message.
+    if (input.username === 'u2' && input.otp !== '000000') throw new AdminTwoFactorRequiredError('That code is not right');
     return { user };
   }
   async logout(): Promise<void> {}
+  async listSessions() {
+    return [];
+  }
+  async revokeSession(): Promise<void> {}
+  async revokeOtherSessions(): Promise<void> {}
+  async changePassword(_principal: AdminPrincipal, input: { current: string; next: string }): Promise<void> {
+    if (input.current !== PASSWORD) throw new AdminUnauthenticatedError('Wrong password');
+  }
+  async twoFactorStatus() {
+    return { enabled: false, recoveryCodesLeft: 0 };
+  }
+  async beginTwoFactor() {
+    return { secret: 'TOTP-SENTINEL-KEY', otpauthUrl: 'otpauth://totp/x?secret=TOTP-SENTINEL-KEY' };
+  }
+  async confirmTwoFactor(_principal: AdminPrincipal, code: string) {
+    if (code !== '000000') throw new AdminUnauthenticatedError('Wrong code');
+    return { recoveryCodes: ['RECOVERY-SENTINEL-1'] };
+  }
+  async disableTwoFactor(): Promise<void> {}
+  async newRecoveryCodes() {
+    return { recoveryCodes: ['RECOVERY-SENTINEL-2'] };
+  }
+  async resetTwoFactor(): Promise<void> {}
+  async createUser(input: { username: string; displayName: string; email?: string | null; isSuperuser?: boolean }): Promise<AdminUserRecord> {
+    const user: AdminUserRecord = { id: input.username, username: input.username, displayName: input.displayName, ...(input.email ? { email: input.email } : {}), isSuperuser: input.isSuperuser === true, isActive: true };
+    users.set(input.username, user);
+    return user;
+  }
+  async updateUser(id: string, changes: Partial<AdminUserRecord>): Promise<AdminUserRecord> {
+    const user = { ...users.get(id)!, ...changes } as AdminUserRecord;
+    users.set(id, user);
+    return user;
+  }
+  async setPassword(): Promise<void> {}
   resolveRoles(user: { id: string | number }) {
     return ROLES_OF[String(user.id)] ?? [];
   }
@@ -240,13 +358,13 @@ class TestAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [TestAuth, CustomerAdmin, TagAdmin, ProductAdmin, DocAdmin, BadgeAdmin, ShopPage] })
+@Module({ providers: [TestAuth, CustomerAdmin, TagAdmin, ProductAdmin, DocAdmin, BadgeAdmin, CardAdmin, MemoAdmin, SheetAdmin, SlotAdmin, ShopPage] })
 class AuditModule {}
 
 @Module({ providers: [TestAuth, LooseProductAdmin] })
 class LooseModule {}
 
-const ENTITIES = [Customer, Tag, Product, Doc, Badge, Setting];
+const ENTITIES = [Customer, Tag, Product, Doc, Badge, Card, Memo, Sheet, Slot, Setting];
 
 type Entry = NmaAuditEntry & { changes: AuditChange[] | null };
 
@@ -293,17 +411,18 @@ describe('audit log: recording', () => {
   let customers: number[];
   let tags: number[];
 
+  let dir: string;
+
   beforeAll(async () => {
-    t = await boot();
+    dir = await mkdtemp(join(tmpdir(), 'nma-audit-'));
+    t = await boot({ audit: {}, files: { storage: localStorage({ dir }) } }, { entities: [...ADMIN_AUDIT_ENTITIES, ...ADMIN_FILE_ENTITIES] });
     const db = t.app.get<DataSource>(getDataSourceToken() as string, { strict: false });
     customers = (await db.getRepository(Customer).save([{ name: 'Acme' }, { name: 'Globex' }])).map((row) => row.id);
     tags = (await db.getRepository(Tag).save([{ name: 'red' }, { name: 'green' }, { name: 'blue' }])).map((row) => row.id);
   });
   afterAll(async () => {
-    // Nothing sensitive was ever stored, whatever the tests above did.
-    const all = JSON.stringify(await t.auditDb.getRepository(NmaAuditEntry).find());
-    for (const secret of [PIN, API_KEY, APPROVAL, PASSWORD, WRONG_PASSWORD, OTP, 'smtp-SENTINEL', 'door-SENTINEL', 'manager-SENTINEL']) expect(all).not.toContain(secret);
     await t.app.close();
+    await rm(dir, { recursive: true, force: true });
   });
 
   test('create: who, what, when, and every stored value as `after`', async () => {
@@ -650,6 +769,149 @@ describe('audit log: recording', () => {
     expect((await t.fresh()).map((item) => [item.event, item.meta])).toEqual([['auth.login_failed', expect.objectContaining({ username: 'locked', reason: 'RATE_LIMITED' })]]);
   });
 
+  test('a wrong second-factor code is a failed sign-in with its own reason, and the code is not stored', async () => {
+    const wrong = await request(t.app.getHttpServer()).post('/admin/api/session').send({ username: 'u2', password: 'u2-pass', otp: OTP });
+    expect(wrong.status).toBe(401);
+    expect(wrong.body.code).toBe('TWO_FACTOR_REQUIRED');
+    const [entry, ...rest] = await t.fresh();
+    expect(rest).toEqual([]);
+    expect(entry).toMatchObject({ event: 'auth.login_failed', actorId: null });
+    expect(entry!.meta).toMatchObject({ username: 'u2', reason: 'WRONG_CODE' });
+    expect(JSON.stringify(entry)).not.toContain(OTP);
+    // The right code signs in.
+    expect((await request(t.app.getHttpServer()).post('/admin/api/session').send({ username: 'u2', password: 'u2-pass', otp: '000000' })).status).toBe(200);
+    expect((await t.fresh()).map((item) => item.event)).toEqual(['auth.login']);
+  });
+
+  test('changes to a user are recorded with the user as the record: created, profile, password reset, 2FA reset', async () => {
+    const created = await t.http().post('/rbac/users', { username: 'newbie', displayName: 'New Person', email: 'new@example.com', password: NEW_PASSWORD, roles: ['clerk'] });
+    expect(created.status).toBe(201);
+    expect((await t.http().patch('/rbac/users/newbie', { displayName: 'New Person', isActive: false, isSuperuser: true })).status).toBe(200);
+    // A profile save that changes nothing is no entry.
+    expect((await t.http().patch('/rbac/users/newbie', { isActive: false })).status).toBe(200);
+    expect((await t.http().post('/rbac/users/newbie/password', { password: RESET_PASSWORD })).status).toBe(204);
+    expect((await t.http().post('/rbac/users/newbie/2fa/reset')).status).toBe(204);
+    const entries = await t.fresh();
+    expect(entries.map((entry) => entry.event)).toEqual(['rbac.user.created', 'rbac.user_roles.changed', 'rbac.user.changed', 'rbac.user.password_reset', 'rbac.user.two_factor_reset']);
+    for (const entry of entries) expect(entry).toMatchObject({ resource: null, recordId: 'newbie', actorId: 'ada' });
+    expect(entries[0]).toMatchObject({ recordTitle: 'New Person' });
+    expect(entries[0]!.changes).toEqual([
+      { field: 'username', after: 'newbie' },
+      { field: 'displayName', after: 'New Person' },
+      { field: 'email', after: 'new@example.com' },
+      { field: 'isActive', after: true },
+      { field: 'isSuperuser', after: false },
+    ]);
+    expect(entries[2]!.changes).toEqual([{ field: 'isActive', before: true, after: false }, { field: 'isSuperuser', before: false, after: true }]);
+    expect(entries[3]!.changes).toBeNull();
+    expect(entries[4]!.changes).toBeNull();
+    // A refused change records nothing.
+    expect((await t.http('u1').post('/rbac/users/newbie/password', { password: 'x' })).status).toBe(403);
+    expect(await t.fresh()).toEqual([]);
+    users.delete('newbie');
+  });
+
+  test('changes to one’s own account are recorded: password, 2FA on and off, recovery codes, sessions', async () => {
+    expect((await t.http().post('/account/password', { current: 'not-it', next: OWN_PASSWORD })).status).toBe(401);
+    expect(await t.fresh()).toEqual([]);
+    expect((await t.http().post('/account/password', { current: PASSWORD, next: OWN_PASSWORD })).status).toBe(204);
+    expect((await t.http().post('/account/2fa/setup')).status).toBe(200);
+    expect((await t.http().post('/account/2fa/confirm', { code: '999999' })).status).toBe(401);
+    expect((await t.http().post('/account/2fa/confirm', { code: '000000' })).status).toBe(200);
+    expect((await t.http().post('/account/2fa/recovery-codes', { password: PASSWORD })).status).toBe(200);
+    expect((await t.http().post('/account/2fa/disable', { password: PASSWORD })).status).toBe(204);
+    expect((await t.http().delete('/account/sessions')).status).toBe(204);
+    expect((await t.http().delete('/account/sessions/s1')).status).toBe(204);
+    const entries = await t.fresh();
+    expect(entries.map((entry) => entry.event)).toEqual([
+      'auth.password_changed',
+      'auth.two_factor_enabled',
+      'auth.recovery_codes_regenerated',
+      'auth.two_factor_disabled',
+      'auth.sessions_revoked',
+      'auth.sessions_revoked',
+    ]);
+    for (const entry of entries) expect(entry).toMatchObject({ actorId: 'ada', recordId: 'ada', recordTitle: 'ADA Person', resource: null, changes: null });
+    expect(entries[4]!.meta).toMatchObject({ sessions: 'others' });
+    expect(entries[5]!.meta).toMatchObject({ sessions: 'one' });
+  });
+
+  test('deleting a role names the users and groups that lose it', async () => {
+    expect((await t.http().post('/rbac/roles', { name: 'temp', permissions: ['doc.view'] })).status).toBe(201);
+    const group = await t.http().post('/rbac/groups', { name: 'temps', roles: ['temp'] });
+    expect((await t.http().patch('/rbac/users/u1', { roles: ['temp'] })).status).toBe(200);
+    await t.fresh();
+    expect((await t.http().delete('/rbac/roles/temp')).status).toBe(204);
+    const [entry, ...rest] = await t.fresh();
+    expect(rest).toEqual([]);
+    expect(entry).toMatchObject({ event: 'rbac.role.changed', recordId: 'temp' });
+    expect(change(entry!, 'users')).toEqual({ field: 'users', before: ['u1'] });
+    expect(change(entry!, 'groups')).toEqual({ field: 'groups', before: ['temps'] });
+    expect((await t.http().delete(`/rbac/groups/${group.body.id}`)).status).toBe(204);
+    await t.fresh();
+  });
+
+  test('a function title on a resource with sensitive fields is not stored: it may hold one of them', async () => {
+    const created = await t.http().post('/resources/card', { holder: 'Ada', number: CARD_NUMBER });
+    expect(created.status).toBe(201);
+    expect(created.body._title).toBe(`Ada ${CARD_NUMBER}`);
+    expect((await t.http().patch(`/resources/card/${created.body._id}`, { holder: 'Bob' })).status).toBe(200);
+    expect((await t.http().delete(`/resources/card/${created.body._id}`)).status).toBe(204);
+    const entries = await t.fresh();
+    expect(entries.map((entry) => [entry.event, entry.recordTitle])).toEqual([['card.created', null], ['card.updated', null], ['card.deleted', null]]);
+    expect(JSON.stringify(entries)).not.toContain(CARD_NUMBER);
+  });
+
+  test('a host service that writes outside the admin’s transaction still gets its entry', async () => {
+    const created = await t.http().post('/resources/memo', { text: 'first' });
+    expect(created.status).toBe(201);
+    await t.fresh();
+    const res = await t.http().patch(`/resources/memo/${created.body._id}`, { text: 'second' });
+    expect(res.status).toBe(200);
+    // On MySQL the admin's transaction cannot see that commit (REPEATABLE READ): the entity the host answered is the witness.
+    const [entry, ...rest] = await t.fresh();
+    expect(rest).toEqual([]);
+    expect(entry).toMatchObject({ event: 'memo.updated', recordId: created.body._id });
+    expect(change(entry!, 'text')).toEqual({ field: 'text', before: 'first', after: 'second' });
+    expect(change(entry!, 'edits')).toEqual({ field: 'edits', before: 0, after: 1 });
+  });
+
+  test('a file field is recorded by its keys; a write that rolls back leaves no entry and gives the upload back', async () => {
+    const files = t.auditDb.getRepository(NmaFile);
+    const upload = async () => {
+      const res = await request(t.app.getHttpServer()).post('/admin/api/uploads?resource=sheet&field=manual').set('X-User', 'ada').set('Content-Type', 'application/pdf').send(PDF);
+      expect(res.status).toBe(201);
+      return { token: res.body.token as string, key: (await files.findOneByOrFail({ id: res.body.token })).key };
+    };
+    const first = await upload();
+    const created = await t.http().post('/resources/sheet', { name: 'Guide', manual: { token: first.token } });
+    expect(created.status).toBe(201);
+    const id = created.body._id as string;
+    const second = await upload();
+    expect((await t.http().patch(`/resources/sheet/${id}`, { manual: { token: second.token } })).status).toBe(200);
+    const [made, replaced] = await t.fresh();
+    expect(change(made!, 'manual')).toEqual({ field: 'manual', after: first.key });
+    expect(replaced!.changes).toEqual([{ field: 'manual', before: first.key, after: second.key }]);
+
+    const third = await upload();
+    expect((await t.http().patch(`/resources/sheet/${id}`, { name: 'EXPLODE', manual: { token: third.token } })).status).toBe(400);
+    expect(await t.fresh()).toEqual([]);
+    expect(await files.findOneByOrFail({ id: third.token })).toMatchObject({ status: 'temp', recordId: null });
+    expect((await t.http().get(`/resources/sheet/${id}`)).body).toMatchObject({ name: 'Guide', manual: second.key });
+  });
+
+  test('a composite-key record is recorded under the `_id` the API uses for it', async () => {
+    const created = await t.http().post('/resources/slot', { depot: 'north/1', no: 7, name: 'Bay' });
+    expect(created.status).toBe(201);
+    const id = created.body._id as string;
+    expect((await t.http().get(`/resources/slot/${encodeURIComponent(id)}`)).status).toBe(200);
+    expect((await t.http().patch(`/resources/slot/${encodeURIComponent(id)}`, { name: 'Bay 7' })).status).toBe(200);
+    expect((await t.http().delete(`/resources/slot/${encodeURIComponent(id)}`)).status).toBe(204);
+    const entries = await t.fresh();
+    expect(entries.map((entry) => [entry.event, entry.recordId])).toEqual([['slot.created', id], ['slot.updated', id], ['slot.deleted', id]]);
+    expect(entries[1]!.changes).toEqual([{ field: 'name', before: 'Bay', after: 'Bay 7' }]);
+  });
+
   test('a failed sign-in does not wait for its entry, and a burst is recorded one insert at a time', async () => {
     const audit = t.app.get(AdminAudit);
     let release!: () => void;
@@ -743,6 +1005,87 @@ describe('audit log: recording', () => {
     expect(entry!.changes![0]).toMatchObject({ field: 'body', truncated: true });
     expect(entry!.meta).toEqual({ action: 'x', inputTruncated: true });
   });
+
+  test('nothing sensitive was stored by anything above: the whole table is searched', async () => {
+    await t.app.get(AdminAudit).idle();
+    const rows = await t.auditDb.getRepository(NmaAuditEntry).find();
+    expect(rows.length).toBeGreaterThan(80);
+    const all = JSON.stringify(rows);
+    for (const secret of SENTINELS) expect(all).not.toContain(secret);
+  });
+});
+
+describe('audit log: failed sign-ins are bounded', () => {
+  const fail = (t: Awaited<ReturnType<typeof boot>>, username: string) => request(t.app.getHttpServer()).post('/admin/api/session').send({ username, password: 'x' });
+  const failures = (entries: Entry[]) => entries.map((entry) => entry.meta as { username?: string; ip?: string; reason: string; limited?: true; suppressed?: number });
+
+  test('per address and username: five a minute, a sixth marked `limited`, then a count; a lockout’s repeats are not recorded', async () => {
+    const t = await boot();
+    try {
+      for (let attempt = 0; attempt < 9; attempt += 1) expect((await fail(t, 'ada')).status).toBe(401);
+      const recorded = failures(await t.fresh());
+      expect(recorded.map((meta) => [meta.username, meta.reason, meta.limited ?? false])).toEqual([...Array.from({ length: 5 }, () => ['ada', 'UNAUTHENTICATED', false]), ['ada', 'UNAUTHENTICATED', true]]);
+      // Another username from the same address has its own five.
+      expect((await fail(t, 'u1')).status).toBe(401);
+      for (let attempt = 0; attempt < 4; attempt += 1) expect((await fail(t, 'locked')).status).toBe(429);
+      expect(failures(await t.fresh()).map((meta) => [meta.username, meta.reason])).toEqual([['u1', 'UNAUTHENTICATED'], ['locked', 'RATE_LIMITED']]);
+      // Nothing is written while the minute is open; when it closes, one entry per pair says what was left out.
+      t.app.get(AdminAudit).flushLoginFailures(Date.now() + 30_000);
+      expect(await t.fresh()).toEqual([]);
+      t.app.get(AdminAudit).flushLoginFailures(Date.now() + 61_000);
+      const closed = failures(await t.fresh());
+      expect(closed.map((meta) => [meta.username, meta.reason, meta.suppressed]).sort()).toEqual([['ada', 'SUPPRESSED', 3], ['locked', 'SUPPRESSED', 3]]);
+      expect(typeof closed[0]!.ip).toBe('string');
+      // A new minute records again.
+      expect((await fail(t, 'ada')).status).toBe(401);
+      expect(failures(await t.fresh()).map((meta) => [meta.username, meta.reason])).toEqual([['ada', 'UNAUTHENTICATED']]);
+    } finally {
+      await t.app.close();
+    }
+  }, 60_000);
+
+  test('per address across usernames: fifty a minute, one more marked `limited`, then a count', async () => {
+    const t = await boot();
+    try {
+      for (let attempt = 0; attempt < 58; attempt += 1) expect((await fail(t, `rotating${attempt}`)).status).toBe(401);
+      const recorded = failures(await t.fresh());
+      expect(recorded).toHaveLength(51);
+      expect(recorded.filter((meta) => meta.limited)).toEqual([expect.objectContaining({ username: 'rotating50', limited: true })]);
+      t.app.get(AdminAudit).flushLoginFailures(Date.now() + 61_000);
+      const closed = failures(await t.fresh());
+      expect(closed).toEqual([{ ip: recorded[0]!.ip, reason: 'SUPPRESSED', suppressed: 7 }]);
+    } finally {
+      await t.app.close();
+    }
+  }, 60_000);
+
+  test('more than 1,000 entries waiting to be written: the rest are dropped, and that is logged once', async () => {
+    const t = await boot();
+    const audit = t.app.get(AdminAudit);
+    const warned = spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const insert = (audit as unknown as { insert: (...args: unknown[]) => Promise<void> }).insert.bind(audit);
+    const spy = spyOn(audit as unknown as { insert: (...args: unknown[]) => Promise<void> }, 'insert').mockImplementation(async (...args: unknown[]) => {
+      await held;
+      await insert(...args);
+    });
+    try {
+      for (let index = 0; index < 1_010; index += 1) audit.recordDetached({ event: 'auth.login_failed', meta: { username: `q${index}` } }, { correlationId: 'queue' });
+      const lines = warned.mock.calls.flat().filter((line) => String(line).includes('entries are waiting'));
+      expect(lines).toHaveLength(1);
+      expect(String(lines[0])).toContain('auth.login_failed');
+      release();
+      const entries = await t.fresh();
+      expect(entries).toHaveLength(1_000);
+      expect((entries.at(-1)!.meta as { username: string }).username).toBe('q999');
+    } finally {
+      release();
+      spy.mockRestore();
+      warned.mockRestore();
+      await t.app.close();
+    }
+  }, 60_000);
 });
 
 describe('audit log: where the entry is written', () => {
@@ -811,7 +1154,7 @@ describe('audit log: where the entry is written', () => {
     }
     @Module({ providers: [PayAdmin] })
     class PayModule {}
-    await expect(createTestApp({ imports: [PayModule], entities: [Pay] })).rejects.toThrow(/fields\.card: `sensitive` on CardDto\.number is inside a group/);
+    await expect(createTestApp({ imports: [PayModule], entities: [Pay] })).rejects.toThrow(/fields\.card: `sensitive` on CardDto\.number is inside a group.*move the field to the top level/);
 
     class Vault {
       @AdminField({ sensitive: true }) @Column({ type: 'varchar', length: 20, nullable: true }) combination: string | null;
@@ -827,6 +1170,91 @@ describe('audit log: where the entry is written', () => {
     class BankModule {}
     await expect(createTestApp({ imports: [BankModule], entities: [Bank] })).rejects.toThrow(/fields\.vault: `sensitive` on Vault\.combination is inside a group/);
   });
+
+  test('a `password` widget or a `secret` inside a group is refused at boot too: in an action input, a resource and a settings page', async () => {
+    class LoginDto {
+      @IsString() user: string;
+      @AdminField({ widget: 'password' }) @IsString() pass: string;
+    }
+    class TokenDto {
+      @AdminField({ secret: true }) @IsString() token: string;
+    }
+    class ConnectDto {
+      @ValidateNested() @Type(() => LoginDto) login: LoginDto;
+    }
+    class LinkDto {
+      @ValidateNested() @Type(() => TokenDto) link: TokenDto;
+    }
+    @Entity('au_host')
+    class Host {
+      @PrimaryGeneratedColumn() id: number;
+      @Column({ length: 10 }) code: string;
+      @Column({ type: 'simple-json', nullable: true }) login: object | null;
+    }
+    const bootWith = (provider: Function, entities: Function[] = [Host]) => {
+      @Module({ providers: [provider as NestType] })
+      class OneModule {}
+      return createTestApp({ imports: [OneModule], entities });
+    };
+    const password = /fields\.login: `widget: 'password'` on LoginDto\.pass is inside a group.*move the field to the top level of the form/;
+
+    // An action's input.
+    @AdminResource(Host)
+    class ActionHost extends AdminResourceBase<Host> {
+      @AdminAction({ input: ConnectDto })
+      async connect(): Promise<void> {}
+    }
+    await expect(bootWith(ActionHost)).rejects.toThrow(password);
+    @AdminResource(Host)
+    class SecretActionHost extends AdminResourceBase<Host> {
+      @AdminAction({ input: LinkDto })
+      async link(): Promise<void> {}
+    }
+    await expect(bootWith(SecretActionHost)).rejects.toThrow(/fields\.link: `secret` on TokenDto\.token is inside a group/);
+
+    // A resource: a nested DTO of its form, and an embedded entity.
+    class HostDto {
+      @IsString() code: string;
+      @IsOptional() @ValidateNested() @Type(() => LoginDto) login?: LoginDto;
+    }
+    @AdminResource(Host)
+    class DtoHost extends AdminResourceBase<Host> {
+      form = { create: HostDto };
+    }
+    await expect(bootWith(DtoHost)).rejects.toThrow(password);
+    class Door {
+      @AdminField({ widget: 'password' }) @Column({ type: 'varchar', length: 20, nullable: true }) code: string | null;
+    }
+    @Entity('au_gate')
+    class Gate {
+      @PrimaryGeneratedColumn() id: number;
+      @Column(() => Door) door: Door;
+    }
+    @AdminResource(Gate)
+    class GateAdmin extends AdminResourceBase<Gate> {}
+    await expect(bootWith(GateAdmin, [Gate])).rejects.toThrow(/fields\.door: `widget: 'password'` on Door\.code is inside a group/);
+
+    // A settings page.
+    @AdminSettingsPage('connection', { form: ConnectDto })
+    class ConnectionPage implements AdminSettingsSource<ConnectDto> {
+      load() {
+        return {};
+      }
+      save() {}
+    }
+    await expect(bootWith(ConnectionPage, [])).rejects.toThrow(password);
+    class GuardDto {
+      @ValidateNested() @Type(() => CardLikeDto) card: CardLikeDto;
+    }
+    @AdminSettingsPage('guard', { form: GuardDto })
+    class GuardPage implements AdminSettingsSource<GuardDto> {
+      load() {
+        return {};
+      }
+      save() {}
+    }
+    await expect(bootWith(GuardPage, [])).rejects.toThrow(/fields\.card: `sensitive` on CardLikeDto\.number is inside a group/);
+  }, 60_000);
 
   test('the audit table on another DataSource: written after the commit, never for a rollback', async () => {
     const t = await boot({ audit: { dataSource: 'audit' } }, { dataSources: { audit: [...ADMIN_AUDIT_ENTITIES] } });
@@ -863,6 +1291,15 @@ describe('audit log: where the entry is written', () => {
       }
       expect((await t.http().get(`/resources/product/${id}`)).body.price).toBe('13.00');
       expect(await t.fresh()).toEqual([]);
+
+      // Sensitive values on this path too: a sensitive field, an action's input, a page's secret, a sign-in.
+      expect((await t.http().patch(`/resources/product/${id}`, { pin: PIN })).status).toBe(200);
+      expect((await t.http().post('/resources/product/actions/discount', { ids: [id], input: { percent: 10, approvalCode: APPROVAL, managerPassword: 'manager-SENTINEL' } })).status).toBe(200);
+      expect((await t.http().patch('/pages/shop', { apiKey: API_KEY, doorCode: 'door-SENTINEL-2', smtpPassword: 'smtp-SENTINEL-2' })).status).toBe(200);
+      expect((await request(t.app.getHttpServer()).post('/admin/api/session').send({ username: 'ada', password: WRONG_PASSWORD, otp: OTP })).status).toBe(401);
+      expect((await t.fresh()).map((entry) => entry.event)).toEqual(['product.updated', 'product.action.discount', 'page.shop.updated', 'auth.login_failed']);
+      const all = JSON.stringify(await t.auditDb.getRepository(NmaAuditEntry).find());
+      for (const secret of SENTINELS) expect(all).not.toContain(secret);
     } finally {
       await t.app.close();
     }

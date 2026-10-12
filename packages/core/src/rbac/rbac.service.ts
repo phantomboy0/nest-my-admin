@@ -242,10 +242,17 @@ export class AdminRbac implements OnApplicationBootstrap {
     if (existing.system) throw new AdminForbiddenError(`"${name}" is a system role: remove it in code`);
     this.requireWithin(toRole(existing), manager, 'delete');
     await this.transact(manager, async (tx, log) => {
+      // Who loses the role with it: the entry names them.
+      const users = (await tx.getRepository(NmaUserRole).find({ where: { roleName: name } })).map((row) => row.userId).sort();
+      const held = await tx.getRepository(NmaGroupRole).find({ where: { roleName: name } });
+      const groups = held.length > 0 ? (await tx.getRepository(NmaGroup).find({ where: { id: In(held.map((row) => row.groupId)) } })).map((group) => group.name).sort() : [];
       await tx.getRepository(NmaUserRole).delete({ roleName: name });
       await tx.getRepository(NmaGroupRole).delete({ roleName: name });
       await tx.getRepository(NmaRole).delete({ name });
-      log(roleEntry(name, toRole(existing), undefined));
+      const entry = roleEntry(name, toRole(existing), undefined)!;
+      if (users.length > 0) entry.changes!.push({ field: 'users', before: users });
+      if (groups.length > 0) entry.changes!.push({ field: 'groups', before: groups });
+      log(entry);
     });
   }
 

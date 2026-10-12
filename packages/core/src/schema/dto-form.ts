@@ -1,6 +1,6 @@
 import type { DtoFormSchema, FieldConstraints, FieldSchema } from '../contract.js';
 import { dtoConstraints, isConditionalProperty } from './dto-constraints.js';
-import { getAdminFieldOptions } from '../decorators/admin-field.js';
+import { getAdminFieldOptions, type AdminFieldOptions } from '../decorators/admin-field.js';
 import { dtoOnlyField, dtoPropertyNames, type DtoClass } from './dto-fields.js';
 import { applyFieldConfig, checkFieldConfig, mergeFieldConfig, type FieldConfig } from './field-config.js';
 import { dtoObjectField, nestedTypeOf } from './nested-fields.js';
@@ -51,30 +51,53 @@ export function buildDtoForm(dto: DtoClass, fieldsConfig?: Record<string, FieldC
   const config = mergeFieldConfig([dto], fieldsConfig);
   checkFieldConfig(fields, config, failed, allow);
   for (const field of fields) {
-    const inside = field.type === 'object' ? nestedOption(dto, field.name, 'sensitive') : undefined;
-    if (inside) failed(sensitiveInside(field.name, inside));
+    // A settings page says it in its own words for `secret` (it runs its check right after this one).
+    const inside = field.type === 'object' ? nestedProtected(dto, field.name, allow.secrets ? ['sensitive', 'password'] : undefined) : undefined;
+    if (inside) failed(protectedInside(field.name, inside));
   }
   return { fields, constraints, required: names.filter((name) => constraints[name]!.required === true), config };
 }
 
+/** Options that keep a value out of responses or out of the audit log. They work on a form's own fields only. */
+export type ProtectedOption = 'secret' | 'sensitive' | 'password';
+const PROTECTED: readonly ProtectedOption[] = ['secret', 'sensitive', 'password'];
+
+/** A property that carries a protected option where it does nothing: `where` is `Class.property`. */
+export interface ProtectedInside {
+  where: string;
+  option: ProtectedOption;
+}
+
+/** The protected option (of those in `among`) an `@AdminField` sets, if any. */
+export function protectedOption(options: AdminFieldOptions, among: readonly ProtectedOption[] = PROTECTED): ProtectedOption | undefined {
+  return among.find((option) => (option === 'password' ? options.widget === 'password' : options[option] === true));
+}
+
 /**
- * `Class.property` of the first `@AdminField` with `option` set in the DTOs nested under a property, if any. Field
- * options apply to a form's own fields only, so `secret` or `sensitive` inside a group would protect nothing.
+ * The first `@AdminField` with `secret`, `sensitive` or the `password` widget in the DTOs nested under a property,
+ * if any. Field options are read for a form's own fields only (`nested-fields.ts` builds a group's fields from the
+ * DTO alone), so inside a group they would protect nothing: the value would be served, and stored in the audit log.
  */
-export function nestedOption(dto: DtoClass, property: string, option: 'secret' | 'sensitive', seen = new Set<DtoClass>()): string | undefined {
+export function nestedProtected(dto: DtoClass, property: string, among: readonly ProtectedOption[] = PROTECTED, seen = new Set<DtoClass>()): ProtectedInside | undefined {
   const nested = nestedTypeOf(dto, property)?.type;
   if (!nested || seen.has(nested)) return undefined;
   seen.add(nested);
-  for (const [name, options] of Object.entries(getAdminFieldOptions(nested))) if (options[option]) return `${nested.name}.${name}`;
+  for (const [name, options] of Object.entries(getAdminFieldOptions(nested))) {
+    const option = protectedOption(options, among);
+    if (option) return { where: `${nested.name}.${name}`, option };
+  }
   for (const name of dtoPropertyNames(nested)) {
-    const deeper = nestedOption(nested, name, option, seen);
+    const deeper = nestedProtected(nested, name, among, seen);
     if (deeper) return deeper;
   }
   return undefined;
 }
 
-export const sensitiveInside = (field: string, inside: string): string =>
-  `fields.${field}: \`sensitive\` on ${inside} is inside a group, where it is not applied; mark the group itself (\`fields.${field}.sensitive\`)`;
+/** The boot error for a protected option inside a group. */
+export function protectedInside(field: string, inside: ProtectedInside): string {
+  const what = inside.option === 'password' ? "`widget: 'password'`" : `\`${inside.option}\``;
+  return `fields.${field}: ${what} on ${inside.where} is inside a group, where it is not applied (the audit log would store the value); move the field to the top level of the form`;
+}
 
 /** `required` is present only when true, as in a resource's form constraints. */
 function withRequired(source: FieldConstraints | undefined): FieldConstraints {

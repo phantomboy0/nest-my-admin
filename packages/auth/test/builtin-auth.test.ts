@@ -7,7 +7,8 @@ import { TypeOrmModule, getDataSourceToken } from '@nestjs/typeorm';
 import { fileURLToPath } from 'node:url';
 import request from 'supertest';
 import type { DataSource } from 'typeorm';
-import { AdminModule } from '@nest-my-admin/core';
+import { ADMIN_AUDIT_ENTITIES, AdminModule, NmaAuditEntry, type AdminModuleOptions } from '@nest-my-admin/core';
+import { AdminAudit } from '../../core/dist/audit/audit.service.js';
 import { AdminAuthService } from '../../core/dist/auth/auth.service.js';
 import { TEST_DB, testDatabase } from '../../core/test/helpers/test-db.js';
 import { ADMIN_AUTH_ENTITIES, BuiltinAuthAdapter, NmaSession, NmaUser, builtinAuth, createAdminUser, totpCode, type BuiltinAuthOptions } from '../src/index.js';
@@ -22,13 +23,13 @@ const tick = (seconds: number) => {
 };
 
 /** An app with the built-in auth on its own test database; closing it drops the database. */
-async function authApp(options: BuiltinAuthOptions = {}, entities: Function[] = ADMIN_AUTH_ENTITIES): Promise<INestApplication> {
+async function authApp(options: BuiltinAuthOptions = {}, entities: Function[] = ADMIN_AUTH_ENTITIES, admin: AdminModuleOptions = {}): Promise<INestApplication> {
   const db = await testDatabase(entities);
   try {
     const moduleRef = await Test.createTestingModule({
       imports: [
         TypeOrmModule.forRoot({ ...db.options, retryAttempts: 0 }),
-        AdminModule.forRoot({ uiDistPath: UI, auth: builtinAuth({ now: () => clock, scrypt: FAST, ...options }) }),
+        AdminModule.forRoot({ uiDistPath: UI, auth: builtinAuth({ now: () => clock, scrypt: FAST, ...options }), ...admin }),
       ],
     }).compile();
     const app = moduleRef.createNestApplication<NestExpressApplication>({ logger: false });
@@ -363,5 +364,51 @@ describe(`built-in auth: two-factor sign-in (${TEST_DB}, Review Focus 3)`, () =>
     await adapter.resetTwoFactor(String(row.id));
     expect((await request(twoFa.getHttpServer()).get('/admin/api/session').set('Cookie', session.cookie)).status).toBe(401);
     expect((await signIn({})).res.status).toBe(200);
+  });
+});
+
+describe(`built-in auth with the audit log (${TEST_DB})`, () => {
+  test('a wrong second-factor code is a recorded failed sign-in; turning 2FA on is recorded too; no code or password is stored', async () => {
+    clock = START;
+    const audited = await authApp({ secretKey: Buffer.alloc(32, 9).toString('base64') }, [...ADMIN_AUTH_ENTITIES, ...ADMIN_AUDIT_ENTITIES], { audit: {} });
+    try {
+      const db: DataSource = audited.get(getDataSourceToken());
+      await createAdminUser(db, { username: 'dee', password: 'dee-password-1' }, { scrypt: FAST });
+      const signIn = async (body: object) => {
+        tick(1);
+        return request(audited.getHttpServer()).post('/admin/api/session').send({ username: 'dee', password: 'dee-password-1', ...body });
+      };
+      const first = await signIn({});
+      expect(first.status).toBe(200);
+      const session = { cookie: cookieOf(first), csrf: first.body.csrfToken as string };
+      const post = (path: string, body: object = {}) => request(audited.getHttpServer()).post(`/admin/api${path}`).set('Cookie', session.cookie).set('X-CSRF-Token', session.csrf).send(body);
+      const secret = (await post('/account/2fa/setup')).body.secret as string;
+      const code = totpCode(secret, clock);
+      expect((await post('/account/2fa/confirm', { code })).status).toBe(200);
+
+      // Asked for the code: not a failure. A wrong code: one.
+      const asked = await signIn({});
+      expect(asked.body.code).toBe('TWO_FACTOR_REQUIRED');
+      const wrong = await signIn({ otp: '135790' });
+      expect(wrong.status).toBe(401);
+      expect(wrong.body.code).toBe('TWO_FACTOR_REQUIRED');
+      expect((await signIn({ password: 'not-dees-password' })).status).toBe(401);
+
+      await audited.get(AdminAudit).idle();
+      const rows = (await db.getRepository(NmaAuditEntry).find()).sort((a, b) => Number(a.id) - Number(b.id));
+      const user = await db.getRepository(NmaUser).findOneByOrFail({ username: 'dee' });
+      expect(rows.map((row) => [row.event, row.meta?.reason ?? null])).toEqual([
+        ['auth.login', null],
+        ['auth.two_factor_enabled', null],
+        ['auth.login_failed', 'WRONG_CODE'],
+        ['auth.login_failed', 'UNAUTHENTICATED'],
+      ]);
+      expect(rows[1]).toMatchObject({ actorId: String(user.id), recordId: String(user.id) });
+      expect(rows[2]).toMatchObject({ actorId: null, meta: { username: 'dee' } });
+      const all = JSON.stringify(rows);
+      for (const secretValue of ['135790', code, secret, 'dee-password-1', 'not-dees-password']) expect(all).not.toContain(secretValue);
+    } finally {
+      await audited.close();
+    }
   });
 });

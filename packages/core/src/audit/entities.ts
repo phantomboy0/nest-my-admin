@@ -16,9 +16,26 @@ export interface AuditMeta {
   /** `auth.*` entries: where the request came from. */
   ip?: string;
   userAgent?: string;
-  /** `auth.login_failed`: the username that was tried, and the error code it was answered with. */
+  /**
+   * `auth.login_failed`: the username that was tried, cut to 200 characters. It is whatever was typed in the
+   * username box, so a password typed there by mistake is stored. `reason` is the error code it was answered
+   * with (`UNAUTHENTICATED`, `RATE_LIMITED`), `WRONG_CODE` for a wrong second-factor code, or `SUPPRESSED` (below).
+   */
   username?: string;
   reason?: string;
+  /**
+   * Failed sign-ins are capped in memory, per process (`audit/login-failures.ts`): per address and username a
+   * minute's first 5 are recorded, and per address across usernames its first 50; of a lockout's answers (429)
+   * only the first. `limited`: this is the last failure recorded for its address (and username) in this minute.
+   */
+  limited?: true;
+  /**
+   * On an `auth.login_failed` entry with `reason: 'SUPPRESSED'`, written when a minute closes: how many failures
+   * of that address (and username, when given) were not recorded in it.
+   */
+  suppressed?: number;
+  /** `auth.sessions_revoked`: which of the user's sessions ended (every other one, or one of them). */
+  sessions?: 'others' | 'one';
 }
 
 /**

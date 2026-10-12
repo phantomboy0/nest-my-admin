@@ -1,4 +1,5 @@
 import type { EntityManager } from 'typeorm';
+import type { FieldSchema } from '../contract.js';
 import type { WriteChange, WriteParticipant } from '../api/write-participant.js';
 import { recordIdOf } from '../crud/record-id.js';
 import { serializeFull, storedFields } from '../crud/serialize-full.js';
@@ -68,10 +69,31 @@ const whereOf = (entry: RegisteredResource, id: RecordId): Record<string, unknow
 
 const keyOf = (entry: RegisteredResource, entity: object): RecordId => Object.fromEntries(entry.schema.primaryKeys.map((key) => [key, (entity as Record<string, unknown>)[key]])) as RecordId;
 
-/** The record's real title, unless the title is a sensitive field's value: that is never stored, here either. */
+/**
+ * The record's real title, unless it may hold a sensitive value, which is never stored, here either: the title is a
+ * sensitive field, or it is a function (which may put any field into it) on a resource that has sensitive fields.
+ */
 function titleOf(entry: RegisteredResource, entity: object): string | undefined {
+  const sensitive = sensitiveFields(entry.fieldConfig);
   const column = entry.title.column;
-  return column !== undefined && sensitiveFields(entry.fieldConfig).has(column) ? undefined : entry.title(entity);
+  return (column === undefined ? sensitive.size > 0 : sensitive.has(column)) ? undefined : entry.title(entity);
+}
+
+/**
+ * The stored image with the columns of an entity the host method answered (or was handed) on top. For when the
+ * image read back equals "before" although the host changed the record: a host service that ignores `ctx.manager`
+ * writes on another connection, and under MySQL's REPEATABLE READ the admin's transaction keeps reading the
+ * snapshot of its first read (the "before" image), so it never sees that commit. No locking read is used; the
+ * entity is the only witness. Only the columns it carries are taken (it may be partial), and relations stay as
+ * read from the database.
+ */
+async function withReturned(entry: RegisteredResource, entity: object, image: Record<string, unknown>, fields: FieldSchema[], manager: EntityManager): Promise<Record<string, unknown>> {
+  const returned = await serializeFull(entry, entity, manager);
+  const merged = { ...image };
+  for (const field of fields) {
+    if (field.type !== 'relation' && (entity as Record<string, unknown>)[field.name] !== undefined) merged[field.name] = returned[field.name];
+  }
+  return merged;
 }
 
 /** The stored row, in the trash or not, whoever asks: no scope, no `query()`, no `findOne` override. */
@@ -100,8 +122,18 @@ async function recordEntry(entry: RegisteredResource, change: WriteChange, state
   const title = current ? titleOf(entry, current) : state.title;
   const record = { entry, ...(recordId !== undefined ? { recordId } : {}), ...(title !== undefined ? { title } : {}) };
 
+  /** What differs from "before"; when nothing does, what the entities the host answered say (see `withReturned`). */
+  const changed = async (...witnesses: Array<object | null | undefined>) => {
+    let changes = diffRecords(state.before, after, fields, masked);
+    for (const witness of witnesses) {
+      if (changes.length > 0 || !state.before || !after) break;
+      if (witness) changes = diffRecords(state.before, await withReturned(entry, witness, after, fields, manager), fields, masked);
+    }
+    return changes;
+  };
+
   if (change.kind === 'action' && action) {
-    const changes = diffRecords(state.before, after, fields, masked);
+    const changes = await changed(saved, change.existing);
     return { ...record, event: `${name}.action.${action.definition.name}`, changes, meta: { ...actionMeta(action.definition, action.input), ...(after ? {} : { deleted: true as const }) } };
   }
   if (change.kind === 'action' || change.kind === 'page') return undefined;
@@ -109,7 +141,7 @@ async function recordEntry(entry: RegisteredResource, change: WriteChange, state
   if (change.kind === 'restore') return { ...record, event, changes: [] };
   if (gone) return { ...record, event, changes: diffRecords(state.before, undefined, fields, masked) };
   if (!after) return undefined;
-  const changes = diffRecords(change.kind === 'create' ? undefined : state.before, after, fields, masked);
+  const changes = change.kind === 'create' ? diffRecords(undefined, after, fields, masked) : await changed(saved);
   // A save that changed nothing is no entry.
   return change.kind === 'update' && changes.length === 0 ? undefined : { ...record, event, changes };
 }

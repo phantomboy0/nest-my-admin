@@ -12,7 +12,8 @@ import { AdminNotFoundError } from '../errors.js';
 import { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { buildResourceSchema } from '../schema/build-resource-schema.js';
 import { getAdminFieldOptions } from '../decorators/admin-field.js';
-import { nestedOption, sensitiveInside } from '../schema/dto-form.js';
+import { nestedProtected, protectedInside, protectedOption, type ProtectedInside } from '../schema/dto-form.js';
+import { dtoPropertyNames } from '../schema/dto-fields.js';
 import { mergeFieldConfig, type FieldConfig } from '../schema/field-config.js';
 import { operatorsFor } from '../schema/filter-operators.js';
 import { relationFields, type RelationLike } from '../schema/relation-fields.js';
@@ -215,12 +216,17 @@ export class ResourceRegistry implements OnModuleInit {
     const relations = new Map(
       relationFields(metadata).map(({ field, relation }) => [field.name, relation as RelationMetadataLike]),
     );
-    // `sensitive` is an option of the resource's own fields: inside a group the audit log would store the value all the same.
-    for (const field of schema.fields.filter((candidate) => candidate.type === 'object')) {
-      const inside =
-        [resource.form?.create, resource.form?.update].map((dto) => dto && nestedOption(dto, field.name, 'sensitive')).find(Boolean) ??
-        embeddedSensitive(metadata.embeddeds.find((embedded) => embedded.propertyName === field.name));
-      if (inside) throw new Error(`${className}: ${sensitiveInside(field.name, inside)}`);
+    // `sensitive`, `secret` and the `password` widget are options of the resource's own fields: inside a group (a
+    // nested DTO, an embedded entity) nothing reads them, and the audit log would store the value all the same.
+    for (const dto of new Set([resource.form?.create, resource.form?.update])) {
+      for (const name of dto ? dtoPropertyNames(dto) : []) {
+        const inside = nestedProtected(dto!, name);
+        if (inside) throw new Error(`${className}: ${protectedInside(name, inside)}`);
+      }
+    }
+    for (const embedded of metadata.embeddeds) {
+      const inside = embeddedProtected(embedded);
+      if (inside) throw new Error(`${className}: ${protectedInside(embedded.propertyName, inside)}`);
     }
     this.resources.set(schema.name, {
       schema,
@@ -312,14 +318,16 @@ export class ResourceRegistry implements OnModuleInit {
   }
 }
 
-/** `Class.property` of the first `@AdminField({ sensitive: true })` in an embedded entity or the ones inside it, if any. */
-function embeddedSensitive(embedded: { type: Function | string; embeddeds: unknown[] } | undefined): string | undefined {
-  if (!embedded) return undefined;
+/** The first `@AdminField` with a protected option in an embedded entity or the ones inside it, if any. */
+function embeddedProtected(embedded: { type: Function | string; embeddeds: unknown[] }): ProtectedInside | undefined {
   if (typeof embedded.type === 'function') {
-    for (const [name, options] of Object.entries(getAdminFieldOptions(embedded.type))) if (options.sensitive) return `${embedded.type.name}.${name}`;
+    for (const [name, options] of Object.entries(getAdminFieldOptions(embedded.type))) {
+      const option = protectedOption(options);
+      if (option) return { where: `${embedded.type.name}.${name}`, option };
+    }
   }
   for (const child of embedded.embeddeds) {
-    const deeper = embeddedSensitive(child as { type: Function | string; embeddeds: unknown[] });
+    const deeper = embeddedProtected(child as { type: Function | string; embeddeds: unknown[] });
     if (deeper) return deeper;
   }
   return undefined;

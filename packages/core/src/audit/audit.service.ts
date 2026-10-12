@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import type { IncomingMessage } from 'node:http';
@@ -11,6 +11,7 @@ import type { RegisteredResource } from '../registry/resource-registry.js';
 import { AdminContext } from '../resource/admin-context.js';
 import { fitChanges, type AuditChange } from './diff.js';
 import { NmaAuditEntry, type AuditMeta } from './entities.js';
+import { LoginFailures, WINDOW_MS } from './login-failures.js';
 
 /** What to record. */
 export interface AuditInput {
@@ -63,13 +64,15 @@ export function clientOf(req: IncomingMessage): Pick<AuditMeta, 'ip' | 'userAgen
  * - `recordDetached` does not make the caller wait at all (failed sign-ins).
  */
 @Injectable()
-export class AdminAudit implements OnApplicationBootstrap {
+export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger('NestMyAdmin');
   private dataSource?: DataSource;
   /** The detached entries, written one at a time so a burst never takes more than one connection. */
   private tail: Promise<void> = Promise.resolve();
   private waiting = 0;
   private dropWarnedAt = 0;
+  private readonly loginFailures = new LoginFailures();
+  private loginTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly moduleRef: ModuleRef,
@@ -143,6 +146,46 @@ export class AdminAudit implements OnApplicationBootstrap {
       .finally(() => {
         this.waiting -= 1;
       });
+  }
+
+  /**
+   * A failed sign-in, never awaited. Capped per address and username and per address (see `LoginFailures`), so a
+   * password-guessing run cannot fill the table: beyond the caps failures are counted, and one `SUPPRESSED` entry
+   * per closed minute says how many were left out.
+   */
+  recordLoginFailure(attempt: { username: string; reason: string; lockout: boolean }, req: IncomingMessage, ctx: AuditContext, now = Date.now()): void {
+    if (!this.enabled) return;
+    this.flushLoginFailures(now, ctx.correlationId);
+    const client = clientOf(req);
+    const verdict = this.loginFailures.note(client.ip, attempt.username, attempt.lockout, now);
+    if (verdict.record) {
+      const meta: AuditMeta = { username: attempt.username, ...client, reason: attempt.reason, ...(verdict.limited ? { limited: true as const } : {}) };
+      this.recordDetached({ event: 'auth.login_failed', meta }, { correlationId: ctx.correlationId });
+    }
+    this.armLoginTimer();
+  }
+
+  /** Writes the `SUPPRESSED` entries of the minutes that have closed by `now` (the timer does; tests call it). */
+  flushLoginFailures(now = Date.now(), correlationId = 'audit'): void {
+    for (const left of this.loginFailures.closed(now)) {
+      this.recordDetached({ event: 'auth.login_failed', meta: { ...(left.username !== undefined ? { username: left.username } : {}), ...(left.ip ? { ip: left.ip } : {}), reason: 'SUPPRESSED', suppressed: left.suppressed } }, { correlationId });
+    }
+    this.armLoginTimer();
+  }
+
+  /** A minute that left failures out is summed up even when no further sign-in fails. Never keeps the process alive. */
+  private armLoginTimer(): void {
+    if (this.loginTimer || !this.loginFailures.active) return;
+    this.loginTimer = setTimeout(() => {
+      this.loginTimer = undefined;
+      this.flushLoginFailures();
+    }, WINDOW_MS + 1_000);
+    this.loginTimer.unref();
+  }
+
+  onModuleDestroy(): void {
+    if (this.loginTimer) clearTimeout(this.loginTimer);
+    this.loginTimer = undefined;
   }
 
   /** Resolves once every detached entry queued so far has been written (tests, shutdown). */

@@ -12,6 +12,8 @@ import { RESOURCE_OPERATIONS } from '../policy/roles.js';
 import type { AdminApiService } from '../api/admin-api.service.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import type { AdminRbac, RbacManager } from './rbac.service.js';
+import type { AdminAudit } from '../audit/audit.service.js';
+import { diffPlain, type AuditChange } from '../audit/diff.js';
 
 interface State {
   req: AdminRequest;
@@ -28,9 +30,24 @@ const noContent = (res: ServerResponse) => {
 /** `/api/rbac/*`: roles, groups and users (spec §6.6–6.7). Reading needs `rbac.view`, changing `rbac.manage`. */
 export function addRbacRoutes<S extends State>(
   router: Router<S>,
-  services: { rbac: AdminRbac; auth: AdminAuthService; api: AdminApiService; policy: AdminPolicy; registry: ResourceRegistry },
+  services: { rbac: AdminRbac; auth: AdminAuthService; api: AdminApiService; policy: AdminPolicy; registry: ResourceRegistry; audit: AdminAudit },
 ): void {
-  const { rbac, auth, api, policy, registry } = services;
+  const { rbac, auth, api, policy, registry, audit } = services;
+
+  /**
+   * Users belong to the auth adapter, so a change to one has no transaction to share: its entry is written once the
+   * adapter has done it. The user is the record (`recordId` is their id); never a password, a hash or a code.
+   */
+  const userEvent = (event: string, user: { id: string | number; displayName: string }, ctx: AdminContext, changes?: AuditChange[]): Promise<void> =>
+    audit.recordAfter({ event, recordId: String(user.id), title: user.displayName, ...(changes ? { changes } : {}) }, ctx);
+  const PROFILE = ['username', 'displayName', 'email', 'isActive', 'isSuperuser'];
+  const profileOf = (user: AdminUserRecord): Record<string, unknown> => ({
+    username: user.username ?? null,
+    displayName: user.displayName,
+    email: user.email ?? null,
+    isActive: user.isActive ?? null,
+    isSuperuser: user.isSuperuser === true,
+  });
 
   const manager = (ctx: AdminContext): RbacManager => {
     if (!rbac.enabled) throw new AdminNotFoundError('Roles and groups are not stored in this admin');
@@ -195,6 +212,7 @@ export function addRbacRoutes<S extends State>(
         password: body.password as string,
         isSuperuser: body.isSuperuser === true,
       });
+      await userEvent('rbac.user.created', created, ctx, diffPlain(undefined, profileOf(created), PROFILE));
       if (body.roles !== undefined || body.groups !== undefined) {
         await rbac.setUserAssignments(String(created.id), { roles: body.roles, groups: body.groups }, who, { isSuperuser: created.isSuperuser });
       }
@@ -218,6 +236,8 @@ export function addRbacRoutes<S extends State>(
         const adapter = auth.adapter;
         if (!adapter?.updateUser) throw new AdminNotFoundError('This admin cannot change users');
         await adapter.updateUser(String(target.id), profile);
+        const changes = diffPlain(profileOf(target), { ...profileOf(target), ...profile }, PROFILE);
+        if (changes.length > 0) await userEvent('rbac.user.changed', target, ctx, changes);
       }
       if (body.roles !== undefined || body.groups !== undefined) {
         await rbac.setUserAssignments(String(target.id), { roles: body.roles, groups: body.groups }, who, { isSuperuser: target.isSuperuser });
@@ -231,6 +251,7 @@ export function addRbacRoutes<S extends State>(
       const adapter = auth.adapter;
       if (!adapter?.resetTwoFactor) throw new AdminNotFoundError('This admin cannot reset two-factor sign-in');
       await adapter.resetTwoFactor(String(target.id));
+      await userEvent('rbac.user.two_factor_reset', target, ctx);
       noContent(res);
     })
     .add('POST', '/api/rbac/users/:id/password', async ({ req, res, ctx }, p) => {
@@ -242,6 +263,7 @@ export function addRbacRoutes<S extends State>(
       const { password } = ((await readJsonBody(req)) ?? {}) as { password?: unknown };
       if (typeof password !== 'string' || password === '') throw new AdminValidationError({ password: ['is required'] });
       await adapter.setPassword(String(target.id), password);
+      await userEvent('rbac.user.password_reset', target, ctx);
       noContent(res);
     });
 }

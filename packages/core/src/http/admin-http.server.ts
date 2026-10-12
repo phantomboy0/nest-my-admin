@@ -11,11 +11,13 @@ import {
   AdminForbiddenError,
   AdminNotFoundError,
   AdminRateLimitError,
+  AdminTwoFactorRequiredError,
   AdminUnauthenticatedError,
   AdminUnsupportedMediaTypeError,
   AdminValidationError,
 } from '../errors.js';
 import { AdminAudit, clientOf } from '../audit/audit.service.js';
+import type { AuditMeta } from '../audit/entities.js';
 import type { AdminAuthAdapter, AdminPrincipal } from '../auth/auth-adapter.js';
 import { AdminAuthService } from '../auth/auth.service.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
@@ -107,10 +109,14 @@ export class AdminHttpServer implements OnModuleInit {
         try {
           principal = await login.call(this.auth.adapter, input, { req, res });
         } catch (error) {
-          // Wrong credentials or a lockout (being asked for the second factor is neither). The username and where it
-          // came from, never the password or the code; and the answer does not wait for the entry.
-          if (error instanceof AdminUnauthenticatedError || error instanceof AdminRateLimitError) {
-            this.audit.recordDetached({ event: 'auth.login_failed', meta: { username: input.username, ...clientOf(req), reason: error.code } }, { correlationId: ctx.correlationId });
+          // Wrong credentials, a wrong code or a lockout (being asked for the second factor is none of them). The
+          // username and where it came from, never the password or the code; the answer does not wait for the entry,
+          // and a guessing run is capped (`AdminAudit.recordLoginFailure`).
+          // With a code sent, the adapter's "second factor required" means the code was wrong.
+          const wrongCode = error instanceof AdminTwoFactorRequiredError && input.otp !== undefined;
+          if (error instanceof AdminUnauthenticatedError || error instanceof AdminRateLimitError || wrongCode) {
+            const lockout = error instanceof AdminRateLimitError;
+            this.audit.recordLoginFailure({ username: input.username, reason: wrongCode ? 'WRONG_CODE' : (error as AdminError).code, lockout }, req, ctx);
           }
           throw error;
         }
@@ -141,21 +147,23 @@ export class AdminHttpServer implements OnModuleInit {
           })),
         });
       })
-      .add('DELETE', '/api/account/sessions', async ({ res, principal }) => {
+      .add('DELETE', '/api/account/sessions', async ({ res, principal, ctx }) => {
         const adapter = this.auth.adapter;
         if (!adapter?.revokeOtherSessions) throw new AdminNotFoundError('This admin cannot end other sessions');
         await adapter.revokeOtherSessions(principal!);
+        await this.accountEvent('auth.sessions_revoked', principal!, ctx, { sessions: 'others' });
         res.statusCode = 204;
         res.end();
       })
-      .add('DELETE', '/api/account/sessions/:id', async ({ res, principal }, p) => {
+      .add('DELETE', '/api/account/sessions/:id', async ({ res, principal, ctx }, p) => {
         const adapter = this.auth.adapter;
         if (!adapter?.revokeSession) throw new AdminNotFoundError('This admin cannot end sessions');
         await adapter.revokeSession(principal!, p.id);
+        await this.accountEvent('auth.sessions_revoked', principal!, ctx, { sessions: 'one' });
         res.statusCode = 204;
         res.end();
       })
-      .add('POST', '/api/account/password', async ({ req, res, principal }) => {
+      .add('POST', '/api/account/password', async ({ req, res, principal, ctx }) => {
         const adapter = this.auth.adapter;
         if (!adapter?.changePassword) throw new AdminNotFoundError('This admin cannot change passwords');
         const { current, next } = ((await readJsonBody(req)) ?? {}) as { current?: unknown; next?: unknown };
@@ -164,6 +172,7 @@ export class AdminHttpServer implements OnModuleInit {
         if (typeof next !== 'string' || next === '' || next.length > 1000) fields.next = ['is required'];
         if (Object.keys(fields).length > 0) throw new AdminValidationError(fields);
         await adapter.changePassword(principal!, { current: current as string, next: next as string }, { req, res });
+        await this.accountEvent('auth.password_changed', principal!, ctx);
         res.statusCode = 204;
         res.end();
       })
@@ -175,21 +184,24 @@ export class AdminHttpServer implements OnModuleInit {
         const setup: TwoFactorSetupResponse = await this.twoFactor('beginTwoFactor').call(this.auth.adapter, principal!);
         sendJson(res, 200, { secret: setup.secret, otpauthUrl: setup.otpauthUrl });
       })
-      .add('POST', '/api/account/2fa/confirm', async ({ req, res, principal }) => {
+      .add('POST', '/api/account/2fa/confirm', async ({ req, res, principal, ctx }) => {
         const { code } = ((await readJsonBody(req)) ?? {}) as { code?: unknown };
         if (typeof code !== 'string' || code.trim() === '' || code.length > 40) throw new AdminValidationError({ code: ['is required'] });
         const { recoveryCodes } = await this.twoFactor('confirmTwoFactor').call(this.auth.adapter, principal!, code.trim(), { req, res });
+        await this.accountEvent('auth.two_factor_enabled', principal!, ctx);
         sendJson(res, 200, { recoveryCodes });
       })
-      .add('POST', '/api/account/2fa/disable', async ({ req, res, principal }) => {
+      .add('POST', '/api/account/2fa/disable', async ({ req, res, principal, ctx }) => {
         await this.twoFactor('disableTwoFactor').call(this.auth.adapter, principal!, await passwordOf(req));
+        await this.accountEvent('auth.two_factor_disabled', principal!, ctx);
         res.statusCode = 204;
         res.end();
       })
-      .add('POST', '/api/account/2fa/recovery-codes', async ({ req, res, principal }) => {
+      .add('POST', '/api/account/2fa/recovery-codes', async ({ req, res, principal, ctx }) => {
         const adapter = this.auth.adapter;
         if (!adapter?.newRecoveryCodes) throw new AdminNotFoundError('This admin cannot issue recovery codes');
         const { recoveryCodes } = await adapter.newRecoveryCodes(principal!, await passwordOf(req));
+        await this.accountEvent('auth.recovery_codes_regenerated', principal!, ctx);
         sendJson(res, 200, { recoveryCodes });
       })
       .add('GET', '/api/meta', ({ res, ctx }) => sendJson(res, 200, this.api.meta(ctx.locale, ctx)))
@@ -230,7 +242,16 @@ export class AdminHttpServer implements OnModuleInit {
       });
     addFileRoutes(this.router, { files: this.files });
     addPageRoutes(this.router, { api: this.api });
-    addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry });
+    addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry, audit: this.audit });
+  }
+
+  /**
+   * Someone changed how their own account signs in (`/api/account/*`), after the adapter did it: the user is both
+   * the actor and the record (`recordId`). Never the password, a code or a session id.
+   */
+  private accountEvent(event: string, principal: AdminPrincipal, ctx: AdminContext, meta: AuditMeta = {}): Promise<void> {
+    const { user } = principal;
+    return this.audit.recordAfter({ event, recordId: String(user.id), title: user.displayName, meta: { ...meta, ...clientOf(ctx.request) } }, { correlationId: ctx.correlationId, user });
   }
 
   /** An adapter's two-factor method, or 404 when it has none. */

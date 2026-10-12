@@ -12,7 +12,7 @@ import { customCodes } from '../policy/catalog.js';
 import { RESERVED_PAGE_NAMES, pageCode } from '../policy/roles.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
-import { buildDtoForm, nestedOption, type DtoForm } from '../schema/dto-form.js';
+import { buildDtoForm, nestedProtected, type DtoForm } from '../schema/dto-form.js';
 import type { DtoClass } from '../schema/dto-fields.js';
 import { checkLayout, type FieldConfig, type LayoutConfig } from '../schema/field-config.js';
 import { humanize } from '../schema/humanize.js';
@@ -134,7 +134,7 @@ export class PageRegistry implements OnModuleInit, OnApplicationBootstrap {
     }
     // Only the page's own fields have options: a `secret` inside a group would be served like any other value.
     for (const field of built.fields) {
-      const inside = field.type === 'object' ? nestedOption(form, field.name, 'secret') : undefined;
+      const inside = field.type === 'object' ? nestedProtected(form, field.name, ['secret'])?.where : undefined;
       if (inside) fail(`fields.${field.name}: a \`secret\` field cannot be inside a group (${inside}); make it a field of the page itself`);
     }
     if (layout) checkLayout(layout, built.fields.map((field) => field.name), fail);
