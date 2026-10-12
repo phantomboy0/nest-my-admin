@@ -60,8 +60,9 @@ function anonymousEvent(event: string, resource: string): string {
  *   no action input;
  * - a record that went for good (purged, deleted where there is no trash, deleted by an action) took its entries
  *   with it: nobody can be checked against it any more, and its key may belong to another record since. A record's
- *   history starts after the last such entry; on the audit page those entries are closed like the ones above, to
- *   everyone but a superuser (one not viewing as someone else), who reads them in full;
+ *   history starts after the last such entry; on the audit page those entries are closed like the ones above to
+ *   every reader a row restriction applies to (`readsGone`), and read by a superuser and by a reader nothing
+ *   restricts in that resource;
  * - in a full entry, a changed field the reader may not view is `{ field, hidden: true }`;
  * - a settings page's entry needs the page (without it, it names no page), the changes of roles, groups and users
  *   need `rbac.view`, and the changes of an entry of no known kind are a superuser's;
@@ -119,8 +120,8 @@ export class AuditReader {
         // Asking for one record is seeing it: one they cannot view matches nothing, like one that never existed.
         const live = perms.canOn(resource, 'view') && (await this.asked(entry, record, ctx));
         const end = (await this.endings(resource, [record])).get(record);
-        if (this.readsGone(perms, ctx)) {
-          // A superuser also finds the records that had this key and are gone; a live one they cannot view stays out.
+        if (this.readsGone(entry, perms, ctx)) {
+          // Whoever reads gone records also finds the ones that had this key before; a live one they cannot view stays out.
           if (!live && end === undefined) return nothing;
           if (!live) ended = { upTo: end! };
         } else {
@@ -167,9 +168,20 @@ export class AuditReader {
     }
   }
 
-  /** Entries of records that are gone for good are read by superusers, as themselves. */
-  private readsGone(perms: EffectivePermissions, ctx: AdminContext): boolean {
-    return perms.superuser && !ctx.viewAs;
+  /**
+   * Who reads the entries of a record that is gone for good: a superuser, as themselves; and a reader who could have
+   * read any row of the resource, because nothing restricts it for them (no scope of theirs, no global scope, no
+   * `query()` or `findOne` of the host). The field rules still apply to that reader. Anyone a row restriction applies
+   * to cannot be checked against a record that is not there, and reads nothing of it.
+   */
+  private readsGone(entry: RegisteredResource | undefined, perms: EffectivePermissions, ctx: AdminContext): boolean {
+    if (perms.superuser && !ctx.viewAs) return true;
+    return entry !== undefined && perms.canOn(entry.schema.name, 'view') && !this.restricts(entry, ctx);
+  }
+
+  /** Whether anything decides row by row what this reader sees of the resource. */
+  private restricts(entry: RegisteredResource, ctx: AdminContext): boolean {
+    return entry.resource.query !== AdminResourceBase.prototype.query || entry.resource.findOne !== AdminResourceBase.prototype.findOne || this.policy.scoped(entry, 'view', ctx);
   }
 
   /**
@@ -327,10 +339,10 @@ export class AuditReader {
     const entry = this.registry.find(name);
     // A resource that is gone has no permissions left to check: only a superuser reads its entries.
     if (entry ? !perms.canReach(name) : !perms.superuser) return { ...base, event: anonymousEvent(row.event, name), restricted: true };
-    // An entry at or before the end of its record is of a record that is gone: a superuser's, whoever has the key now.
+    // An entry at or before the end of its record is of a record that is gone, whoever has the key now (`readsGone`).
     const end = row.recordId === null ? undefined : endings.get(name)?.get(row.recordId);
     const gone = end !== undefined && Number(row.id) <= end;
-    const viewed = gone ? this.readsGone(perms, ctx) : !entry || (perms.canOn(name, 'view') && (row.recordId === null || viewable.get(name)?.has(row.recordId) === true));
+    const viewed = gone ? this.readsGone(entry, perms, ctx) : !entry || (perms.canOn(name, 'view') && (row.recordId === null || viewable.get(name)?.has(row.recordId) === true));
     if (!viewed) {
       const meta = compact<AuditEntryMeta>({ action: stored.action, deleted: stored.deleted });
       return { ...base, resource: name, ...(meta ? { meta } : {}), restricted: true };
