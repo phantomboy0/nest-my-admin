@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { GLOBAL_LIMIT, IP_LIMIT, LoginFailures, SUMMARY_LIMIT, WINDOW_MS, addressBucket } from './login-failures.js';
+import { GLOBAL_LIMIT, IP_LIMIT, LoginFailures, MAX_ROWS_PER_MINUTE, SUMMARY_LIMIT, WINDOW_MS, addressBucket } from './login-failures.js';
 
 const T0 = 1_000_000;
 const v4 = (index: number) => `10.${(index >> 16) & 255}.${(index >> 8) & 255}.${index & 255}`;
@@ -102,5 +102,53 @@ describe('LoginFailures: the ceiling of the whole process', () => {
     // Nothing is lost from the count: every failure is either recorded or in a summary.
     const recorded = Math.min(GLOBAL_LIMIT, pairs * 6);
     expect(closed.reduce((sum, left) => sum + left.suppressed, 0)).toBe(pairs * 8 - recorded);
+  });
+
+  test('staggered windows of many addresses: a minute never writes more than the bound, and every failure is recorded or counted once', () => {
+    expect(MAX_ROWS_PER_MINUTE).toBe(GLOBAL_LIMIT + SUMMARY_LIMIT + 1);
+    const failures = new LoginFailures();
+    // One IPv6 /48: a new /64 every 7 failures, a failure every 10 ms for five minutes. Every address goes over
+    // its pair cap by one, and their windows start (and so close) one after the other. As `AdminAudit` does, the
+    // closed windows are taken before every failure. The limiter's minutes start at T0 and follow one another
+    // here (there is a call every 10 ms), so they are the minutes counted below.
+    const STEP = 10;
+    const MINUTES = 5;
+    const attempts = (MINUTES * WINDOW_MS) / STEP;
+    const rows: number[] = [];
+    const named: number[] = [];
+    const unnamed: number[] = [];
+    let recorded = 0;
+    let counted = 0;
+    const take = (now: number) => {
+      const minute = Math.floor((now - T0) / WINDOW_MS);
+      for (const left of failures.closed(now)) {
+        rows[minute] = (rows[minute] ?? 0) + 1;
+        if (left.ip === undefined) unnamed[minute] = (unnamed[minute] ?? 0) + 1;
+        else named[minute] = (named[minute] ?? 0) + 1;
+        counted += left.suppressed;
+      }
+      return minute;
+    };
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const now = T0 + attempt * STEP;
+      const minute = take(now);
+      if (failures.note(`2001:db8:0:${Math.floor(attempt / 7).toString(16)}::1`, 'ada', false, now).record) {
+        rows[minute] = (rows[minute] ?? 0) + 1;
+        recorded += 1;
+      }
+    }
+    // Nobody fails any more: the timer keeps asking, a minute apart, until nothing is left to say.
+    let now = T0 + MINUTES * WINDOW_MS;
+    for (let rounds = 0; failures.active && rounds < 20; rounds += 1) take((now += WINDOW_MS + 1_000));
+    expect(failures.active).toBe(false);
+
+    expect(rows.length).toBeGreaterThan(MINUTES);
+    for (const count of rows) expect(count ?? 0).toBeLessThanOrEqual(MAX_ROWS_PER_MINUTE);
+    for (const count of named) expect(count ?? 0).toBeLessThanOrEqual(SUMMARY_LIMIT);
+    for (const count of unnamed) expect(count ?? 0).toBeLessThanOrEqual(1);
+    expect(Math.max(...named.filter((count) => count !== undefined))).toBe(SUMMARY_LIMIT);
+    expect(recorded).toBe(MINUTES * GLOBAL_LIMIT);
+    // Nothing lost, nothing counted twice.
+    expect(recorded + counted).toBe(attempts);
   });
 });

@@ -303,6 +303,9 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - The form uploads as soon as a file is picked or dropped, shows progress, and waits with saving until uploads finish. Lists show thumbnails for image fields and file names for the rest. A `many` field is reordered by dragging or with its arrow buttons.
   - Replacing or removing a file, and purging a record, delete the stored objects once the change has committed. Uploads that never reach a record are swept after 24 hours.
   - **A delete releases a record's files only when the row is really gone**: the admin reads the row again inside the write, after your `delete()` (or a record action) returned. A record in the trash keeps its files, and so does one your `delete()` only flags (an archive column). A purge always releases them, whatever your `purge()` leaves.
+  - "Gone" means that no row is left under the key the request named. A record action that changes its record's primary key, or moves a single-table-inheritance child to another type, therefore reads as gone: the files are released while the row still names them (and the record's audit history ends there). Do not change keys or types in actions on resources with file fields.
+  - A `purge()` override that keeps the row leaves that row holding a file key with no object behind it.
+  - With `transactions: false` and TypeORM replication, that read may be answered by a replica. One that lags behind a row that was just created answers "no row", and an archive-style delete or an action on that record then releases its files. Keep transactions on with replicas.
   - The other side of that rule: when the row goes without the admin's write seeing it (on MySQL, a service that ignores `ctx.manager` and deletes on another connection; anywhere, a delete you queue for later), the files stay as orphans, rows in `nma_file` and objects in the storage. Nothing removes them afterwards; pass `ctx.manager`.
   - **Duplicate** copies no files: a file belongs to one record.
 - **Your own services.** `create`/`update` overrides receive `AdminFile` objects (`key`, `name`, `contentType`, `size`, `isNew`) for file fields, already checked. Store `file.key` (the DTO property needs any class-validator decorator, such as `@IsOptional()`). The default `create`/`update` do this themselves.
@@ -640,7 +643,7 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - per address across usernames: the first 50, and a 51st marked `limited`. An IPv6 address counts as its /64 (one client usually has a whole /64 to pick addresses from), an IPv4-mapped one (`::ffff:203.0.113.7`) as the IPv4 address;
   - for the whole process, whatever the addresses: 300 recorded failures.
 
-  Of a lockout's answers only the first is recorded. When the minute closes, `SUPPRESSED` entries carry the counts of what was left out: one per address (and username) for the first 100 of them, and one without an address for the process-wide cap and the rest. Successful sign-ins are never capped. The counters live in memory, per process (four processes record up to four times as much).
+  Of a lockout's answers only the first is recorded. When a minute closes, `SUPPRESSED` entries carry the counts of what was left out: one per address (and username), at most 100 of those a minute, and at most one a minute without an address, for the process-wide cap and for every address beyond the 100. **So failed sign-ins write at most 401 rows a minute per process** (300 failures, 100 named summaries, 1 unnamed one), whoever is guessing and from however many addresses. Counts that do not fit a minute are carried to the next, not dropped; only what is still uncounted when the process stops is lost. Successful sign-ins are never capped. The counters live in memory, per process (four processes write up to four times as much).
   - **Whatever was typed into the username box is stored**, cut to 200 characters. A password typed there by mistake ends up in the log.
 - **Reading.**
   - `GET /api/resources/:r/:id/history` (the History tab on a record) is for whoever may open the record: the same 403 and 404 as GET, a record in the trash included. It needs no extra permission.
@@ -663,6 +666,7 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - `select: false` columns are not read for the diff: a change to one is not recorded.
   - On Postgres and MySQL the entry id is a 32-bit integer (2.1 billion entries).
   - **A purge always closes the record's history**, even when your `purge()` keeps the row: what was recorded before it is then read as a gone record's.
+  - **An action that changes its record's primary key**, or moves a single-table-inheritance child to another type, ends the record's history: no row is left under the key the request named, which is what "gone" means.
   - **A delete on another connection** (MySQL, a service that ignores `ctx.manager`) is noticed by one more read right after the commit, and its entry is stamped as the record's end then. That step can miss: a key that is created again between the commit and the read leaves the entry unstamped; so does a crash, a failed read or a failed update in that step (failures are logged with the correlation id). An unstamped ending means a later record with the same key shows the earlier entries in its history.
   - **Read replicas.** Reads outside a transaction (that check after commit; with `transactions: false` the before and after images too) go through `dataSource.manager`, which TypeORM replication may send to a replica. A lagging replica then still shows a deleted row (no stamp), or shows an update as unchanged (a smaller diff, or no entry).
   - **Scopes that depend on a field.** A record's history is open to whoever may open the record now. A reader whose scope depends on a field (`ownerId`, a status) reads the values the record had before it entered their scope, in the fields they may view.
@@ -677,6 +681,7 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - an action's input DTO with a `file`, `image` or `richtext` widget;
   - `atomic` on an action without `bulk: true`, on a resource action, or with `transactions: false`;
   - an action method named like a built-in operation (`view`, `create`, `update`, `delete`, `restore`, `purge`) or like a method of `AdminResourceBase`;
+  - `@AdminCan('<name>')` whose name is not `update`, `delete` or a record action of that resource (a typo, or the name of a resource action);
   - `files` without `ADMIN_FILE_ENTITIES`, or `audit` without `ADMIN_AUDIT_ENTITIES`, in the entities of the DataSource they name.
 
 **Behaviour that changed**

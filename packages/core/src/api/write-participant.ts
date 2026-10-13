@@ -35,6 +35,11 @@ export interface StoredRow {
    * The key is known and no row is left: the record is really gone. False whenever the write still reads a row,
    * so also for a host `delete()` that only flags the record, and for a delete a host service made on another
    * connection that this transaction cannot see (MySQL, REPEATABLE READ).
+   *
+   * "Gone" is about the key the request named, so two things read as gone while a row lives on: a record action
+   * that changes its record's primary key, and one that moves a single-table-inheritance child to another type
+   * (the repository of the child no longer finds it). The record's audit history ends there and its files are
+   * released while the row still names them: actions on resources with file fields must not do either.
    */
   gone: boolean;
 }

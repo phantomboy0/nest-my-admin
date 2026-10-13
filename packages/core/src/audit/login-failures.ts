@@ -8,8 +8,19 @@ export const IP_LIMIT = 50;
  * Beyond it failures are only counted, and one summary per window says how many.
  */
 export const GLOBAL_LIMIT = 300;
-/** Summaries of one closing that name their address (and username); the counts of the rest are summed into one that names nobody. */
+/**
+ * `SUPPRESSED` summaries a minute that name their address (and username). It is a budget of the process for the
+ * minute, not of one closing: windows of many addresses close one after the other, a few at every call. The
+ * counts of the summaries beyond it are carried into the one that names nobody.
+ */
 export const SUMMARY_LIMIT = 100;
+/**
+ * The hard bound: what failed sign-ins write per minute, per process, whoever is guessing and from wherever.
+ * `GLOBAL_LIMIT` recorded failures, `SUMMARY_LIMIT` summaries that name an address, and one that names nobody: 401.
+ * "Minute" is the limiter's own (it starts with the first failure or summary after the last one ended), so any 60
+ * seconds on the clock overlap two of them at most.
+ */
+export const MAX_ROWS_PER_MINUTE = GLOBAL_LIMIT + SUMMARY_LIMIT + 1;
 export const WINDOW_MS = 60_000;
 /** Windows kept in memory; beyond it, failures of new addresses are only counted. */
 const MAX_WINDOWS = 10_000;
@@ -89,30 +100,50 @@ function ipv6Groups(text: string): number[] | undefined {
  * - the whole process: 300 recorded failures (`GLOBAL_LIMIT`), whatever their addresses; the rest are counted.
  *
  * "Address" is `addressBucket`: an IPv6 /64 is one address. Of a lockout's answers (429) only the first of the
- * window is recorded. When a window closes, `closed()` hands back how many failures it left out: one summary per
- * address (and username), at most 100 of them (`SUMMARY_LIMIT`), and one that names nobody for the ceiling and
- * everything else. So a minute writes at most 300 entries and 101 summaries, whoever is guessing. Successful
- * sign-ins never come here: they are always recorded.
+ * window is recorded. When a window closes, `closed()` hands back how many failures it left out: a summary that
+ * names the address (and username) for at most 100 windows a minute (`SUMMARY_LIMIT`), and at most one a minute
+ * that names nobody, for the ceiling, the overflow and every window beyond those 100. So a minute writes at most
+ * 401 rows (`MAX_ROWS_PER_MINUTE`: 300 failures, 100 named summaries, 1 unnamed one). Counts that could not be
+ * said yet are carried to the next minute, never dropped and never said twice; only what is still open or
+ * carried when the process stops is lost (the counts are in memory). Successful sign-ins never come here: they
+ * are always recorded.
  */
 export class LoginFailures {
   private readonly pairs = new Map<string, Window>();
   private readonly ips = new Map<string, Window>();
   /** Failures left out because the maps were full. */
   private overflow = 0;
-  /** The process's own window: what every address together had recorded in it, and what the ceiling left out. */
-  private total?: { start: number; recorded: number; suppressed: number };
+  /**
+   * The process's own minute: what every address together had recorded in it and what the ceiling left out, and
+   * the summaries it has handed back (`named`, and whether the one that names nobody went out).
+   */
+  private minute?: { start: number; recorded: number; suppressed: number; named: number; unnamed: boolean };
+  /** Counts waiting for a summary that names nobody: the next minute that has not sent one takes them all. */
+  private carried = 0;
 
   note(ip: string | undefined, username: string, lockout: boolean, now: number): Verdict {
     const verdict = this.noteAddress(ip, username, lockout, now);
     if (!verdict.record) return verdict;
     // The ceiling counts what would be written, so what an address or a pair already left out takes none of it.
-    const total = (this.total ??= { start: now, recorded: 0, suppressed: 0 });
-    if (total.recorded >= GLOBAL_LIMIT) {
-      total.suppressed += 1;
+    const minute = this.current(now);
+    if (minute.recorded >= GLOBAL_LIMIT) {
+      minute.suppressed += 1;
       return { record: false };
     }
-    total.recorded += 1;
+    minute.recorded += 1;
     return verdict;
+  }
+
+  /** The process's minute at `now`: one that ran out hands what its ceiling left out to `carried`, and a new one starts. */
+  private current(now: number): NonNullable<LoginFailures['minute']> {
+    this.expire(now);
+    return (this.minute ??= { start: now, recorded: 0, suppressed: 0, named: 0, unnamed: false });
+  }
+
+  private expire(now: number): void {
+    if (!this.minute || now - this.minute.start < WINDOW_MS) return;
+    this.carried += this.minute.suppressed;
+    this.minute = undefined;
   }
 
   private noteAddress(ip: string | undefined, username: string, lockout: boolean, now: number): Verdict {
@@ -147,36 +178,47 @@ export class LoginFailures {
   }
 
   /**
-   * The windows that have closed by `now` and left failures out; they are forgotten. At most `SUMMARY_LIMIT` of
-   * them are named; the counts of the others, of the ceiling and of the overflow come as one that names nobody.
+   * The windows that have closed by `now` and left failures out; they are forgotten. Called before every failure
+   * and by a timer, so it is the process's minute that bounds what it hands back, not one call: at most
+   * `SUMMARY_LIMIT` summaries that name their window, and one that names nobody with everything else (the counts
+   * of the windows beyond the budget, of the ceiling and of the overflow). What a minute cannot say any more
+   * stays in `carried` for the next one.
    */
   closed(now: number): Suppressed[] {
     const out: Suppressed[] = [];
-    let unnamed = 0;
+    this.expire(now);
     for (const map of [this.ips, this.pairs]) {
       for (const [key, window] of map) {
         if (now - window.start < WINDOW_MS) continue;
         map.delete(key);
         if (window.suppressed === 0) continue;
-        if (out.length >= SUMMARY_LIMIT) unnamed += window.suppressed;
-        else out.push({ ...(window.ip ? { ip: window.ip } : {}), ...(window.username !== undefined ? { username: window.username } : {}), suppressed: window.suppressed });
+        const minute = this.current(now);
+        if (minute.named >= SUMMARY_LIMIT) {
+          this.carried += window.suppressed;
+          continue;
+        }
+        minute.named += 1;
+        out.push({ ...(window.ip ? { ip: window.ip } : {}), ...(window.username !== undefined ? { username: window.username } : {}), suppressed: window.suppressed });
       }
     }
-    if (this.total && now - this.total.start >= WINDOW_MS) {
-      unnamed += this.total.suppressed;
-      this.total = undefined;
-    }
     if (this.overflow > 0 && this.ips.size < MAX_WINDOWS) {
-      unnamed += this.overflow;
+      this.carried += this.overflow;
       this.overflow = 0;
     }
-    if (unnamed > 0) out.push({ suppressed: unnamed });
+    if (this.carried > 0) {
+      const minute = this.current(now);
+      if (!minute.unnamed) {
+        minute.unnamed = true;
+        out.push({ suppressed: this.carried });
+        this.carried = 0;
+      }
+    }
     return out;
   }
 
-  /** Whether anything is being tracked (a timer is worth keeping). */
+  /** Whether anything is still to be said (a timer is worth keeping): open windows, or counts waiting for their summary. */
   get active(): boolean {
-    return this.ips.size > 0 || this.pairs.size > 0 || this.overflow > 0 || this.total !== undefined;
+    return this.ips.size > 0 || this.pairs.size > 0 || this.overflow > 0 || this.carried > 0 || (this.minute?.suppressed ?? 0) > 0;
   }
 
   private window(map: Map<string, Window>, key: string, now: number, who: { ip?: string; username?: string }): Window | undefined {

@@ -15,7 +15,8 @@ interface FilesState {
  *
  * When a record's files are released:
  *
- * - a purge: always, it is for good by definition;
+ * - a purge: always, it is for good by definition. A host `purge()` that keeps the row is left with a row that
+ *   holds a file key with no object behind it;
  * - a delete, or an action on a record: only when the write itself reads no row afterwards (`StoredRow.gone`, the
  *   same answer the audit log ends the record's history on). The trash keeps the files (restore brings the record
  *   back with them), and so does a host `delete()` that keeps the row (an archive flag, a refusal it swallowed):

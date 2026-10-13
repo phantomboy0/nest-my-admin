@@ -43,9 +43,11 @@ export interface AuditMeta {
   limited?: true;
   /**
    * On an `auth.login_failed` entry with `reason: 'SUPPRESSED'`, written when a minute closes: how many failures
-   * were not recorded in it. With `ip` (and `username`), those of that address (an IPv6 one as its /64,
-   * `2001:db8:1:2::/64`) and username; without either, what the process-wide cap left out, plus the counts of
-   * addresses beyond the first 100 summaries of that minute.
+   * were not recorded. With `ip` (and `username`), those of that address (an IPv6 one as its /64,
+   * `2001:db8:1:2::/64`) and username: at most 100 such entries a minute. Without either, at most one a minute:
+   * what the process-wide cap left out, plus the counts of the addresses beyond those 100. So failed sign-ins
+   * write at most 401 rows a minute per process (300 failures, 100 named summaries, 1 unnamed one:
+   * `MAX_ROWS_PER_MINUTE`).
    */
   suppressed?: number;
   /** `auth.sessions_revoked`: which of the user's sessions ended (every other one, or one of them). */

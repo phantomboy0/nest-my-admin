@@ -114,6 +114,12 @@ export class WriteRunner {
  * What the write's own manager reads of the change's record after the host method (see `StoredRow`). This is the
  * one place that decides whether a record is gone: the files participant releases a deleted record's files on it,
  * and the audit participant ends the record's history on it.
+ *
+ * Without a transaction (`transactions: false`) the read goes through `dataSource.manager`, which TypeORM
+ * replication may send to a replica: one that has not received a row that was just created answers "gone", and
+ * an archive-style delete or an action on that record then releases its files. The read is not forced to the
+ * master (that takes a query runner of its own, opened and released around it, on every driver): a documented
+ * limit, see the README.
  */
 async function storedRow(change: WriteChange, saved: object | null | undefined, tx: AdminContext): Promise<StoredRow> {
   const { target } = change;
