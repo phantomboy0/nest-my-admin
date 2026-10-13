@@ -216,7 +216,7 @@ Open after the reviews of Tasks 1–3:
 - MySQL: a host service that ignores `ctx.manager` and changes only a relation records nothing (the fallback diff covers columns of the returned entity only). MySQL also compares `actor`/`resource` filters without case.
 - The terminal-entry check uses the resource's soft-delete setting as it is now; a `findOne` override that ignores `withDeleted` closes its trashed records on the audit page.
 - Hidden field names are served (`{ field, hidden: true }`): a reader learns that a field they cannot see exists and changed. A restricted entry still tells that someone did something at a time.
-- Failed sign-in caps are per process and in memory; many users behind one proxy share an address's 50 a minute.
+- Failed sign-in caps are per process and in memory (N processes record N times the 300 a minute); many users behind one proxy share an address's 50 a minute, and everyone in one IPv6 /64 shares one address's caps.
 - `expectNoLeaks` makes one history crawl per record (as the superuser and as the user) when the audit log is on.
 - UI: relation values are ids; a title is shown only when the open record still references that id (History tab). The audit page shows ids only. Resolving titles through `fields/:field/options?ids=` (one request per field per page) is not done.
 - UI: the audit page's actor filter is a user id typed or picked by clicking a name in an entry; there is no user picker. The event filter is free text with suggestions, not a list of the events that exist.
@@ -229,3 +229,15 @@ Open after the reviews of Tasks 1–3:
 - UI: the main bundle grew by about 24 kB (6.4 kB gzip); the audit page is not a lazy chunk.
 - UI: on the audit page an entry links to its record unless the entry itself is a deletion; a record that was deleted (or moved to the trash) by a later entry still gets a link, which then shows the record's 404.
 - UI (from the review of Task 3): the Persian audit texts write the ezafe as `‌ی` (`اجازه‌ی`), check against the rest of `fa.ts`; `RecordTabs` should move out of `form-page.tsx` (557+ lines); relative times follow the data (`dataUpdatedAt`) and do not tick while a page stays open.
+
+Open after the final review of M4 (the fixes it asked for are in; these are not):
+- `event=page.*` (and other family filters) leaves out the anonymised entries (`page.*.updated`, `*.updated`): a filter never matches by what the reader is not shown, so a reader cannot list "everything about pages" including the ones closed to them.
+- A nested admin write that crosses DataSources (host code inside a write calls the API for a resource on another DataSource) with a pool of one: raised by the final review as able to wait for a connection that is not coming back; not reproduced, not fixed, not documented beyond the write runner's comment on re-entrant writes.
+- `recordEntry` (audit/audit-participant.ts) handles every write kind in one function; split it per kind (create/update, delete/purge, action).
+- The idiom `typeof id === 'object' ? id : { [pk]: id }` is repeated across core (`whereOf` in `crud/stored-row.ts` is one copy with a name; the resource base, the policy and the API service have their own).
+- File sizes: `audit/audit-reader.ts` 397 lines, `api/admin-api.service.ts` 618, `ui/src/app/form-page.tsx` 568; `test/audit.test.ts` and `test/audit-read.test.ts` are about 1.4k lines each, and their tests count entries in order, so one cannot be run or moved alone.
+- UI: back-to-back filter updates do not compose. The function form of `setSearchParams` is handed the params of the last render, not the live URL; the list page and the audit page change one thing per event, so it does not show. Composing through a ref (or one `withChanges` per event) would make it safe.
+- Orphaned files: a record whose row goes without the admin's write seeing it keeps its `nma_file` rows and stored objects for ever. Two ways: a host `delete()` that archives now and removes the row later (the files are kept on purpose while the row is there), and on MySQL a host service that deletes on another connection (the write still reads the row). The audit log notices the second after commit; files deliberately do not release there (releasing on a read outside the transaction could destroy the files of a row that is still there). A sweep of attached rows whose record no longer exists would close it.
+- The `StoredRow` read is made by the first participant that asks: a delete or a record action on a resource with file fields costs one more query than before, with or without the audit log.
+- `LoginFailures`: the address-wide `limited` entry (the 51st) is recorded even when its pair is already over its own cap; and the per-address `SUPPRESSED` summaries are bounded at 100 a minute, the rest are summed without their addresses.
+

@@ -5,7 +5,7 @@ admin writes that go through your own services, and a prebuilt shadcn UI served 
 
 > Status: pre-alpha, version 0.2 (lists and forms, sign-in, permissions, files and rich text, actions, settings pages, audit log). APIs will change.
 >
-> **Upgrading from 0.1:** `sensitive`, `secret` and `widget: 'password'` on a field inside a group (a nested DTO or an embedded entity) now fail at boot, with or without the audit log: move the field to the top level. See [Audit log](#audit-log).
+> **Upgrading from 0.1:** boot can now fail for an app that booted before, and a few behaviours changed. See [Upgrading to 0.2](#upgrading-to-02).
 
 Requires NestJS 11 or 12, TypeORM 0.3.20+ or 1.x, Node 20.19+ (or Bun), and Postgres, MySQL 8 or SQLite.
 The package is ESM; CommonJS apps load it through Node's `require(esm)`. A CommonJS app compiled with
@@ -301,7 +301,9 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - The column holds the storage key (`product/image/2026/10/<uuid>.png`), or the list of keys for `many`. Records carry `_files[field]` with each file's `name`, `size`, `contentType` and `url`.
   - `file.accept` lists types (`image/*`, `application/pdf`); the image widget defaults to `image/*`. `file.maxBytes` overrides `files.maxBytes` (default 10 MiB); both stop at 2147483647 bytes (2 GiB - 1).
   - The form uploads as soon as a file is picked or dropped, shows progress, and waits with saving until uploads finish. Lists show thumbnails for image fields and file names for the rest. A `many` field is reordered by dragging or with its arrow buttons.
-  - Replacing or removing a file, deleting a record without a trash, and purging one delete the stored objects once the change has committed. Uploads that never reach a record are swept after 24 hours.
+  - Replacing or removing a file, and purging a record, delete the stored objects once the change has committed. Uploads that never reach a record are swept after 24 hours.
+  - **A delete releases a record's files only when the row is really gone**: the admin reads the row again inside the write, after your `delete()` (or a record action) returned. A record in the trash keeps its files, and so does one your `delete()` only flags (an archive column). A purge always releases them, whatever your `purge()` leaves.
+  - The other side of that rule: when the row goes without the admin's write seeing it (on MySQL, a service that ignores `ctx.manager` and deletes on another connection; anywhere, a delete you queue for later), the files stay as orphans, rows in `nma_file` and objects in the storage. Nothing removes them afterwards; pass `ctx.manager`.
   - **Duplicate** copies no files: a file belongs to one record.
 - **Your own services.** `create`/`update` overrides receive `AdminFile` objects (`key`, `name`, `contentType`, `size`, `isNew`) for file fields, already checked. Store `file.key` (the DTO property needs any class-validator decorator, such as `@IsOptional()`). The default `create`/`update` do this themselves.
 - **Rich text.**
@@ -633,7 +635,12 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - **`sensitive`, `secret` and `widget: 'password'` are refused at boot on a property inside a group** (a nested DTO, an embedded entity), where they would not be applied: move the field to the top level, or mark the group itself.
   - When the title column is sensitive (or the title is a function and the resource has a sensitive field), no title is stored.
 - **What is never stored:** passwords, one-time codes, recovery codes, two-factor keys, session tokens, the values of sensitive and secret fields (not even hashed), and sensitive keys of an action's input.
-- **Failed sign-ins** are written without making the sign-in wait, and are capped: per address and username a minute's first 5 are recorded and the 6th is marked as the last (`limited`); per address across usernames 50; of a lockout's answers only the first. One `SUPPRESSED` entry per minute then carries the count of the rest. The counters live in memory, per process.
+- **Failed sign-ins** are written without making the sign-in wait, and are capped by three caps a minute, so that guessing cannot fill the table:
+  - per address and username: the first 5 are recorded, and a 6th marked as the last (`limited`);
+  - per address across usernames: the first 50, and a 51st marked `limited`. An IPv6 address counts as its /64 (one client usually has a whole /64 to pick addresses from), an IPv4-mapped one (`::ffff:203.0.113.7`) as the IPv4 address;
+  - for the whole process, whatever the addresses: 300 recorded failures.
+
+  Of a lockout's answers only the first is recorded. When the minute closes, `SUPPRESSED` entries carry the counts of what was left out: one per address (and username) for the first 100 of them, and one without an address for the process-wide cap and the rest. Successful sign-ins are never capped. The counters live in memory, per process (four processes record up to four times as much).
   - **Whatever was typed into the username box is stored**, cut to 200 characters. A password typed there by mistake ends up in the log.
 - **Reading.**
   - `GET /api/resources/:r/:id/history` (the History tab on a record) is for whoever may open the record: the same 403 and 404 as GET, a record in the trash included. It needs no extra permission.
@@ -643,7 +650,7 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - a field the reader may not view (a field rule, `restricted` without the grant) is served as `{ field, hidden: true }`; a sensitive field as `{ field, changed: true }` for everyone;
   - an action's input only to holders of that action's code; the address and browser only to holders of `audit.view`;
   - a record outside the reader's row scopes or the resource's `query()` is listed without its id, title and changes (`restricted: true`). A resource they cannot reach is listed as `*.updated`, without even its name, and a settings page they cannot view as `page.*.updated`;
-  - role, group and user changes show their details only with `rbac.view`;
+  - role, group and user changes show their changes (permissions, members, flags) only with `rbac.view`. What every holder of `audit.view` still sees of `rbac.*` and `auth.*` entries: that the entry exists, its actor, and its subject, which is the role's name, the group's name, or the user's id and display name;
   - filters never match by something the reader is not shown.
 - **Records that are gone.** A record's history is the history of the record that holds the key now: entries from before a purge, a hard delete or an action that deleted it are left out, so a reused key does not open its predecessor's history. On the audit page those entries are shown in full to a superuser and to a reader whom nothing restricts in that resource (no scope, no global scope, no `query()` or `findOne()` override), and closed to everyone else, because their scopes can no longer be checked against a row that does not exist.
 - **If you override `findOne`** to hide records, the audit page honours it: each record is also asked of your `findOne(id, ctx, { withDeleted: true })`, and one it does not return stays closed. Keep `withDeleted` working there, or records in the trash are closed on the audit page too.
@@ -653,7 +660,36 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - **MySQL and services that ignore `ctx.manager`:** such a write happens on another connection, which the admin's transaction (REPEATABLE READ) does not see. The admin then diffs against the entity your method returned, which covers columns but not relations: a relation changed that way is not recorded. Pass `ctx.manager`.
   - User and account entries (`rbac.user.*`, `auth.*`) are written after the auth adapter's call, not in a transaction with it.
   - The address is Express's `req.ip`. Behind a proxy set `trust proxy` to the proxies you run, never to `true` on an open network: a forwarded header anyone can send would then be recorded as the address.
+  - `select: false` columns are not read for the diff: a change to one is not recorded.
   - On Postgres and MySQL the entry id is a 32-bit integer (2.1 billion entries).
+  - **A purge always closes the record's history**, even when your `purge()` keeps the row: what was recorded before it is then read as a gone record's.
+  - **A delete on another connection** (MySQL, a service that ignores `ctx.manager`) is noticed by one more read right after the commit, and its entry is stamped as the record's end then. That step can miss: a key that is created again between the commit and the read leaves the entry unstamped; so does a crash, a failed read or a failed update in that step (failures are logged with the correlation id). An unstamped ending means a later record with the same key shows the earlier entries in its history.
+  - **Read replicas.** Reads outside a transaction (that check after commit; with `transactions: false` the before and after images too) go through `dataSource.manager`, which TypeORM replication may send to a replica. A lagging replica then still shows a deleted row (no stamp), or shows an update as unchanged (a smaller diff, or no entry).
+  - **Scopes that depend on a field.** A record's history is open to whoever may open the record now. A reader whose scope depends on a field (`ownerId`, a status) reads the values the record had before it entered their scope, in the fields they may view.
+
+## Upgrading to 0.2
+
+**Boot can now fail.** Each of these stops the app at start, with a message that names the class:
+
+- An app that ran on 0.1 can be hit by one of them without using anything new: `widget: 'password'` (and the new `sensitive` and `secret`) on a property inside a group, that is a nested DTO or an embedded entity. Nothing applied those options there. Move the field to the top level.
+- The others come with the features of 0.2, as you adopt them:
+  - a settings page whose name is reserved (`view`, `create`, `update`, `delete`, `purge`, `field`, `action`), a resource's name, or a custom permission of a resource (`order.export` and a page named `export`); a `permissions` entry that is a page's code (`page.<name>`, `page.<name>.update`); a resource named `page`, or whose name starts with `page:`, in an admin that has settings pages;
+  - an action's input DTO with a `file`, `image` or `richtext` widget;
+  - `atomic` on an action without `bulk: true`, on a resource action, or with `transactions: false`;
+  - an action method named like a built-in operation (`view`, `create`, `update`, `delete`, `restore`, `purge`) or like a method of `AdminResourceBase`;
+  - `files` without `ADMIN_FILE_ENTITIES`, or `audit` without `ADMIN_AUDIT_ENTITIES`, in the entities of the DataSource they name.
+
+**Behaviour that changed**
+
+- **Core and UI go together.** `@nest-my-admin/ui` 0.2.0 is installed with `@nest-my-admin/core` 0.2.0; if you pin or override either, keep both on 0.2.0. `GET /api/session` now always carries `audit: { enabled, view }` (`SessionResponse.audit`), which the 0.2 UI reads.
+- **A 401 thrown by your code inside a write or a settings page's `load()` is answered as 400** with your message. The UI reads every 401 as "signed out"; the admin's own 401 is unchanged.
+- **Deleting a record releases its files only when the row is really gone** (read again inside the write). A `delete()` override that keeps the row keeps the files; a purge always releases them. A row that goes where the write cannot see it (MySQL and a service that ignores `ctx.manager`, or a delete queued for later) leaves its files as orphans. See [Files, images and rich text](#files-images-and-rich-text).
+- **With `audit` on:**
+  - every admin write reads the stored row before and after your method, and inserts one row into `nma_audit` in the same transaction. If that insert fails, the write fails (500);
+  - entry ids are 32-bit integers on Postgres and MySQL (2.1 billion entries); set `retentionDays` on a busy admin;
+  - a purge always closes the record's history, even when your `purge()` keeps the row;
+  - **not in the log:** changes made outside the admin, changes to `select: false` columns, and, on MySQL, a relation changed by a service that ignores `ctx.manager`;
+  - **whatever is typed into the username box of a failed sign-in is stored** as typed, cut to 200 characters: a password typed there by mistake ends up in the log. Failed sign-ins are capped per address and username, per address, and per process.
 
 ## Develop
 

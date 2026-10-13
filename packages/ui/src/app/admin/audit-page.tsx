@@ -56,7 +56,9 @@ export function AuditPage() {
   const pageSchemas = useQueries({ queries: wantedPages.map((name) => ({ queryKey: ['page', name, locale], queryFn: () => api.page(name), retry: false })) });
   const pageFieldsOf = (name: string) => pageSchemas[wantedPages.indexOf(name)]?.data?.schema.fields;
 
-  // From the URL as it is when the change is made (as the list page does), not as it was at the last render.
+  // The function form, as on the list page. In the installed react-router it is handed the params of the last
+  // render, not the live URL: two changes made before a render do not compose (the second starts from the same
+  // params as the first). Every filter here changes one key per event, so that does not come up.
   const set = (key: AuditFilter, value: string) => setParams((current) => withChanges(current, auditFilterChanges(key, value)));
   const refused = audit.error instanceof ApiError && (audit.error.status === 403 || audit.error.status === 404);
 
