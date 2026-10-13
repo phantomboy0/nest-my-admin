@@ -172,6 +172,7 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
 - Relative imports in `packages/core` use `.js` extensions (NodeNext ESM).
 - `decimal` and `bigint` values are always strings in API responses (`serializeValue`); drivers disagree, so never rely on the driver.
 - Playwright files end in `.pw.ts`; Bun's test runner would otherwise pick up `*.spec.ts`.
+- Every `*.test.ts(x)` runs with a 20-second default timeout for tests and hooks: `scripts/test-setup.ts` (a Bun plugin that prepends `setDefaultTimeout` to each test file) is preloaded by `bunfig.toml` at the root and in each workspace with tests (Bun 1.4.2 ignores a `timeout` key in bunfig, a preload's `setDefaultTimeout` holds for the first file only, and `bun test` reads only the bunfig of the directory it starts in). A new workspace with tests needs its own `bunfig.toml`.
 - New UI inputs for numbers use `type="text"` with `inputMode`, not `type="number"`.
 - Integration tests get their database from `createTestApp` (core) or `testDatabase()` (`packages/core/test/helpers/test-db.ts`): one fresh database per app on the server `NMA_TEST_DB` selects. Never hardcode `type: 'sqljs'` in a test. Assertions that differ by driver branch on `TEST_DB` and say why.
 - Database errors are mapped in `http/error-response.ts` using the resource's `dbNames` (column, unique constraint/index and FK names → properties). MySQL reports unique constraints as index names; SQLite's FK error names no column and no side (the request method decides).

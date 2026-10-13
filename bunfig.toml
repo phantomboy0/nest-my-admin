@@ -1,0 +1,3 @@
+[test]
+# Bun 1.4.2 reads no `timeout` key here: tests and hooks stayed at 5000 ms. The preload sets 20 s for every test file.
+preload = ["./scripts/test-setup.ts"]

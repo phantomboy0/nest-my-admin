@@ -1,0 +1,3 @@
+[test]
+# `bun test` started in this directory reads this file, not the root's. Same preload: 20 s for every test file.
+preload = ["../../scripts/test-setup.ts"]
