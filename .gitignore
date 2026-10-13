@@ -7,3 +7,6 @@ test-results/
 playwright-report/
 **/e2e/.auth/
 var/
+# copied in by each package's prepack
+packages/*/LICENSE
+packages/core/README.md

@@ -3,6 +3,8 @@
   "version": "0.2.0",
   "description": "Built-in sign-in for nest-my-admin: admin users, hashed passwords, revocable sessions",
   "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/phantomboy0/nest-my-admin.git", "directory": "packages/auth" },
+  "homepage": "https://github.com/phantomboy0/nest-my-admin#readme",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,6 +21,7 @@
     "node": ">=20.19.0"
   },
   "scripts": {
+    "prepack": "cp ../../LICENSE .",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -3,6 +3,8 @@
   "version": "0.2.0",
   "description": "Django-admin-class admin panel for NestJS + TypeORM",
   "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/phantomboy0/nest-my-admin.git", "directory": "packages/core" },
+  "homepage": "https://github.com/phantomboy0/nest-my-admin#readme",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -24,6 +26,7 @@
     "node": ">=20.19.0"
   },
   "scripts": {
+    "prepack": "cp ../../README.md ../../LICENSE .",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
