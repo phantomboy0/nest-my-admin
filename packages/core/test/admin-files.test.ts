@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { Controller, Get, Injectable, Module, NotFoundException, Param, Res, StreamableFile, type INestApplication } from '@nestjs/common';
-import type { ServerResponse } from 'node:http';
+import { Controller, Get, Injectable, Module, NotFoundException, Param, Req, Res, StreamableFile, type INestApplication } from '@nestjs/common';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { IsOptional, IsString } from 'class-validator';
 import request from 'supertest';
@@ -31,6 +31,7 @@ class Asset {
   @Column({ default: '' }) name: string;
   @Column({ type: 'varchar', length: 300, nullable: true }) image: string | null;
   @Column({ type: 'varchar', length: 300, nullable: true }) contract: string | null;
+  @Column({ type: 'varchar', length: 300, nullable: true }) sheet: string | null;
 }
 
 @AdminResource(Asset)
@@ -38,6 +39,7 @@ class AssetAdmin extends AdminResourceBase<Asset> {
   override fields: FieldsConfig<Asset> = {
     image: { widget: 'image', file: { accept: ['image/*'], visibility: 'public' } },
     contract: { widget: 'file' }, // private, the default
+    sheet: { widget: 'file', file: { visibility: 'public' } }, // a public file that is not an image
   };
 }
 
@@ -62,20 +64,33 @@ class MediaService {
   constructor(readonly files: AdminFiles) {}
 }
 
-/** The README's "Serving public files yourself" controller. */
+/** Images a browser may show in place; everything else is downloaded. */
+const RASTER = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
+
+/** The README's "Serving public files yourself" controller (keep the two the same). */
 @Controller('media')
 class MediaController {
   constructor(private readonly files: AdminFiles) {}
 
   @Get('*key')
-  async serve(@Param('key') key: string | string[], @Res({ passthrough: true }) res: ServerResponse): Promise<StreamableFile> {
-    const file = await this.files.openPublic(Array.isArray(key) ? key.join('/') : key);
+  async serve(@Param('key') key: string | string[], @Req() req: IncomingMessage, @Res({ passthrough: true }) res: ServerResponse): Promise<StreamableFile | undefined> {
+    const path = Array.isArray(key) ? key.join('/') : key;
+    // Express answers HEAD with the GET route: the row is enough for that, the object is not opened.
+    const file = req.method === 'HEAD' ? await this.files.publicFile(path) : await this.files.openPublic(path);
     if (!file) throw new NotFoundException();
-    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Type', file.contentType.startsWith('text/') ? 'text/plain; charset=utf-8' : file.contentType);
     res.setHeader('Content-Length', String(file.size));
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    return new StreamableFile(file.body);
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    if (!RASTER.has(file.contentType)) {
+      const name = encodeURIComponent(file.name).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${name}`);
+    }
+    if (!('body' in file)) return undefined;
+    const { body } = file;
+    res.on('close', () => body.destroy()); // a reader who leaves early must not keep the file or the connection open
+    return new StreamableFile(body);
   }
 }
 
@@ -98,7 +113,9 @@ interface Booted {
   dir: string;
   /** Keys the storage was asked for (`get`) since the last `reads.length = 0`. */
   reads: string[];
-  upload(resource: string, field: string, name?: string): Promise<{ token: string; key: string }>;
+  upload(resource: string, field: string, name?: string, content?: Buffer): Promise<{ token: string; key: string }>;
+  /** What the storage answers as an object's size, when a test replaces it. */
+  storageSize?: number;
   close(): Promise<void>;
 }
 
@@ -107,11 +124,13 @@ async function boot(dataSource?: string): Promise<Booted> {
   const dir = await mkdtemp(join(tmpdir(), 'nma-admin-files-'));
   const inner = localStorage({ dir });
   const reads: string[] = [];
+  const booted = {} as Booted;
   const storage: AdminStorage = {
     put: (key, body, info) => inner.put(key, body, info),
-    get: (key) => {
+    get: async (key) => {
       reads.push(key);
-      return inner.get(key);
+      const object = await inner.get(key);
+      return object && booted.storageSize !== undefined ? { ...object, size: booted.storageSize } : object;
     },
     delete: (key) => inner.delete(key),
     publicUrl: (key) => inner.publicUrl(key),
@@ -123,14 +142,14 @@ async function boot(dataSource?: string): Promise<Booted> {
     admin: { files: { storage, ...(dataSource ? { dataSource } : {}) } },
   });
   const db = app.get<DataSource>(getDataSourceToken(dataSource));
-  return {
+  return Object.assign(booted, {
     app,
     files: app.get(MediaService).files,
     db,
     dir,
     reads,
-    async upload(resource, field, name = 'pixel.png') {
-      const res = await request(app.getHttpServer()).post(`/admin/api/uploads?resource=${resource}&field=${field}`).set('Content-Type', 'application/octet-stream').set('X-File-Name', name).send(PNG);
+    async upload(resource, field, name = 'pixel.png', content = PNG) {
+      const res = await request(app.getHttpServer()).post(`/admin/api/uploads?resource=${resource}&field=${field}`).set('Content-Type', 'application/octet-stream').set('X-File-Name', encodeURIComponent(name)).send(content);
       expect(res.status).toBe(201);
       const token = res.body.token as string;
       return { token, key: (await db.getRepository(NmaFile).findOneByOrFail({ id: token })).key };
@@ -139,7 +158,7 @@ async function boot(dataSource?: string): Promise<Booted> {
       await app.close();
       await rm(dir, { recursive: true, force: true });
     },
-  };
+  } satisfies Booted);
 }
 
 const create = async (t: Booted, body: object) => {
@@ -224,6 +243,24 @@ for (const dataSource of [undefined, 'media']) {
       }
     });
 
+    test("a storage that reports no size (0): the size recorded at upload is answered", async () => {
+      const t = await boot(dataSource);
+      try {
+        const image = await t.upload('asset', 'image');
+        await create(t, { name: 'g', image: { token: image.token } });
+        t.storageSize = 0; // s3Storage does this for a response without Content-Length
+        const opened = (await t.files.openPublic(image.key))!;
+        expect(opened.size).toBe(PNG.length);
+        opened.body.destroy();
+        t.storageSize = 7; // a size the storage does report is the object's
+        const again = (await t.files.openPublic(image.key))!;
+        expect(again.size).toBe(7);
+        again.body.destroy();
+      } finally {
+        await t.close();
+      }
+    });
+
     test('a file a record let go of is public no more', async () => {
       const t = await boot(dataSource);
       try {
@@ -259,7 +296,29 @@ describe("a host's own route for public files (the README's controller)", () => 
       expect(served.headers['content-length']).toBe(String(PNG.length));
       expect(served.headers['cache-control']).toBe('public, max-age=31536000, immutable');
       expect(served.headers['x-content-type-options']).toBe('nosniff');
+      expect(served.headers['content-security-policy']).toBe("default-src 'none'; sandbox");
+      expect(served.headers['content-disposition']).toBeUndefined(); // a raster image is shown in place
       expect((served.body as Buffer).equals(PNG)).toBe(true);
+
+      // HEAD: the same headers from the table alone.
+      t.reads.length = 0;
+      const head = await http.head(`/media/${image.key}`);
+      expect([head.status, head.headers['content-type'], head.headers['content-length']]).toEqual([200, 'image/png', String(PNG.length)]);
+      expect(t.reads).toEqual([]);
+      expect((await http.head(`/media/${contract.key}`)).status).toBe(404);
+
+      // Anything that is not a raster image is a download, and text is never anything but plain text.
+      const TEXT = Buffer.from('price list / قیمت‌ها: 10, 20, 30\n');
+      const sheet = await t.upload('asset', 'sheet', "قیمت (1)'s.html", TEXT);
+      await create(t, { name: 'f', sheet: { token: sheet.token } });
+      const text = await http.get(`/media/${sheet.key}`);
+      expect(text.status).toBe(200);
+      expect(text.headers['content-type']).toBe('text/plain; charset=utf-8');
+      expect(text.headers['x-content-type-options']).toBe('nosniff');
+      expect(text.headers['content-security-policy']).toBe("default-src 'none'; sandbox");
+      expect(text.headers['content-disposition']).toMatch(/^attachment; filename\*=UTF-8''[A-Za-z0-9%._~!-]+$/);
+      expect(decodeURIComponent(text.headers['content-disposition']!.split("''")[1]!)).toBe((await t.files.publicFile(sheet.key))!.name);
+      expect(text.text).toBe(TEXT.toString());
 
       t.reads.length = 0;
       for (const path of [`/media/${contract.key}`, '/media/asset/image/2026/01/none.png', '/media/..%2F..%2Fetc%2Fpasswd', `/media/asset/%2E%2E/${image.key}`, `/media/${image.key}%00`]) {

@@ -202,9 +202,9 @@ AdminModule.forRoot({
 
 - **Languages.**
   - The language switch appears when there is more than one locale, and the choice is remembered in the browser.
-  - The page itself (`GET <path>/` and every deep link) is served as `<html lang dir>` with the `title` in one language as `<title>`: the best of `locales` for the browser's `Accept-Language`, else the default `locale`. That is how the API picks too. `dir` is `rtl` for `fa`, `ar`, `he` and `ur`. The response carries `Content-Language` and `Vary: Accept-Language`, with `Cache-Control: no-cache`.
-  - Once its script runs, the UI sets `lang`, `dir` and the title again for the language in use: the remembered choice, else the default `locale` (not the browser's language). For someone whose browser prefers another of your `locales`, the served page and the running UI therefore differ for that moment.
-  - The UI sends it as `Accept-Language`. Labels given per language answer in it, falling back to the default
+  - The page itself (`GET <path>/` and every deep link) is served in the default `locale`: `<html lang dir>` (`dir` is `rtl` for `fa`, `ar`, `he` and `ur`), your `title` in that language as `<title>`, and `Content-Language`. It is the same page for every request; the browser's `Accept-Language` is not consulted, because the UI starts in the default locale too.
+  - A reader who switched to another language gets the default-locale page for the moment before the script runs, which then sets `lang`, `dir` and the title for their choice (the choice lives in their browser, where the server cannot see it).
+  - The UI sends the language in use as `Accept-Language` with every API request. Labels given per language answer in it, falling back to the default
     locale.
   - Resources and hooks see it as `ctx.locale`.
   - Field labels, help, placeholders and enum value labels take the same `{ en, fa }` form (see Fields and forms).
@@ -374,32 +374,45 @@ A storefront needs the public files (product images, the shop's logo) without an
 
 ```ts
 import { AdminFiles } from '@nest-my-admin/core';
-import { Controller, Get, NotFoundException, Param, Res, StreamableFile } from '@nestjs/common';
-import type { Response } from 'express';
+import { Controller, Get, NotFoundException, Param, Req, Res, StreamableFile } from '@nestjs/common';
+import type { Request, Response } from 'express';
+
+/** Images a browser may show in place; everything else is downloaded. */
+const RASTER = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
 
 @Controller('media')
 export class MediaController {
   constructor(private readonly files: AdminFiles) {}   // AdminModule is global: nothing to import
 
   @Get('*key')                                          // Nest 11 (Express 5): the segments of the key
-  async serve(@Param('key') key: string | string[], @Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
-    const file = await this.files.openPublic(Array.isArray(key) ? key.join('/') : key);
+  async serve(@Param('key') key: string | string[], @Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<StreamableFile | undefined> {
+    const path = Array.isArray(key) ? key.join('/') : key;
+    // Express answers HEAD with the GET route: the row is enough for that, the object is not opened.
+    const file = req.method === 'HEAD' ? await this.files.publicFile(path) : await this.files.openPublic(path);
     if (!file) throw new NotFoundException();
-    res.set({
-      'Content-Type': file.contentType,
-      'Content-Length': String(file.size),
-      'Cache-Control': 'public, max-age=31536000, immutable',   // a replaced file gets a new key
-      'X-Content-Type-Options': 'nosniff',
-    });
-    return new StreamableFile(file.body);
+    res.setHeader('Content-Type', file.contentType.startsWith('text/') ? 'text/plain; charset=utf-8' : file.contentType);
+    res.setHeader('Content-Length', String(file.size));
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');   // a replaced file gets a new key
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    if (!RASTER.has(file.contentType)) {
+      const name = encodeURIComponent(file.name).replace(/['()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${name}`);
+    }
+    if (!('body' in file)) return undefined;
+    const { body } = file;
+    res.on('close', () => body.destroy());   // a reader who leaves early must not keep the file or the connection open
+    return new StreamableFile(body);
   }
 }
 ```
 
+- **Keep the headers.** Uploaded bytes are someone else's content served from your origin. `nosniff` and the type found at upload stop a browser from guessing another type; the `Content-Security-Policy` stops anything served here from running or loading anything if it is opened as a page; everything but a raster image is a download (`Content-Disposition: attachment`), and text is only ever `text/plain`. This is what the admin's own download route does.
 - `publicFile(key)` answers `{ key, name, contentType, size }` or `null`, from the `nma_file` table alone (the storage is not touched): enough for a `HEAD`, or to decide before streaming.
-- `openPublic(key)` makes the same check and then reads the storage: `{ body, contentType, size, name }`, or `null` when the key is not a public file or the object is gone from the storage.
+- `openPublic(key)` makes the same check and then reads the storage: `{ body, contentType, size, name }`, or `null` when the key is not a public file or the object is gone from the storage. `size` is the stored object's size, or the size recorded at upload when the storage does not report one. **Consume `body` or destroy it**: an unread body holds a file descriptor or a connection to the storage.
 - **Public** means a row with `visibility: 'public'` (the field's `file: { visibility: 'public' }`) and `status: 'attached'` (a saved record or settings page holds it). A private file, an upload nobody saved yet, a file its record let go of and a key the admin never issued are all `null`, and so is anything that is not a key (an empty string, `..` segments, a backslash, more than 500 characters): neither method throws for what a key is, so the key can come straight from the URL. No permission is checked.
-- `contentType` is the type the admin found in the file's bytes at upload, never what the uploader claimed. Send `X-Content-Type-Options: nosniff` with it. The long `Cache-Control` is safe for the key (a replaced file gets a new one), but a file that is removed or made private stays in browser and CDN caches until it expires there; choose the lifetime with that in mind.
+- **Public is what was recorded at upload.** `AdminFiles` goes by the row's visibility, set from the field's `file.visibility` when the file was uploaded: a field you later make private keeps its earlier files public (new uploads are private). A record in the trash still holds its files, so its public files are still served; they stop when the record is purged or the file is removed from it.
+- `contentType` is the type the admin found in the file's bytes at upload, never what the uploader claimed. The long `Cache-Control` is safe for the key (a replaced file gets a new one), but a file that is removed or made private stays in browser and CDN caches until it expires there; choose the lifetime with that in mind.
 - `AdminFiles` is always injectable and follows `files.dataSource`. In an admin without `files`, both methods reject with an error that says `files` is missing (`files.enabled` tells beforehand); before the application has started they reject too.
 - The admin's own `url` for a public file without a `publicBaseUrl` is `<path>/api/files/<key>`, which needs an admin session: build your storefront's link from the key (`/media/${key}`) instead.
 
@@ -746,14 +759,14 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
 
 ## Upgrading to 0.2.1
 
-Nothing in 0.2.1 breaks an app that runs on 0.2.0: no option or export was removed or changed, no table or stored key changed, and permissions decide as before. All five packages (`@nest-my-admin/core`, `ui`, `auth`, `testing` and `nest-my-admin`) are 0.2.1; keep core and UI on the same version.
+Nothing in 0.2.1 breaks an app that runs on 0.2.0: no option or export was removed or changed, no table or stored key changed, and permissions decide as before. All five packages (`@nest-my-admin/core`, `ui`, `auth`, `testing` and `nest-my-admin`) are 0.2.1. Upgrade them together: `@nest-my-admin/auth` and `@nest-my-admin/testing` peer on the exact core version (0.2.1 of either does not install next to core 0.2.0), and core brings the UI of its own version.
 
 **New**
 
 - **`@AdminGroup` by key, for any members.** A module's `@AdminGroup` now configures the group of its key whoever the members are, also when they are only settings pages that say `group: '<key>'`, and also when the module provides nothing. See [Sidebar groups and order](#sidebar-groups-and-order).
 - **`order`** on `@AdminResource` and `@AdminSettingsPage`: the place inside the group (lower first, default 100, then by label).
 - **`AdminFiles`** (`publicFile(key)`, `openPublic(key)`): which keys are public files, for a host that serves them itself. See "Serving public files yourself" under [Files](#files-images-and-rich-text).
-- **The page speaks the reader's language**: `<html lang dir>`, `<title>`, `Content-Language` and `Vary: Accept-Language` on `GET <path>/`.
+- **The page is in the admin's language**: `GET <path>/` answers `<html lang dir>`, `<title>` and `Content-Language` for the default `locale` and your `title`.
 - **Documented:** the storage key of a settings page's file, `page/<name>/<field>/<yyyy>/<mm>/<uuid><ext>` (unchanged; it was only in the source).
 
 **What a 0.2.0 app may notice**
@@ -761,7 +774,7 @@ Nothing in 0.2.1 breaks an app that runs on 0.2.0: no option or export was remov
 - **A sidebar group can change its label, icon and place.** In 0.2.0 an `@AdminGroup` was read only when its module provided a resource, or a page without `group`. A group reached only through `group: '<key>'` therefore showed the key as its label ("Settings"), with no icon and order 100, even though a module carried `@AdminGroup({ key: '<key>', … })` (or was named like the key and carried `@AdminGroup` without a `key`). In 0.2.1 that module's label, icon and order apply. Group keys, URLs (`/g/<key>`) and permissions are unchanged. If you worked around it by leaving `group` off some pages, both spellings now give the same group.
   - A module that carries `@AdminGroup` now also wins over a module without the decorator whose name gives the same key, whichever is imported first (in 0.2.0, the one whose resource was registered first).
   - Two modules that configure one key differently: the first in import order wins (in 0.2.0, the first that had a resource or a page registered, which is nearly always the same), and 0.2.1 logs a warning at boot that names both.
-- **The served HTML.** `GET <path>/` used to answer `<html lang="en" dir="ltr">` and `<title>Admin</title>` for everyone. It now answers in the language picked from `Accept-Language` (else the default `locale`), with your `title`, and with `Content-Language` and `Vary: Accept-Language`; `Cache-Control` is still `no-cache`. The UI behaves as before once it runs. If you serve your own UI build (`uiDistPath`), the `lang` and `dir` of its `<html>` and its `<title>` are replaced the same way.
+- **The served HTML.** `GET <path>/` used to answer `<html lang="en" dir="ltr">` and `<title>Admin</title>` whatever the admin's language. It now answers with the default `locale` (`lang`, `dir`, `Content-Language`) and your `title` in it. The page is still one page for every request (it does not vary by `Accept-Language`, and there is no `Vary` header), and `Cache-Control` is still `no-cache`. An admin with `locale: 'en'` and no `title` gets byte-for-byte what it got before, plus `Content-Language: en`. The UI behaves as before once it runs. If you serve your own UI build (`uiDistPath`), the `lang` and `dir` of its `<html>` and the `<title>` of its `<head>` are replaced the same way.
 - **Boot fails for `order` that is not a finite number** on a resource or a settings page. TypeScript did not accept the option in 0.2.0, so only untyped code that already passed one can be hit.
 
 ## Upgrading to 0.2

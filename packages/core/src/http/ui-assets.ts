@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream';
 import type { AdminRuntimeConfig } from '../contract.js';
-import { isRtlLocale, pickLocale, resolveText, type LocalizedText } from '../i18n/localized-text.js';
+import { isRtlLocale, resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import type { AdminRequest } from './http-io.js';
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -58,9 +58,11 @@ export function localizeDocument(html: string, page: { locale: string; title: st
     const kept = (rest ?? '').replace(/\s+(?:lang|dir)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '').replace(/\s+$/, '');
     return `<html${kept}${attributes}>`;
   });
-  if (/<title(\s[^>]*)?>[^]*?<\/title>/i.test(out)) out = out.replace(/<title(\s[^>]*)?>[^]*?<\/title>/i, () => title);
-  else out = out.replace(/<head(\s[^>]*)?>/i, (match) => match + title);
-  return out;
+  // The page title is the <title> of <head>: one elsewhere (an inline SVG's) names something else and is left alone.
+  return out.replace(/(<head(?:\s[^>]*)?>)([^]*?)(<\/head\s*>|$)/i, (_match, open: string, head: string, close: string) => {
+    const own = /<title(\s[^>]*)?>[^]*?<\/title>/i;
+    return open + (own.test(head) ? head.replace(own, () => title) : title + head) + close;
+  });
 }
 
 /** Inserts `<base href>` (so relative assets load from deep links) and the runtime config as an inert JSON block (an executable inline script would be blocked by helmet's default CSP). */
@@ -96,7 +98,7 @@ export function resolveStaticFile(root: string, pathname: string): string | unde
   }
 }
 
-/** What the HTML page says about itself, per language. */
+/** What the HTML page says about itself. */
 export interface UiPageOptions {
   /** The admin's `title`, in every language given. Defaults to the runtime config's title. */
   title?: LocalizedText;
@@ -104,32 +106,19 @@ export interface UiPageOptions {
 
 export class UiAssets {
   private readonly root: string;
-  /** index.html as built (or the "missing build" page), before anything is injected. */
-  private readonly template: string;
-  private readonly title: LocalizedText;
-  /** The page per locale: there are only as many as the admin has `locales`. */
-  private readonly pages = new Map<string, string>();
+  /** index.html as served: in the admin's default locale, with `<base href>` and the runtime config. */
+  private readonly indexHtml: string;
 
   constructor(distDir: string, private readonly runtime: AdminRuntimeConfig, page: UiPageOptions = {}) {
     this.root = resolve(distDir);
     const indexPath = join(this.root, 'index.html');
-    this.template = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : MISSING_UI_HTML;
-    this.title = page.title ?? runtime.title;
-    this.page(runtime.locale); // a build without <head> fails at boot, not on the first request
-  }
-
-  /**
-   * index.html for a locale: `<html lang dir>` and `<title>` in that language, then `<base href>` and the runtime
-   * config. The config is the same for every locale (the UI starts from the admin's default or the saved choice).
-   */
-  private page(locale: string): string {
-    let html = this.pages.get(locale);
-    if (html === undefined) {
-      const title = resolveText(this.title, locale, this.runtime.locale);
-      html = injectRuntime(localizeDocument(this.template, { locale, title }), this.runtime);
-      this.pages.set(locale, html);
-    }
-    return html;
+    // index.html as built, or the "missing build" page.
+    const template = existsSync(indexPath) ? readFileSync(indexPath, 'utf8') : MISSING_UI_HTML;
+    // The page is in the admin's default locale for everyone: that is the language the UI starts in (unless the reader
+    // saved another choice, which lives in their browser where the server cannot see it), so `lang`, `dir` and the
+    // title are right from the first byte for everyone who has not switched. `Accept-Language` is not consulted.
+    const title = resolveText(page.title ?? runtime.title, runtime.locale, runtime.locale);
+    this.indexHtml = injectRuntime(localizeDocument(template, { locale: runtime.locale, title }), runtime);
   }
 
   /** Serves a file, 404s a missing /assets/* file, and falls back to index.html for client-side routes. */
@@ -143,12 +132,9 @@ export class UiAssets {
       this.send(req, res, 404, 'text/plain; charset=utf-8', 'Not found', 'no-store');
       return;
     }
-    // The same choice as the API's (`pickLocale`), so the page and its labels agree; caches keep the languages apart,
-    // and `no-cache` makes every use of a stored copy ask again.
-    const locale = pickLocale(req.headers['accept-language'], this.runtime.locales, this.runtime.locale);
-    res.setHeader('Content-Language', locale);
-    res.setHeader('Vary', 'Accept-Language');
-    this.send(req, res, 200, 'text/html; charset=utf-8', this.page(locale), 'no-cache');
+    // One page for every request: no `Vary` (a host's own `Vary` header is left as it is).
+    res.setHeader('Content-Language', this.runtime.locale);
+    this.send(req, res, 200, 'text/html; charset=utf-8', this.indexHtml, 'no-cache');
   }
 
   private sendFile(file: string, pathname: string, req: AdminRequest, res: ServerResponse): void {

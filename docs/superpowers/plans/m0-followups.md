@@ -242,3 +242,9 @@ Open after the final review of M4 (the fixes it asked for are in; these are not)
 - `LoginFailures`: the address-wide `limited` entry (the 51st) is recorded even when its pair is already over its own cap. Named `SUPPRESSED` summaries are budgeted at 100 a minute for the process and the rest are summed without their addresses (401 rows a minute at most, `MAX_ROWS_PER_MINUTE`); counts still open or carried when the process stops are lost.
 - `StoredRow.gone` is about the key the request named: an action that changes its record's primary key, or moves a single-table-inheritance child to another type, reads as gone (history ended, files released while the row names them). Documented, not detected.
 - With `transactions: false` and TypeORM replication the stored-row read may hit a lagging replica and answer "gone" for a row that was just created; forcing it to the master needs a query runner around the read.
+
+## 0.2.1 follow-ups
+- The served page (`<html lang dir>`, `<title>`) is always in the admin's default locale; a reader who switched language gets that page until the script runs. Following the reader's own switch needs the UI to write its choice somewhere the server reads (a cookie scoped to the admin path), and then `Vary: Cookie` or `private` caching for the page.
+- `order` sorts resources among resources and pages among pages; a group still lists resources first. Mixing them needs `order` in `MetaResourceSummary`/`MetaPageSummary` and one merged list in the sidebar, the group page, the home page and the palette.
+- `AdminFiles` goes by the visibility recorded at upload: there is no way to make existing files of a field private (or public) after the fact, and a trashed record's public files stay served.
+- The README's public-files controller is exercised by a copy in `packages/core/test/admin-files.test.ts`; nothing checks that the two stay the same.

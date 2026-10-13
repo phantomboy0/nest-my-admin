@@ -109,6 +109,17 @@ describe('@AdminGroup by key', () => {
     expect(groupOf(meta, 'odds-and-ends')!.icon).toBeUndefined();
   });
 
+  test('a module with @AdminGroup wins over an undecorated module whose name gives the same key, in either import order', async () => {
+    for (const reversed of [false, true]) {
+      // `SettingsModule` forms the group "settings" by its name; `LabelsModule` configures that key.
+      const imports = [moduleOf([resource(Alpha), page('general')], undefined, 'Settings'), moduleOf([page('branding', { group: 'settings' })], SETTINGS, 'Labels')];
+      const settings = groupOf(await metaOf(reversed ? imports.reverse() : imports, 'fa'), 'settings')!;
+      expect(settings).toMatchObject({ label: 'تنظیمات', icon: 'settings' });
+      expect(settings.resources.map((item) => item.name)).toEqual(['alpha']);
+      expect(settings.pages.map((item) => item.name).sort()).toEqual(['branding', 'general']);
+    }
+  });
+
   test('two modules claiming one key: the first one wins, with a warning at boot when they differ', async () => {
     const warned = spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     try {

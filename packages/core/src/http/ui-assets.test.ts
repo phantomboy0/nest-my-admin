@@ -161,6 +161,18 @@ describe('localizeDocument', () => {
     expect(localizeDocument('<head></head>', { locale: 'en', title: 'Shop' })).toBe('<head><title>Shop</title></head>');
   });
 
+  test('only the <title> of <head> is the page title: one inside an inline SVG is left alone', () => {
+    const svg = '<svg><title>Logo</title></svg>';
+    // A custom build with an inline SVG before, inside and after the head.
+    expect(localizeDocument(`<html>${svg}<head><meta charset="utf-8"><title>Admin</title></head><body>${svg}</body></html>`, { locale: 'en', title: 'Shop' })).toBe(
+      `<html lang="en" dir="ltr">${svg}<head><meta charset="utf-8"><title>Shop</title></head><body>${svg}</body></html>`,
+    );
+    // No title in the head: one is added there, and the SVG's stays.
+    expect(localizeDocument(`<html><head></head><body>${svg}</body></html>`, { locale: 'en', title: 'Shop' })).toBe(`<html lang="en" dir="ltr"><head><title>Shop</title></head><body>${svg}</body></html>`);
+    // An SVG inside the head (unusual, but its title is still not the page's first choice when a page title follows).
+    expect(localizeDocument('<head><title>Admin</title></head><title>stray</title>', { locale: 'en', title: 'Shop' })).toBe('<head><title>Shop</title></head><title>stray</title>');
+  });
+
   test('escapes the title and the locale; `$` in a title is text', () => {
     expect(localizeDocument('<html><head><title>x</title></head></html>', { locale: 'a"b', title: '<$&> & $1' })).toBe('<html lang="a&quot;b" dir="ltr"><head><title>&lt;$&amp;&gt; &amp; $1</title></head></html>');
   });

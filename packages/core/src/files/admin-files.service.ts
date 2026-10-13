@@ -21,7 +21,7 @@ export interface AdminPublicFileBody {
   body: Readable;
   /** The type the admin found in the file's bytes at upload. */
   contentType: string;
-  /** Bytes, as the storage reports them. */
+  /** The stored object's size in bytes, or the size recorded at upload when the storage does not report one. */
   size: number;
   name: string;
 }
@@ -43,7 +43,9 @@ const MAX_KEY_LENGTH = 500;
  * A key is a public file only while its `nma_file` row is `visibility: 'public'` (the field's `file.visibility`) and
  * `status: 'attached'` (a saved record or settings page holds it). Private files, uploads nobody saved yet, files a
  * record let go of and keys the admin never issued are all `null`: the methods never throw for what a key is, so a
- * key can come straight from a URL. No permission is checked: public means for everyone.
+ * key can come straight from a URL. No permission is checked: public means for everyone. The visibility is the one
+ * recorded when the file was uploaded: a field made private later keeps its earlier files public, and a record in the
+ * trash still holds its files.
  *
  * It is always injectable. In an admin without `files` both methods reject with an error that says so (`enabled`
  * tells beforehand); it works with `files.dataSource` set to any DataSource.
@@ -68,13 +70,15 @@ export class AdminFiles {
 
   /**
    * The bytes of the file with this key when it is public and attached; `null` otherwise, and when the storage no
-   * longer has the object. The storage is read only after the row was found. Consume or destroy `body`.
+   * longer has the object. The storage is read only after the row was found. Consume `body` or destroy it: an unread
+   * body holds a file descriptor or a connection of the storage.
    */
   async openPublic(key: string): Promise<AdminPublicFileBody | null> {
     const row = await this.publicRow(key);
     if (!row) return null;
     const object = await this.files.storage.get(row.key);
-    return object ? { body: object.body, contentType: row.contentType, size: object.size, name: row.name } : null;
+    // A storage that cannot tell (s3Storage answers 0 for a response without Content-Length) gets the recorded size.
+    return object ? { body: object.body, contentType: row.contentType, size: object.size > 0 ? object.size : row.size, name: row.name } : null;
   }
 
   private async publicRow(key: unknown): Promise<NmaFile | null> {
