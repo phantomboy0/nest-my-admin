@@ -4,7 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, unlinkSync, rmSync, r
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { injectRuntime, resolveStaticFile, UiAssets } from './ui-assets.js';
+import { isRtlLocale } from '../i18n/localized-text.js';
+import { injectRuntime, localizeDocument, resolveStaticFile, UiAssets } from './ui-assets.js';
 
 const root = fileURLToPath(new URL('../../test/fixtures/ui-dist', import.meta.url));
 const runtime = { basePath: '/admin', apiBase: '/admin/api', title: 'Shop', locale: 'en', locales: ['en'], branding: {} };
@@ -145,5 +146,27 @@ describe('UiAssets', () => {
     } finally {
       rmSync(tempDir, { recursive: true });
     }
+  });
+});
+
+describe('localizeDocument', () => {
+  test('sets lang and dir on <html>, replacing what the build wrote, and the title', () => {
+    const html = localizeDocument('<!doctype html>\n<html class="x" lang="en" dir="ltr" data-a="1">\n<head><title>Admin</title></head></html>', { locale: 'fa', title: 'مدیریت' });
+    expect(html).toBe('<!doctype html>\n<html class="x" data-a="1" lang="fa" dir="rtl">\n<head><title>مدیریت</title></head></html>');
+  });
+
+  test('adds what is missing: attributes, the title', () => {
+    expect(localizeDocument('<html><head><meta charset="utf-8"></head></html>', { locale: 'en', title: 'Shop' })).toBe('<html lang="en" dir="ltr"><head><title>Shop</title><meta charset="utf-8"></head></html>');
+    // A fragment without <html> is left without one.
+    expect(localizeDocument('<head></head>', { locale: 'en', title: 'Shop' })).toBe('<head><title>Shop</title></head>');
+  });
+
+  test('escapes the title and the locale; `$` in a title is text', () => {
+    expect(localizeDocument('<html><head><title>x</title></head></html>', { locale: 'a"b', title: '<$&> & $1' })).toBe('<html lang="a&quot;b" dir="ltr"><head><title>&lt;$&amp;&gt; &amp; $1</title></head></html>');
+  });
+
+  test('right-to-left for the languages the UI lays out that way, by primary subtag', () => {
+    for (const locale of ['fa', 'ar', 'he', 'ur', 'fa-IR']) expect(isRtlLocale(locale)).toBe(true);
+    for (const locale of ['en', 'de', 'tr', 'far']) expect(isRtlLocale(locale)).toBe(false);
   });
 });

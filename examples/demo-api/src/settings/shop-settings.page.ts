@@ -25,6 +25,8 @@ export class ShopSettingsDto {
 @AdminSettingsPage('shop', {
   label: { en: 'Shop settings', fa: 'تنظیمات فروشگاه' },
   icon: 'store',
+  group: 'settings',
+  order: 10, // before any page added to the group later (the default is 100)
   form: ShopSettingsDto,
   fields: {
     shopName: { label: { en: 'Shop name', fa: 'نام فروشگاه' } },

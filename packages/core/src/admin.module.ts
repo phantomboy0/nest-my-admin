@@ -6,6 +6,7 @@ import { AuditReader } from './audit/audit-reader.js';
 import { AdminAudit } from './audit/audit.service.js';
 import { AdminAuthService } from './auth/auth.service.js';
 import { AdminPolicy } from './policy/admin-policy.service.js';
+import { AdminFiles } from './files/admin-files.service.js';
 import { FilesService } from './files/files.service.js';
 import { AdminRbac } from './rbac/rbac.service.js';
 import { AdminHttpServer } from './http/admin-http.server.js';
@@ -28,12 +29,13 @@ export class AdminModule {
         AdminAudit,
         AdminRbac,
         FilesService,
+        AdminFiles,
         AdminPolicy,
         AdminApiService,
         AuditReader,
         AdminHttpServer,
       ],
-      exports: [ResourceRegistry],
+      exports: [ResourceRegistry, AdminFiles],
     };
   }
 }

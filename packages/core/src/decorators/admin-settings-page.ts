@@ -9,9 +9,17 @@ import type { AdminFieldOptions } from './admin-field.js';
 export interface AdminSettingsPageOptions<T extends object = any> {
   /** `'Payments'` or `{ en: 'Payments', fa: 'پرداخت' }`. Defaults to the humanized page name. */
   label?: LocalizedText;
-  /** Sidebar group key. Defaults to the group of the Nest module that provides the page. */
+  /**
+   * Sidebar group key. Defaults to the group of the Nest module that provides the page. The label, icon and order of
+   * a keyed group come from the module whose `@AdminGroup` has that `key` (any module of the app).
+   */
   group?: string;
   icon?: string;
+  /**
+   * Where the page stands among the settings pages of its group: lower comes first, then by label. Default 100.
+   * (A group lists its resources first, then its settings pages.)
+   */
+  order?: number;
   /**
    * The DTO describing the form: one field per property with a class-validator decorator. A save is validated like a
    * PATCH: only what was sent, whitelisted. `@AdminField` on its properties sets labels, help and widgets.

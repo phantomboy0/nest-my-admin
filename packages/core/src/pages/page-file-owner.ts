@@ -11,6 +11,12 @@ export const PAGE_RECORD_ID = 'page';
 /**
  * A settings page as the owner of its files: uploading and changing need `page.{name}.update`, downloading
  * `page.{name}`, and what the page holds is what its `load()` returns for the field now.
+ *
+ * Two spellings, both part of what hosts rely on (stored rows and objects exist; `test/admin-files.test.ts` pins them):
+ *
+ * - the owner is `page:<name>`: the upload is `POST /api/uploads?resource=page:<name>&field=<field>`, and
+ *   `nma_file.resource` holds `page:<name>` (with `recordId` = `page`);
+ * - the storage key is `page/<name>/<field>/<yyyy>/<mm>/<uuid><ext>`, with a slash.
  */
 export function pageFileOwner(page: RegisteredPage, policy: AdminPolicy): FileOwner {
   return {

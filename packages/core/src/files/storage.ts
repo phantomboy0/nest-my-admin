@@ -5,7 +5,19 @@ import { dirname, join, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-/** Where uploaded files live. Implement it for any other store; keys are `<resource>/<field>/<yyyy>/<mm>/<uuid><ext>`. */
+/**
+ * Where uploaded files live. Implement it for any other store.
+ *
+ * Keys are relative paths the admin makes up at upload and never changes:
+ *
+ * - a resource's file: `<resource>/<field>/<yyyy>/<mm>/<uuid><ext>` (`product/logo/2026/10/<uuid>.png`);
+ * - a settings page's file: `page/<name>/<field>/<yyyy>/<mm>/<uuid><ext>` (`page/branding/logo/2026/10/<uuid>.png`).
+ *   The page is named `page:<name>` everywhere else (the upload's `resource=page:<name>`, `nma_file.resource`); the
+ *   key has a slash there because a colon is not a file name everywhere.
+ *
+ * `<yyyy>/<mm>` is the upload's month in UTC, `<uuid>` a random UUID, `<ext>` the extension of the type found in the
+ * file's bytes (with its dot; empty when the type has none).
+ */
 export interface AdminStorage {
   put(key: string, body: Readable, info: { contentType: string; size: number }): Promise<void>;
   get(key: string): Promise<{ body: Readable; contentType: string; size: number } | null>;

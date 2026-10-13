@@ -79,6 +79,11 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     return this.options.files.storage;
   }
 
+  /** Whether the `nma_file` DataSource was found (at `onApplicationBootstrap`, when `files` is configured). */
+  get ready(): boolean {
+    return this.dataSource !== undefined;
+  }
+
   /** The DataSource holding the `nma_file` table. */
   get db(): DataSource {
     if (!this.dataSource) throw new AdminNotFoundError('File uploads are not enabled in this admin');

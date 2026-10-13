@@ -29,3 +29,11 @@ export function pickLocale(acceptLanguage: string | undefined, locales: readonly
   }
   return fallback;
 }
+
+/** Languages written right to left. The UI has the same list (`RTL` in packages/ui/src/i18n/index.tsx): keep them equal. */
+const RTL_LANGUAGES = new Set(['fa', 'ar', 'he', 'ur']);
+
+/** Whether a locale (`fa`, `fa-IR`) is laid out right to left. */
+export function isRtlLocale(locale: string): boolean {
+  return RTL_LANGUAGES.has(locale.split('-')[0]!.toLowerCase());
+}

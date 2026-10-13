@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaPageSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
+import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { persianLike } from '../i18n/persian.js';
 import { toErrorResponse } from '../http/error-response.js';
@@ -74,6 +74,9 @@ export class AdminApiService {
     // Only resources the user may view (spec §6.5: meta is filtered per user).
     const resources = this.registry.list().filter((entry) => !ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view'));
     const pages = this.pages.summaries(locale, ctx);
+    // Inside a group: `order` first (lower first), then the label in the request's language.
+    const byOrder = (a: { order: number; summary: { label: string } }, b: { order: number; summary: { label: string } }) =>
+      a.order - b.order || a.summary.label.localeCompare(b.summary.label, locale);
     const groups = this.registry
       .groupList()
       .map((group) => ({
@@ -84,13 +87,16 @@ export class AdminApiService {
           .map((entry) => {
             const { schema, label } = entry;
             const seen = ctx ? this.view(entry, ctx).schema : schema;
-            return { name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}), creatable: seen.creatable, searchable: seen.list.search.length > 0 };
+            const summary: MetaResourceSummary = { name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}), creatable: seen.creatable, searchable: seen.list.search.length > 0 };
+            return { order: entry.order, summary };
           })
-          .sort((a, b) => a.label.localeCompare(b.label, locale)),
+          .sort(byOrder)
+          .map(({ summary }) => summary),
         pages: pages
           .filter((page) => page.group === group.key)
-          .map(({ group: _group, ...page }): MetaPageSummary => page)
-          .sort((a, b) => a.label.localeCompare(b.label, locale)),
+          .map(({ group: _group, order, ...summary }) => ({ order, summary: summary as MetaPageSummary }))
+          .sort(byOrder)
+          .map(({ summary }) => summary),
       }))
       // A group may hold only settings pages.
       .filter((entry) => entry.resources.length > 0 || entry.pages.length > 0)

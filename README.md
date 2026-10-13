@@ -3,7 +3,9 @@
 A Django-admin-class admin panel for **NestJS + TypeORM**: declarative resources, forms from your DTOs,
 admin writes that go through your own services, and a prebuilt shadcn UI served by Nest itself.
 
-> Status: pre-alpha, version 0.2 (lists and forms, sign-in, permissions, files and rich text, actions, settings pages, audit log). APIs will change.
+> Status: pre-alpha, version 0.2.1 (lists and forms, sign-in, permissions, files and rich text, actions, settings pages, audit log). APIs will change.
+>
+> **Upgrading from 0.2.0:** nothing breaks; see [Upgrading to 0.2.1](#upgrading-to-021) for what is new and what you may notice.
 >
 > **Upgrading from 0.1:** boot can now fail for an app that booted before, and a few behaviours changed. See [Upgrading to 0.2](#upgrading-to-02).
 
@@ -49,6 +51,23 @@ fields with `list: { filters: [...], search: [...] }`; hooks (`@BeforeSave`, `@A
 in the default create/update/delete, and `AdminModule.forRoot({ autoRegister: true })` exposes every entity
 without a resource. `ne` and `nin` exclude NULLs (SQL semantics), and datetime filter values must be ISO-8601
 with a time zone.
+
+### Sidebar groups and order
+
+```ts
+@AdminGroup({ key: 'settings', label: { en: 'Settings', fa: 'تنظیمات' }, icon: 'settings', order: 900 })
+@Module({ providers: [BrandingPage, SeoPage] })
+export class SettingsModule {}
+
+@AdminSettingsPage('branding', { group: 'settings', order: 10, form: BrandingDto })   // first
+@AdminSettingsPage('seo', { group: 'settings', order: 20, form: SeoDto })             // second
+@AdminResource(Product, { order: 10 })                                                // first among its group's resources
+```
+
+- **A group is a Nest module.** Resources and settings pages go to the group of the module that provides them; `@AdminGroup` on the module sets its `key` (default: the module's name in kebab-case, without `Module`), `label`, `icon` and `order` (lower first, default 100; then by label).
+- **`group: '<key>'`** on a resource or a page puts it into another group. That group is configured by the module whose `@AdminGroup` has that key: any module of the app, whether the group's members are its own or not, resources, pages or both, in any import order. Such a module may provide nothing at all. A key that no `@AdminGroup` names gets its key as label (`odds-and-ends` → "Odds and ends"), no icon and order 100.
+- **One module per key.** When two modules configure the same key with a different label, icon or order, the first one Nest discovers (import order) wins and a warning is logged at boot. The same options twice are fine.
+- **`order` inside a group.** `@AdminResource(Entity, { order })` and `@AdminSettingsPage(name, { order })`: lower comes first, then the label in the reader's language; the default is 100, as for groups. A group lists its resources first and its settings pages after them, so `order` sorts resources among resources and pages among pages. The sidebar, the group's page, the home page and the command palette all show this order. `order` must be a finite number, or boot fails.
 
 ### Customising lists
 
@@ -183,6 +202,8 @@ AdminModule.forRoot({
 
 - **Languages.**
   - The language switch appears when there is more than one locale, and the choice is remembered in the browser.
+  - The page itself (`GET <path>/` and every deep link) is served as `<html lang dir>` with the `title` in one language as `<title>`: the best of `locales` for the browser's `Accept-Language`, else the default `locale`. That is how the API picks too. `dir` is `rtl` for `fa`, `ar`, `he` and `ur`. The response carries `Content-Language` and `Vary: Accept-Language`, with `Cache-Control: no-cache`.
+  - Once its script runs, the UI sets `lang`, `dir` and the title again for the language in use: the remembered choice, else the default `locale` (not the browser's language). For someone whose browser prefers another of your `locales`, the served page and the running UI therefore differ for that moment.
   - The UI sends it as `Accept-Language`. Labels given per language answer in it, falling back to the default
     locale.
   - Resources and hooks see it as `ctx.locale`.
@@ -305,6 +326,15 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - `s3Storage({ endpoint, region, bucket, accessKeyId, secretAccessKey, publicBaseUrl?, forcePathStyle? })` works with S3 and compatible stores (MinIO, R2), with no SDK.
   - Anything else: implement `AdminStorage` (`put`, `get`, `delete`, `publicUrl`).
   - Files are tracked in the `nma_file` table (`ADMIN_FILE_ENTITIES`; `files.dataSource` names another DataSource).
+- **Storage keys.** The admin makes up a key at upload and never changes it:
+
+  | The file of | Upload query | `nma_file.resource` / `recordId` | Storage key |
+  | --- | --- | --- | --- |
+  | a resource's record | `resource=<resource>&field=<field>` | `<resource>` / the record's id | `<resource>/<field>/<yyyy>/<mm>/<uuid><ext>` |
+  | a settings page | `resource=page:<name>&field=<field>` | `page:<name>` / `page` | `page/<name>/<field>/<yyyy>/<mm>/<uuid><ext>` |
+
+  - `<yyyy>/<mm>` is the month of the upload in UTC, `<uuid>` a random UUID, and `<ext>` the extension of the type found in the bytes (`.png`, `.pdf`; nothing when the type has none).
+  - A page is written `page:<name>` wherever it is named as the owner, and `page/<name>/` in the key: a colon is not a file name everywhere. Example: `page/branding/logo/2026/10/ca56b927-6a9a-40c9-8967-28a6433f7b59.png`.
 - **Fields.**
   - The column holds the storage key (`product/image/2026/10/<uuid>.png`), or the list of keys for `many`. Records carry `_files[field]` with each file's `name`, `size`, `contentType` and `url`.
   - `file.accept` lists types (`image/*`, `application/pdf`); the image widget defaults to `image/*`. `file.maxBytes` overrides `files.maxBytes` (default 10 MiB); both stop at 2147483647 bytes (2 GiB - 1).
@@ -325,7 +355,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - The stored HTML holds the full URL of each image. Changing the admin `path` or the storage's `publicBaseUrl` later breaks the images of existing records (and the admin no longer recognises them as the record's files), so rewrite the stored HTML when you move either.
   - **Duplicate** copies the text without its images, for the same reason it copies no files.
   - The editor is a separate chunk of the UI, loaded only by forms with a rich-text field.
-- **API.** `POST /api/uploads?resource=&field=` takes the file itself as the request body (not multipart) with `Content-Type: application/octet-stream`, `Content-Length` and an optional percent-encoded `X-File-Name`, and answers `{ token, name, contentType, size, url? }`. Do not send the file's own type: a body parser of your app (Nest's JSON parser, for one) would read an `application/json` body before the admin does, and the upload is then refused with a 400 that says so. A write then sends `{ token }` for a new file, `{ key }` to keep a stored one, or `null`; a `many` field sends the whole list. Sending the same `{ token }` again for the same record and field (a retry after a lost answer) keeps the file.
+- **API.** `POST /api/uploads?resource=&field=` (`resource=page:<name>` for a settings page) takes the file itself as the request body (not multipart) with `Content-Type: application/octet-stream`, `Content-Length` and an optional percent-encoded `X-File-Name`, and answers `{ token, name, contentType, size, url? }`. Do not send the file's own type: a body parser of your app (Nest's JSON parser, for one) would read an `application/json` body before the admin does, and the upload is then refused with a 400 that says so. A write then sends `{ token }` for a new file, `{ key }` to keep a stored one, or `null`; a `many` field sends the whole list. Sending the same `{ token }` again for the same record and field (a retry after a lost answer) keeps the file.
 
 **Security notes**
 
@@ -337,6 +367,41 @@ export class ProductAdmin extends AdminResourceBase<Product> {
 - `localStorage` keeps public and private files in one directory. If you serve that directory yourself for `publicBaseUrl`, private files in it are reachable by anyone who learns their key; serve only what you mean to publish, or use a bucket with its own rules.
 - Rich text is sanitized on the server at every write, whatever the browser sent. Links keep http(s), mailto and relative addresses and get `rel="noopener noreferrer nofollow"`; an `<img>` is kept only when it points at a file of this admin that belongs to the record (or that the same user just uploaded for this field). A custom `files.sanitizeHtml` is trusted to do the same.
 - An unsaved upload can be fetched only by the user who made it.
+
+**Serving public files yourself**
+
+A storefront needs the public files (product images, the shop's logo) without an admin session. With a `publicBaseUrl` the storage serves them. Without one, serve them from a route of your own and ask `AdminFiles` which keys are public; do not read `nma_file` yourself.
+
+```ts
+import { AdminFiles } from '@nest-my-admin/core';
+import { Controller, Get, NotFoundException, Param, Res, StreamableFile } from '@nestjs/common';
+import type { Response } from 'express';
+
+@Controller('media')
+export class MediaController {
+  constructor(private readonly files: AdminFiles) {}   // AdminModule is global: nothing to import
+
+  @Get('*key')                                          // Nest 11 (Express 5): the segments of the key
+  async serve(@Param('key') key: string | string[], @Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
+    const file = await this.files.openPublic(Array.isArray(key) ? key.join('/') : key);
+    if (!file) throw new NotFoundException();
+    res.set({
+      'Content-Type': file.contentType,
+      'Content-Length': String(file.size),
+      'Cache-Control': 'public, max-age=31536000, immutable',   // a replaced file gets a new key
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return new StreamableFile(file.body);
+  }
+}
+```
+
+- `publicFile(key)` answers `{ key, name, contentType, size }` or `null`, from the `nma_file` table alone (the storage is not touched): enough for a `HEAD`, or to decide before streaming.
+- `openPublic(key)` makes the same check and then reads the storage: `{ body, contentType, size, name }`, or `null` when the key is not a public file or the object is gone from the storage.
+- **Public** means a row with `visibility: 'public'` (the field's `file: { visibility: 'public' }`) and `status: 'attached'` (a saved record or settings page holds it). A private file, an upload nobody saved yet, a file its record let go of and a key the admin never issued are all `null`, and so is anything that is not a key (an empty string, `..` segments, a backslash, more than 500 characters): neither method throws for what a key is, so the key can come straight from the URL. No permission is checked.
+- `contentType` is the type the admin found in the file's bytes at upload, never what the uploader claimed. Send `X-Content-Type-Options: nosniff` with it. The long `Cache-Control` is safe for the key (a replaced file gets a new one), but a file that is removed or made private stays in browser and CDN caches until it expires there; choose the lifetime with that in mind.
+- `AdminFiles` is always injectable and follows `files.dataSource`. In an admin without `files`, both methods reject with an error that says `files` is missing (`files.enabled` tells beforehand); before the application has started they reject too.
+- The admin's own `url` for a public file without a `publicBaseUrl` is `<path>/api/files/<key>`, which needs an admin session: build your storefront's link from the key (`/media/${key}`) instead.
 
 ### Actions
 
@@ -413,7 +478,7 @@ export class ShopSettingsPage implements AdminSettingsSource<ShopSettingsDto> {
 }
 ```
 
-- **What it is.** One form that is not a table: a provider with `load` and `save`, shown in the sidebar under its module's group (or `group: '<key>'`) at `/p/<name>`. A group may hold only pages. List the class in a module's `providers`.
+- **What it is.** One form that is not a table: a provider with `load` and `save`, shown in the sidebar under its module's group (or `group: '<key>'`) at `/p/<name>`. A group may hold only pages; its label, icon and order come from the module whose `@AdminGroup` has its key, and `order` places a page among the pages of its group (see [Sidebar groups and order](#sidebar-groups-and-order)). List the class in a module's `providers`.
 - **The form** comes from the DTO alone: one field per property with a class-validator decorator. `fields` and `@AdminField` set labels, help, widgets and `showIf`; `layout` works as on resources. `readonly`, `readonlyIf` and `restricted` do not exist on pages.
 - **`load(ctx)`** returns the stored values. Keys that are not form fields are dropped.
 - **`save(changes, ctx)`** gets only the keys that were sent: a save is partial and validated like a PATCH. The UI sends what changed; a group of fields (a nested DTO) is sent whole once one of its fields changed, so `save` can store it under its key.
@@ -424,7 +489,7 @@ export class ShopSettingsPage implements AdminSettingsSource<ShopSettingsDto> {
   - A save replaces it with any non-empty text, clears it with `null` (even when the DTO requires the property), and leaves it alone when the key is absent. An empty string is refused with 422: empty never means "clear".
   - `load` returns the secret like any other value (the admin needs to know whether one is set), and `save` gets the new text or `null`. Encrypt it in `save` if the table is not a safe place for it.
   - Never put a secret into an error message. As a last line of defence the admin replaces the exact values of secrets of 6 or more characters with `***` in errors leaving a save (messages, field errors, the log). That is best effort: shorter and transformed values are not found, and errors thrown by `load` outside a save are logged as thrown.
-- **Files.** File, image and rich-text fields work as on records, with `resource=page:<name>` for uploads. `save` gets an `AdminFile` (store its `key`) or `null`, and `load` returns the key, and `null` once the file was cleared: leaving the key out means "unknown", and the removed file is then kept. List fields (`many`) are not supported on pages.
+- **Files.** File, image and rich-text fields work as on records, with `resource=page:<name>&field=<field>` for uploads; the stored key is `page/<name>/<field>/<yyyy>/<mm>/<uuid><ext>` (see Storage keys under [Files](#files-images-and-rich-text)). `save` gets an `AdminFile` (store its `key`) or `null`, and `load` returns the key, and `null` once the file was cleared: leaving the key out means "unknown", and the removed file is then kept. List fields (`many`) are not supported on pages.
 - **Permissions.** `page.<name>` views the page and `page.<name>.update` saves it; whoever may save may view.
   - `*` and `page.*` grant both codes of every page, and `page.*.update` saves every page. Resource wildcards (`*.view`, `*.update`, `product.*`) never reach a page.
   - Without view, the page is a 404 and absent from the sidebar. With view only, the form is read-only. Viewing as someone is always read-only.
@@ -678,6 +743,26 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - **A delete on another connection** (MySQL, a service that ignores `ctx.manager`) is noticed by one more read right after the commit, and its entry is stamped as the record's end then. That step can miss: a key that is created again between the commit and the read leaves the entry unstamped; so does a crash, a failed read or a failed update in that step (failures are logged with the correlation id). An unstamped ending means a later record with the same key shows the earlier entries in its history.
   - **Read replicas.** Reads outside a transaction (that check after commit; with `transactions: false` the before and after images too) go through `dataSource.manager`, which TypeORM replication may send to a replica. A lagging replica then still shows a deleted row (no stamp), or shows an update as unchanged (a smaller diff, or no entry).
   - **Scopes that depend on a field.** A record's history is open to whoever may open the record now. A reader whose scope depends on a field (`ownerId`, a status) reads the values the record had before it entered their scope, in the fields they may view.
+
+## Upgrading to 0.2.1
+
+Nothing in 0.2.1 breaks an app that runs on 0.2.0: no option or export was removed or changed, no table or stored key changed, and permissions decide as before. All five packages (`@nest-my-admin/core`, `ui`, `auth`, `testing` and `nest-my-admin`) are 0.2.1; keep core and UI on the same version.
+
+**New**
+
+- **`@AdminGroup` by key, for any members.** A module's `@AdminGroup` now configures the group of its key whoever the members are, also when they are only settings pages that say `group: '<key>'`, and also when the module provides nothing. See [Sidebar groups and order](#sidebar-groups-and-order).
+- **`order`** on `@AdminResource` and `@AdminSettingsPage`: the place inside the group (lower first, default 100, then by label).
+- **`AdminFiles`** (`publicFile(key)`, `openPublic(key)`): which keys are public files, for a host that serves them itself. See "Serving public files yourself" under [Files](#files-images-and-rich-text).
+- **The page speaks the reader's language**: `<html lang dir>`, `<title>`, `Content-Language` and `Vary: Accept-Language` on `GET <path>/`.
+- **Documented:** the storage key of a settings page's file, `page/<name>/<field>/<yyyy>/<mm>/<uuid><ext>` (unchanged; it was only in the source).
+
+**What a 0.2.0 app may notice**
+
+- **A sidebar group can change its label, icon and place.** In 0.2.0 an `@AdminGroup` was read only when its module provided a resource, or a page without `group`. A group reached only through `group: '<key>'` therefore showed the key as its label ("Settings"), with no icon and order 100, even though a module carried `@AdminGroup({ key: '<key>', … })` (or was named like the key and carried `@AdminGroup` without a `key`). In 0.2.1 that module's label, icon and order apply. Group keys, URLs (`/g/<key>`) and permissions are unchanged. If you worked around it by leaving `group` off some pages, both spellings now give the same group.
+  - A module that carries `@AdminGroup` now also wins over a module without the decorator whose name gives the same key, whichever is imported first (in 0.2.0, the one whose resource was registered first).
+  - Two modules that configure one key differently: the first in import order wins (in 0.2.0, the first that had a resource or a page registered, which is nearly always the same), and 0.2.1 logs a warning at boot that names both.
+- **The served HTML.** `GET <path>/` used to answer `<html lang="en" dir="ltr">` and `<title>Admin</title>` for everyone. It now answers in the language picked from `Accept-Language` (else the default `locale`), with your `title`, and with `Content-Language` and `Vary: Accept-Language`; `Cache-Control` is still `no-cache`. The UI behaves as before once it runs. If you serve your own UI build (`uiDistPath`), the `lang` and `dir` of its `<html>` and its `<title>` are replaced the same way.
+- **Boot fails for `order` that is not a finite number** on a resource or a settings page. TypeScript did not accept the option in 0.2.0, so only untyped code that already passed one can be hit.
 
 ## Upgrading to 0.2
 

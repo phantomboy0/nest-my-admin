@@ -10,7 +10,7 @@ import type { LocalizedText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { customCodes } from '../policy/catalog.js';
 import { RESERVED_PAGE_NAMES, pageCode } from '../policy/roles.js';
-import { ResourceRegistry } from '../registry/resource-registry.js';
+import { ResourceRegistry, memberOrder } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import { buildDtoForm, nestedProtected, type DtoForm } from '../schema/dto-form.js';
 import type { DtoClass } from '../schema/dto-fields.js';
@@ -25,6 +25,8 @@ export interface RegisteredPage {
   label: LocalizedText;
   group: string;
   icon?: string;
+  /** Where the page stands among the pages of its group (`order`, default 100). */
+  order: number;
   dto: DtoClass;
   /** The form built from the DTO; texts in every language given. */
   form: DtoForm;
@@ -119,6 +121,7 @@ export class PageRegistry implements OnModuleInit, OnApplicationBootstrap {
     const existing = this.pages.get(name);
     if (existing) throw new Error(`Duplicate settings page name "${name}" (${existing.className} and ${className})`);
     if (typeof form !== 'function') fail('@AdminSettingsPage needs `form`: a DTO class');
+    const order = memberOrder(definition.order, fail);
     const source = instance as Partial<AdminSettingsSource<any>>;
     if (typeof source.load !== 'function' || typeof source.save !== 'function') fail('a settings page needs load(ctx) and save(changes, ctx) methods');
 
@@ -151,6 +154,7 @@ export class PageRegistry implements OnModuleInit, OnApplicationBootstrap {
       label: label ?? humanize(name),
       group: definition.group !== undefined ? this.registry.ensureGroup(definition.group) : this.registry.registerModuleGroup(moduleClass),
       ...(icon ? { icon } : {}),
+      order,
       dto: form,
       form: built,
       ...(layout ? { layout } : {}),

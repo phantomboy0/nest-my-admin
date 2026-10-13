@@ -46,6 +46,8 @@ export interface RegisteredResource {
   fieldConfig: Map<string, FieldConfig>;
   /** The resource's `@AdminAction`s by name, in declaration order, texts in every language given. */
   actions: ReadonlyMap<string, RegisteredAction>;
+  /** Where the resource stands among the resources of its group (`@AdminResource({ order })`, default 100). */
+  order: number;
 }
 
 /** TypeORM's RelationMetadata as the admin reads it (TypeORM does not export the class from its root). */
@@ -59,6 +61,16 @@ export interface RegisteredGroup {
 }
 
 const DEFAULT_GROUP_ORDER = 100;
+
+/** `order` of a resource or a settings page that sets none: the same default as a group's. */
+export const DEFAULT_MEMBER_ORDER = 100;
+
+/** The `order` option of a resource or a settings page, checked at boot. */
+export function memberOrder(order: unknown, fail: (message: string) => never): number {
+  if (order === undefined) return DEFAULT_MEMBER_ORDER;
+  if (typeof order !== 'number' || !Number.isFinite(order)) return fail(`\`order\` must be a finite number, got ${typeof order === 'string' ? JSON.stringify(order) : String(order)}`);
+  return order;
+}
 
 const AUTO_GROUP = { key: 'entities', label: 'Entities', order: 1000 } as const;
 
@@ -75,6 +87,8 @@ export class ResourceRegistry implements OnModuleInit {
   private readonly groups = new Map<string, RegisteredGroup>();
   /** Groups known by key alone so far: a module with that key replaces the placeholder. */
   private readonly keyedGroups = new Set<string>();
+  /** What the `@AdminGroup` modules say about each key (see `claims()`). */
+  private groupClaims?: Map<string, RegisteredGroup>;
   /** Titles of entities that have no resource (targets of relations), compiled on first use. */
   private readonly defaultTitles = new WeakMap<EntityMetadata, TitleFn>();
 
@@ -147,28 +161,54 @@ export class ResourceRegistry implements OnModuleInit {
     return [...this.groups.values()];
   }
 
-  /** The sidebar group of a Nest module (`@AdminGroup` customises it), created on first use; answers its key. */
-  registerModuleGroup(moduleClass: Function | undefined): string {
-    const baseName = moduleClass ? moduleClass.name.replace(/Module$/, '') || moduleClass.name : 'General';
-    const options = moduleClass ? getAdminGroupOptions(moduleClass) : undefined;
-    const key = options?.key ?? kebabCase(baseName);
-    // A group first named by key only (`group: 'settings'`) is the module's all the same, whichever was seen first.
-    if (!this.groups.has(key) || this.keyedGroups.delete(key)) {
-      this.groups.set(key, {
-        key,
-        label: options?.label ?? humanize(baseName),
-        ...(options?.icon ? { icon: options.icon } : {}),
-        order: options?.order ?? DEFAULT_GROUP_ORDER,
-      });
+  /**
+   * The group each `@AdminGroup` module configures, by key: the label, icon and order of that key's group, whoever its
+   * members are (the module's own resources and pages, or those of other modules that say `group: '<key>'`) and
+   * whichever provider is discovered first. Read from every module of the app, so a module that only carries the
+   * decorator counts. Two modules with one key: the first in discovery order wins, with a warning when they differ.
+   */
+  private claims(): Map<string, RegisteredGroup> {
+    if (this.groupClaims) return this.groupClaims;
+    const claims = new Map<string, RegisteredGroup>();
+    const owners = new Map<string, Function>();
+    // Every module is a provider of itself, so the hosts of all providers are all the modules.
+    const modules = new Set<Function>();
+    for (const wrapper of this.discovery.getProviders()) {
+      const moduleClass = wrapper.host?.metatype;
+      if (typeof moduleClass === 'function') modules.add(moduleClass);
     }
-    return key;
+    for (const moduleClass of modules) {
+      if (!getAdminGroupOptions(moduleClass)) continue;
+      const group = groupOfModule(moduleClass);
+      const first = claims.get(group.key);
+      if (!first) {
+        claims.set(group.key, group);
+        owners.set(group.key, moduleClass);
+      } else if (owners.get(group.key) !== moduleClass && JSON.stringify(first) !== JSON.stringify(group)) {
+        const winner = owners.get(group.key)!.name;
+        this.logger.warn(`@AdminGroup "${group.key}" is configured by ${winner} and differently by ${moduleClass.name}; ${winner} wins. Keep the label, icon and order of a group on one module.`);
+      }
+    }
+    return (this.groupClaims = claims);
   }
 
-  /** A group named by key (`group: 'settings'`): created with a humanized label unless a module already formed it. */
+  /** The sidebar group of a Nest module (`@AdminGroup` customises it), created on first use; answers its key. */
+  registerModuleGroup(moduleClass: Function | undefined): string {
+    const own = groupOfModule(moduleClass);
+    // A group first named by key only (`group: 'settings'`) is the module's all the same, whichever was seen first.
+    if (!this.groups.has(own.key) || this.keyedGroups.delete(own.key)) this.groups.set(own.key, this.claims().get(own.key) ?? own);
+    return own.key;
+  }
+
+  /**
+   * A group named by key (`group: 'settings'`): the group an `@AdminGroup` module configures for that key, else one
+   * with a humanized label (which a module named like the key replaces when it turns up).
+   */
   ensureGroup(key: string): string {
     if (!this.groups.has(key)) {
-      this.groups.set(key, { key, label: humanize(key), order: DEFAULT_GROUP_ORDER });
-      this.keyedGroups.add(key);
+      const claimed = this.claims().get(key);
+      this.groups.set(key, claimed ?? { key, label: humanize(key), order: DEFAULT_GROUP_ORDER });
+      if (!claimed) this.keyedGroups.add(key);
     }
     return key;
   }
@@ -192,6 +232,9 @@ export class ResourceRegistry implements OnModuleInit {
     const metadata = dataSource.getMetadata(definition.entity);
     resource.attachRepository(dataSource.getRepository(definition.entity));
 
+    const order = memberOrder(definition.order, (message) => {
+      throw new Error(`${className}: ${message}`);
+    });
     const schema = buildResourceSchema({ definition, resource, metadata, moduleGroup, className });
     const actions = resolveActions(resource.constructor, BASE_MEMBERS, (message) => {
       throw new Error(`${className}: ${message}`);
@@ -246,6 +289,7 @@ export class ResourceRegistry implements OnModuleInit {
         resource.fields as Record<string, FieldConfig | undefined>,
       ),
       actions,
+      order,
     });
   }
 
@@ -316,6 +360,18 @@ export class ResourceRegistry implements OnModuleInit {
       }
     }
   }
+}
+
+/** The group a module forms by itself: its `@AdminGroup` options over the defaults from its class name. */
+function groupOfModule(moduleClass: Function | undefined): RegisteredGroup {
+  const baseName = moduleClass ? moduleClass.name.replace(/Module$/, '') || moduleClass.name : 'General';
+  const options = moduleClass ? getAdminGroupOptions(moduleClass) : undefined;
+  return {
+    key: options?.key ?? kebabCase(baseName),
+    label: options?.label ?? humanize(baseName),
+    ...(options?.icon ? { icon: options.icon } : {}),
+    order: options?.order ?? DEFAULT_GROUP_ORDER,
+  };
 }
 
 /** The first `@AdminField` with a protected option in an embedded entity or the ones inside it, if any. */

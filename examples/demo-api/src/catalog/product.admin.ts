@@ -5,7 +5,8 @@ import { ProductsService } from './products.service.js';
 
 const archived = (product: Product) => product.status === 'archived';
 
-@AdminResource(Product, { icon: 'package', label: { en: 'Product', fa: 'محصول' } })
+// `order`: products come first in the Catalog group, before the label order of the rest.
+@AdminResource(Product, { icon: 'package', label: { en: 'Product', fa: 'محصول' }, order: 10 })
 export class ProductAdmin extends AdminResourceBase<Product> {
   constructor(private readonly products: ProductsService) {
     super();

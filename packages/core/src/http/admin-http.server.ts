@@ -315,14 +315,18 @@ export class AdminHttpServer implements OnModuleInit {
     if (type !== 'express') {
       throw new Error(`nest-my-admin: the "${type}" HTTP adapter is not supported yet; use @nestjs/platform-express`);
     }
-    this.ui = new UiAssets(this.options.uiDistPath ?? resolveUiDist(), {
-      basePath: this.options.path,
-      apiBase: `${this.options.path}/api`,
-      title: resolveText(this.options.title, this.options.locale, this.options.locale),
-      locale: this.options.locale,
-      locales: this.options.locales,
-      branding: this.options.branding as AdminRuntimeConfig['branding'],
-    });
+    this.ui = new UiAssets(
+      this.options.uiDistPath ?? resolveUiDist(),
+      {
+        basePath: this.options.path,
+        apiBase: `${this.options.path}/api`,
+        title: resolveText(this.options.title, this.options.locale, this.options.locale),
+        locale: this.options.locale,
+        locales: this.options.locales,
+        branding: this.options.branding as AdminRuntimeConfig['branding'],
+      },
+      { title: this.options.title },
+    );
     adapter.use(this.options.path, (req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void) => {
       this.handle(req, res, next).catch((error: unknown) => {
         const correlationId = randomUUID();

@@ -40,16 +40,26 @@ await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/
 await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/core'));
 await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/auth'));
 await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/testing'));
+await $`bun pm pack --destination ${tarballs} --quiet`.cwd(join(root, 'packages/nest-my-admin'));
 const files = readdirSync(tarballs);
+/** The tarball named `<prefix><version>.tgz`: the digit keeps `nest-my-admin-` from matching `nest-my-admin-core-…`. */
 function tarball(prefix: string): string {
-  const file = files.find((name) => name.startsWith(prefix));
-  assert(file, `no ${prefix}*.tgz in ${tarballs}`);
+  const file = files.find((name) => name.startsWith(prefix) && /^\d/.test(name.slice(prefix.length)));
+  assert(file, `no ${prefix}<version>.tgz in ${tarballs}`);
   return join(tarballs, file);
 }
 const uiTgz = tarball('nest-my-admin-ui-');
 const coreTgz = tarball('nest-my-admin-core-');
 const authTgz = tarball('nest-my-admin-auth-');
 const testingTgz = tarball('nest-my-admin-testing-');
+const unscopedTgz = tarball('nest-my-admin-');
+
+// 0. One version for all five packages: they are released together.
+const version = (JSON.parse(readFileSync(join(root, 'packages/core/package.json'), 'utf8')) as { version: string }).version;
+for (const tgz of [uiTgz, coreTgz, authTgz, testingTgz, unscopedTgz]) {
+  const packed = JSON.parse(await $`tar -xzOf ${tgz} package/package.json`.text()) as { name: string; version: string };
+  assert(packed.version === version, `${packed.name} is ${packed.version}, core is ${version}`);
+}
 
 // 1. The packed core depends on an exact ui version, never on a workspace: range.
 const corePackage = await $`tar -xzOf ${coreTgz} package/package.json`.text();
@@ -63,6 +73,12 @@ const authEntries = (await $`tar -tzf ${authTgz}`.text()).trim().split('\n');
 assert(authEntries.includes('package/dist/index.js') && !authEntries.some((entry) => entry.includes('/test/') || entry.endsWith('.test.js')), 'auth tarball must ship dist/ without tests');
 const testingPackage = await $`tar -xzOf ${testingTgz} package/package.json`.text();
 assert(!testingPackage.includes('workspace:'), 'testing tarball still contains a workspace: range');
+
+// The unscoped name is two re-exporting files that depend on exactly this core.
+const unscopedPackage = JSON.parse(await $`tar -xzOf ${unscopedTgz} package/package.json`.text()) as { dependencies: Record<string, string> };
+assert(unscopedPackage.dependencies['@nest-my-admin/core'] === version, `nest-my-admin depends on @nest-my-admin/core ${unscopedPackage.dependencies['@nest-my-admin/core']}, not exactly ${version}`);
+const unscopedEntries = (await $`tar -tzf ${unscopedTgz}`.text()).trim().split('\n');
+assert(unscopedEntries.includes('package/index.js') && unscopedEntries.includes('package/index.d.ts'), 'nest-my-admin tarball has no index.js / index.d.ts');
 
 // 2. The ui tarball ships only the build (no React, no sources).
 const uiEntries = (await $`tar -tzf ${uiTgz}`.text()).trim().split('\n');
@@ -121,6 +137,12 @@ const consumers: Array<{
   },
 ];
 
+// The temp copy holds four installed node_modules: it goes whether the checks pass or not (KEEP_PACK_SMOKE=1 keeps it).
+process.on('exit', () => {
+  if (process.env.KEEP_PACK_SMOKE) console.log(`pack-smoke: kept ${work}`);
+  else rmSync(work, { recursive: true, force: true });
+});
+
 for (const consumer of consumers) {
   const app = join(work, `consumer-${consumer.name}`);
   cpSync(join(root, 'scripts/pack-fixtures', consumer.fixture ?? consumer.name), app, { recursive: true });
@@ -134,11 +156,13 @@ for (const consumer of consumers) {
         dependencies: {
           '@nest-my-admin/ui': `file:${uiTgz}`,
           '@nest-my-admin/core': `file:${coreTgz}`,
+          'nest-my-admin': `file:${unscopedTgz}`,
           ...(consumer.auth ? { '@nest-my-admin/auth': `file:${authTgz}`, '@nest-my-admin/testing': `file:${testingTgz}`, '@nestjs/testing': coreDev['@nestjs/testing']! } : {}),
           ...consumer.dependencies,
         },
         devDependencies: consumer.devDependencies,
-        overrides: { '@nest-my-admin/ui': '$@nest-my-admin/ui', ...(consumer.auth ? { '@nest-my-admin/core': '$@nest-my-admin/core' } : {}) },
+        // The tarballs name each other by version; the overrides point those at the tarballs of this run.
+        overrides: { '@nest-my-admin/ui': '$@nest-my-admin/ui', '@nest-my-admin/core': '$@nest-my-admin/core' },
       },
       null,
       2,
@@ -146,6 +170,11 @@ for (const consumer of consumers) {
   );
   await $`npm install --no-audit --no-fund`.cwd(app);
   await $`npx tsc -p ${consumer.tsconfig ?? 'tsconfig.json'}`.cwd(app);
+  // `nest-my-admin` and `@nest-my-admin/core` are one package under two names: the same objects, 0.2.1's API included.
+  for (const runtime of ['node', 'bun'] as const) {
+    const out = await $`${runtime} dist/same.js`.cwd(app).text();
+    assert(out.includes('SAME OK'), `${consumer.name}/${runtime}: nest-my-admin does not re-export @nest-my-admin/core (${out.trim()})`);
+  }
   if (consumer.auth) {
     for (const runtime of ['node', 'bun'] as const) {
       const out = await $`${runtime} dist/leaks.js`.cwd(app).text();
@@ -199,5 +228,4 @@ for (const consumer of consumers) {
   }
 }
 
-rmSync(work, { recursive: true, force: true });
 console.log('pack-smoke: all checks passed');

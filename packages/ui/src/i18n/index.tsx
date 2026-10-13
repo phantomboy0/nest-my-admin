@@ -7,6 +7,7 @@ import { fa } from './fa';
 export type { MessageKey } from './en';
 
 const BUNDLES: Record<string, Messages> = { en, fa };
+/** Core has the same list for the served page's `dir` (`isRtlLocale` in packages/core/src/i18n/localized-text.ts): keep them equal. */
 const RTL = new Set(['fa', 'ar', 'he', 'ur']);
 const STORAGE_KEY = 'nma.locale';
 

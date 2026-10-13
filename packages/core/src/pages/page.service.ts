@@ -42,11 +42,11 @@ export class PageService {
   }
 
   /** The pages `ctx`'s user may view (all of them without a request), labelled in `locale`. */
-  summaries(locale: string, ctx?: AdminContext): Array<MetaPageSummary & { group: string }> {
+  summaries(locale: string, ctx?: AdminContext): Array<MetaPageSummary & { group: string; order: number }> {
     return this.host.pages
       .list()
       .filter((page) => !ctx || this.host.policy.canPage(page, 'view', ctx))
-      .map((page) => ({ name: page.name, label: this.text(page, locale), ...(page.icon ? { icon: page.icon } : {}), group: page.group }));
+      .map((page) => ({ name: page.name, label: this.text(page, locale), ...(page.icon ? { icon: page.icon } : {}), group: page.group, order: page.order }));
   }
 
   /** The page's form as this request gets it. `readonly`: the user may not save (or is viewing as someone else). */

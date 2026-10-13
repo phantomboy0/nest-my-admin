@@ -12,7 +12,12 @@ export interface AdminGroupOptions {
   order?: number;
 }
 
-/** Customises the sidebar group formed by the resources a Nest module provides. */
+/**
+ * Customises the sidebar group formed by the resources and settings pages a Nest module provides. It also configures
+ * the group of its key for members of other modules that join it with `group: '<key>'`, so a module may carry the
+ * decorator and provide nothing. When two modules configure one key differently, the first one discovered wins and
+ * a warning is logged at boot.
+ */
 export function AdminGroup(options: AdminGroupOptions): ClassDecorator {
   return (target) => {
     Reflect.defineMetadata(ADMIN_GROUP_METADATA, options, target);

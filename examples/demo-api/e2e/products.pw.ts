@@ -615,8 +615,7 @@ test('command palette: go to, create and find records with the keyboard (M2-4 Re
   await input.fill('catalog');
   await expect(palette.getByRole('status')).not.toHaveText('Searching…');
   await expect(palette.getByRole('option').first()).toHaveAttribute('aria-selected', 'true');
-  // Catalog (the group), Category, Product, Stock move, …
-  await page.keyboard.press('ArrowDown');
+  // Catalog (the group), Product (`order: 10` puts it first), Category, Stock move, …
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowUp');

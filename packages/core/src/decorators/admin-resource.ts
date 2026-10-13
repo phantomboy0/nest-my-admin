@@ -13,6 +13,11 @@ export interface AdminResourceOptions {
   group?: string;
   icon?: string;
   /**
+   * Where the resource stands among the resources of its group: lower comes first, then by label. Default 100.
+   * (A group lists its resources first, then its settings pages.)
+   */
+  order?: number;
+  /**
    * The record's display name in lists, pickers and headers: a column name, or a function of the entity.
    * Functions see columns (relations only when the loader joined them). Default: the first string column called
    * name, title, label, displayName, fullName, username, email, code or sku; else `#<id>`.

@@ -9,7 +9,7 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryColumn } from 'typeorm'
 export class NmaFile {
   /** The upload token while `temp`. */
   @PrimaryColumn({ type: 'varchar', length: 36 }) id: string;
-  /** `<resource>/<field>/<yyyy>/<mm>/<uuid><ext>` */
+  /** `<resource>/<field>/<yyyy>/<mm>/<uuid><ext>`; for a settings page's file `page/<name>/<field>/<yyyy>/<mm>/<uuid><ext>` (see `AdminStorage`). */
   @Column({ type: 'varchar', length: 500, unique: true }) key: string;
   /** The original file name, cleaned. */
   @Column({ type: 'varchar', length: 255 }) name: string;
@@ -17,6 +17,7 @@ export class NmaFile {
   @Column({ type: 'int' }) size: number;
   @Column({ type: 'varchar', length: 10 }) visibility: 'public' | 'private';
   @Column({ type: 'varchar', length: 10 }) status: 'temp' | 'attached';
+  /** The owner: a resource's name, or `page:<name>` for a settings page (whose `recordId` is `page`). */
   @Column({ type: 'varchar', length: 100 }) resource: string;
   @Column({ type: 'varchar', length: 100 }) field: string;
   /** Null while `temp`. */

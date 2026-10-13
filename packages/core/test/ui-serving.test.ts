@@ -70,3 +70,73 @@ describe('UI serving edge cases', () => {
     await app.close();
   });
 });
+
+describe('the page follows the locale', () => {
+  const TITLE = { fa: 'مدیریت فروشگاه', en: 'Shop admin' };
+  const open = async (admin: Record<string, unknown>, headers: Record<string, string> = {}, path = '/admin/') => {
+    const app = await createTestApp({ admin });
+    try {
+      return await request(app.getHttpServer()).get(path).set(headers);
+    } finally {
+      await app.close();
+    }
+  };
+  const htmlTag = (text: string) => /<html[^>]*>/.exec(text)![0];
+  const titles = (text: string) => [...text.matchAll(/<title>([^]*?)<\/title>/g)].map((match) => match[1]);
+
+  test('default locale fa: lang, dir and the Persian title', async () => {
+    const res = await open({ locale: 'fa', locales: ['fa', 'en'], title: TITLE });
+    expect(htmlTag(res.text)).toBe('<html lang="fa" dir="rtl">');
+    expect(titles(res.text)).toEqual(['مدیریت فروشگاه']);
+    expect(res.headers['content-language']).toBe('fa');
+    expect(res.headers['vary']).toBe('Accept-Language');
+    expect(res.headers['cache-control']).toBe('no-cache');
+    // What the UI boots from is the admin's default, whatever the page says.
+    expect(res.text).toContain('"title":"مدیریت فروشگاه","locale":"fa","locales":["fa","en"]');
+  });
+
+  test('Accept-Language picks among the locales, like the API', async () => {
+    const admin = { locale: 'fa', locales: ['fa', 'en'], title: TITLE };
+    const en = await open(admin, { 'Accept-Language': 'en' });
+    expect(htmlTag(en.text)).toBe('<html lang="en" dir="ltr">');
+    expect(titles(en.text)).toEqual(['Shop admin']);
+    expect(en.headers['content-language']).toBe('en');
+    expect(en.headers['vary']).toBe('Accept-Language');
+    // Deep links are the same page; a language the admin does not offer falls back to its default.
+    const deep = await open(admin, { 'Accept-Language': 'en-GB,en;q=0.9' }, '/admin/widget/5');
+    expect(htmlTag(deep.text)).toBe('<html lang="en" dir="ltr">');
+    const other = await open(admin, { 'Accept-Language': 'de' });
+    expect(htmlTag(other.text)).toBe('<html lang="fa" dir="rtl">');
+    expect(titles(other.text)).toEqual(['مدیریت فروشگاه']);
+    expect(other.headers['content-language']).toBe('fa');
+  });
+
+  test('a HEAD request has the same headers', async () => {
+    const app = await createTestApp({ admin: { locale: 'fa', locales: ['fa', 'en'], title: TITLE } });
+    const head = await request(app.getHttpServer()).head('/admin/').set('Accept-Language', 'en');
+    await app.close();
+    expect(head.headers['content-language']).toBe('en');
+    expect(head.headers['vary']).toBe('Accept-Language');
+  });
+
+  test('the title is escaped', async () => {
+    const res = await open({ title: 'Tom & <b>Jerry</b> "Co" </title><script>alert(1)</script>' });
+    expect(titles(res.text)).toEqual(['Tom &amp; &lt;b&gt;Jerry&lt;/b&gt; &quot;Co&quot; &lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;']);
+    expect(res.text).not.toContain('<script>alert(1)');
+  });
+
+  test('without a title the page is called Admin', async () => {
+    const res = await open({});
+    expect(htmlTag(res.text)).toBe('<html lang="en" dir="ltr">');
+    expect(titles(res.text)).toEqual(['Admin']);
+    expect(res.headers['content-language']).toBe('en');
+  });
+
+  test('static files carry no language', async () => {
+    const app = await createTestApp({ admin: { locale: 'fa' } });
+    const asset = await request(app.getHttpServer()).get('/admin/assets/app.js');
+    await app.close();
+    expect(asset.headers['content-language']).toBeUndefined();
+    expect(asset.headers['vary']).toBeUndefined();
+  });
+});
