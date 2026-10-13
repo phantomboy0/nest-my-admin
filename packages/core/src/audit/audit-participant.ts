@@ -1,9 +1,10 @@
 import type { EntityManager } from 'typeorm';
 import type { FieldSchema } from '../contract.js';
-import type { WriteChange, WriteParticipant } from '../api/write-participant.js';
+import type { StoredRow, WriteChange, WriteParticipant } from '../api/write-participant.js';
 import { SINGLE_CONNECTION_DRIVERS } from '../api/write-queue.js';
 import { recordIdOf } from '../crud/record-id.js';
 import { serializeFull, storedFields } from '../crud/serialize-full.js';
+import { keyOf, loadStored, whereOf } from '../crud/stored-row.js';
 import type { RegisteredAction } from '../decorators/admin-action.js';
 import type { RegisteredPage } from '../pages/page-registry.js';
 import { pick } from '../pages/page.service.js';
@@ -41,6 +42,20 @@ const EVENTS = { create: 'created', update: 'updated', delete: 'deleted', restor
  *
  * After commit, and only then (the write's connection is back in the pool, so a pool of one is enough), a delete
  * that seemed to leave its row is checked once more (`unsure`, `onCommit`). That check never fails the write.
+ *
+ * Whether the record is gone after the host method is read once per change by the write itself
+ * (`WriteRunner.change`, `StoredRow`): the files participant releases the record's files on the same answer.
+ *
+ * What these reads cannot know:
+ *
+ * - the check after commit reads a moment later than the commit: a key that was deleted on another connection and
+ *   given again in between is read as "still there", and the delete's entry stays unstamped;
+ * - a crash between the commit and that check, or a read or an update that fails in it, leaves the entry
+ *   unstamped (the failures are logged);
+ * - reads that are not in a transaction go through `dataSource.manager`: the check after commit, and with
+ *   `transactions: false` the "before" and "after" images too. With TypeORM replication those may be answered by
+ *   a replica: one that lags still shows a row that was deleted (no stamp), or shows an update's "after" equal to
+ *   its "before" (diffed as unchanged: fewer changes, or no entry at all).
  */
 export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState> {
   return {
@@ -53,14 +68,16 @@ export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState
       // A purge is not handed its record at all: this reads it, from the trash if need be.
       const key = change.id ?? (change.existing ? keyOf(target, change.existing) : undefined);
       const reads = change.existing !== undefined || change.kind === 'purge';
-      const existing = reads && key !== undefined ? ((await load(target, key, manager)) ?? change.existing) : change.existing;
+      const existing = reads && key !== undefined ? ((await loadStored(target, key, manager)) ?? change.existing) : change.existing;
       if (!existing) return {};
       return { before: await serializeFull(target, existing, manager), recordId: recordIdOf(existing, target.schema.primaryKeys), title: titleOf(target, existing) };
     },
 
-    async after(change, state, saved, tx) {
+    async after(change, state, saved, tx, row) {
       const { target } = change;
-      const input = 'schema' in target ? await recordEntry(target, change, state, saved, tx.manager ?? target.dataSource.manager) : pageEntry(target, state, saved);
+      // A resource action names no record: there is no row to read.
+      const named = 'schema' in target && !(change.kind === 'action' && state.recordId === undefined);
+      const input = 'schema' in target ? await recordEntry(target, change, state, saved, named ? await row() : { gone: false }, tx.manager ?? target.dataSource.manager) : pageEntry(target, state, saved);
       if (!input) return;
       if (audit.joins(tx)) state.entryId = await audit.record(input, tx);
       else if (tx.manager) state.pending = input;
@@ -72,17 +89,15 @@ export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState
       const { pending, entryId, recheck } = state;
       // What is committed now, on the DataSource's own manager. A read that fails is logged and stamps nothing.
       const event = 'schema' in target ? `${target.schema.name}.deleted` : '';
-      const ended = 'schema' in target && recheck !== undefined && (pending !== undefined || entryId !== undefined) && (await audit.leftNoRow(event, tx, () => load(target, recheck, target.dataSource.manager)));
+      const ended = 'schema' in target && recheck !== undefined && (pending !== undefined || entryId !== undefined) && (await audit.leftNoRow(event, tx, () => loadStored(target, recheck, target.dataSource.manager)));
+      // The entry is in the table, but the insert answered no id to find it by: nothing to stamp, and that is said.
+      if ('schema' in target && recheck !== undefined && pending === undefined && entryId === undefined) audit.unstamped(event, tx);
       // An entry that waited for the commit is written with the stamp; one that is in the table already gets it now.
       if (pending) await audit.recordAfter(ended ? { ...pending, meta: { ...pending.meta, deleted: true } } : pending, tx);
       else if (ended && entryId !== undefined) await audit.stampDeleted(entryId, event, tx);
     },
   };
 }
-
-const whereOf = (entry: RegisteredResource, id: RecordId): Record<string, unknown> => (typeof id === 'object' ? id : { [entry.schema.primaryKeys[0]!]: id });
-
-const keyOf = (entry: RegisteredResource, entity: object): RecordId => Object.fromEntries(entry.schema.primaryKeys.map((key) => [key, (entity as Record<string, unknown>)[key]])) as RecordId;
 
 /**
  * The record's real title, unless it may hold a sensitive value, which is never stored, here either: the title is a
@@ -111,13 +126,6 @@ async function withReturned(entry: RegisteredResource, entity: object, image: Re
   return merged;
 }
 
-/** The stored row, in the trash or not, whoever asks: no scope, no `query()`, no `findOne` override. */
-async function load(entry: RegisteredResource, id: RecordId, manager: EntityManager): Promise<object | undefined> {
-  const where = whereOf(entry, id);
-  if (Object.values(where).some((value) => value === undefined || value === null)) return undefined;
-  return ((await manager.getRepository(entry.metadata.target).findOne({ where, withDeleted: true })) as object | null) ?? undefined;
-}
-
 /**
  * Whether a delete that still reads its row cannot tell yet that the record is there. `stored` is what the write's
  * own manager read back, and it is not in the trash: either the host kept the record (an archive flag, a refusal
@@ -142,7 +150,7 @@ function unsure(entry: RegisteredResource, stored: object, manager: EntityManage
  *
  * - every purge: it is for good by definition, whatever is read back (the host may delete on another connection,
  *   or later). A host `purge()` that keeps the row cuts its history all the same: what was recorded before the
- *   purge is then read as a gone record's;
+ *   purge is then read as a gone record's (and the record's files are released: see `filesParticipant`);
  * - a delete after which no row is left: where there is no trash, or by a host `delete()` that does not use it.
  *   When the transaction still reads the row, untrashed, the stamp is added right after commit if the row is gone
  *   by then (`unsure`). The trash is no end, and neither is a `delete()` that leaves the row where it was;
@@ -158,7 +166,7 @@ function unsure(entry: RegisteredResource, stored: object, manager: EntityManage
  * another connection: an action that leaves its row is the normal case, and a second read would cost every run a
  * query.
  */
-async function recordEntry(entry: RegisteredResource, change: WriteChange, state: AuditState, saved: object | null | undefined, manager: EntityManager): Promise<AuditInput | undefined> {
+async function recordEntry(entry: RegisteredResource, change: WriteChange, state: AuditState, saved: object | null | undefined, row: StoredRow, manager: EntityManager): Promise<AuditInput | undefined> {
   const name = entry.schema.name;
   const { action } = change;
   if (change.kind === 'action' && action && state.recordId === undefined) {
@@ -168,13 +176,13 @@ async function recordEntry(entry: RegisteredResource, change: WriteChange, state
   const fields = storedFields(entry);
   const masked = sensitiveFields(entry.fieldConfig);
   const removes = change.kind === 'delete' || change.kind === 'purge';
-  // What is stored now, read back: a host method may answer nothing, or an entity from before it finished.
-  const known = change.id ?? (change.existing ? keyOf(entry, change.existing) : saved ? keyOf(entry, saved) : undefined);
-  const stored = known !== undefined ? await load(entry, known, manager) : undefined;
+  // What is stored now, read back by the write (`WriteRunner.change`, the read the files participant decides on
+  // too): a host method may answer nothing, or an entity from before it finished.
+  const { key: known, stored } = row;
   // An action's "after" is the stored row or nothing: what the host's finder answered is only a witness (`changed`).
   const current = removes ? undefined : change.kind === 'action' ? stored : (stored ?? saved ?? undefined);
   const after = current ? await serializeFull(entry, current, manager) : undefined;
-  const ended = change.kind === 'purge' || ((change.kind === 'delete' || change.kind === 'action') && known !== undefined && !stored);
+  const ended = change.kind === 'purge' || ((change.kind === 'delete' || change.kind === 'action') && row.gone);
   if (change.kind === 'delete' && known !== undefined && stored && unsure(entry, stored, manager)) state.recheck = known;
   const recordId = current ? recordIdOf(current, entry.schema.primaryKeys) : (state.recordId ?? (change.id !== undefined ? recordIdOf(whereOf(entry, change.id), entry.schema.primaryKeys) : undefined));
   const title = current ? titleOf(entry, current) : state.title;

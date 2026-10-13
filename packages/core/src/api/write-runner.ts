@@ -3,7 +3,8 @@ import type { DataSource } from 'typeorm';
 import { hostError } from '../http/error-response.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
-import type { WriteChange, WriteParticipant } from './write-participant.js';
+import { keyOf, loadStored } from '../crud/stored-row.js';
+import type { StoredRow, WriteChange, WriteParticipant } from './write-participant.js';
 import { exclusive } from './write-queue.js';
 
 /** A participant's part in one change of a write; `done` once its `after` finished. */
@@ -76,7 +77,8 @@ export class WriteRunner {
 
   /**
    * One change inside the write `tx`: every participant's `before`, then the host `method`, then every `after` with
-   * what the method saved (`savedOf`; by default the method's answer when it is an object).
+   * what the method saved (`savedOf`; by default the method's answer when it is an object) and with what is stored
+   * of the record now (`storedRow`): one read for all of them, made when the first one asks.
    */
   async change<T>(change: WriteChange, tx: AdminContext, method: () => Promise<T>, savedOf: (result: T) => object | null | undefined = asObject): Promise<T> {
     const steps = this.open.get(tx);
@@ -91,8 +93,10 @@ export class WriteRunner {
     }
     const result = await method();
     const saved = savedOf(result);
+    let read: Promise<StoredRow> | undefined;
+    const row = (): Promise<StoredRow> => (read ??= storedRow(change, saved, tx));
     for (const step of mine) {
-      await step.participant.after(change, step.state, saved, tx);
+      await step.participant.after(change, step.state, saved, tx, row);
       step.done = true;
     }
     return result;
@@ -104,6 +108,20 @@ export class WriteRunner {
       await participant[hook]?.(change, state, tx).catch((error: unknown) => this.logger.warn(`${what} work failed: ${error instanceof Error ? error.message : String(error)}`));
     }
   }
+}
+
+/**
+ * What the write's own manager reads of the change's record after the host method (see `StoredRow`). This is the
+ * one place that decides whether a record is gone: the files participant releases a deleted record's files on it,
+ * and the audit participant ends the record's history on it.
+ */
+async function storedRow(change: WriteChange, saved: object | null | undefined, tx: AdminContext): Promise<StoredRow> {
+  const { target } = change;
+  if (!('schema' in target)) return { gone: false };
+  const key = change.id ?? (change.existing ? keyOf(target, change.existing) : saved ? keyOf(target, saved) : undefined);
+  if (key === undefined) return { gone: false };
+  const stored = await loadStored(target, key, tx.manager ?? target.dataSource.manager);
+  return { key, ...(stored ? { stored } : {}), gone: !stored };
 }
 
 const asObject = (result: unknown): object | undefined => (typeof result === 'object' && result !== null ? result : undefined);

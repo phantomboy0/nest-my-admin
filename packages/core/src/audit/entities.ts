@@ -30,14 +30,22 @@ export interface AuditMeta {
   username?: string;
   reason?: string;
   /**
-   * Failed sign-ins are capped in memory, per process (`audit/login-failures.ts`): per address and username a
-   * minute's first 5 are recorded, and per address across usernames its first 50; of a lockout's answers (429)
-   * only the first. `limited`: this is the last failure recorded for its address (and username) in this minute.
+   * Failed sign-ins are capped in memory, per process, by three caps a minute (`audit/login-failures.ts`):
+   *
+   * - per address and username: the first 5 are recorded (then one more, marked `limited`);
+   * - per address across usernames: the first 50 (then one more, marked `limited`). An IPv6 address counts as
+   *   its /64, an IPv4-mapped one (`::ffff:a.b.c.d`) as the IPv4 address;
+   * - for the whole process, whatever the addresses: 300 recorded failures.
+   *
+   * Of a lockout's answers (429) only the first is recorded. Successful sign-ins are never capped.
+   * `limited`: this is the last failure recorded for its address (and username) in this minute.
    */
   limited?: true;
   /**
    * On an `auth.login_failed` entry with `reason: 'SUPPRESSED'`, written when a minute closes: how many failures
-   * of that address (and username, when given) were not recorded in it.
+   * were not recorded in it. With `ip` (and `username`), those of that address (an IPv6 one as its /64,
+   * `2001:db8:1:2::/64`) and username; without either, what the process-wide cap left out, plus the counts of
+   * addresses beyond the first 100 summaries of that minute.
    */
   suppressed?: number;
   /** `auth.sessions_revoked`: which of the user's sessions ended (every other one, or one of them). */

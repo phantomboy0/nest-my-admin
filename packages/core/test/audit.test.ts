@@ -40,6 +40,7 @@ import {
 import { AdminAudit } from '../src/audit/audit.service.js';
 import type { AuditChange } from '../src/audit/diff.js';
 import { AdminRbac } from '../src/rbac/rbac.service.js';
+import { addressBucket } from '../src/audit/login-failures.js';
 import { createTestApp } from './helpers/create-app.js';
 
 /** Values that must never be stored: the whole audit table is searched for them. */
@@ -1051,6 +1052,18 @@ describe('audit log: recording', () => {
     expect(entry!.meta).toEqual({ action: 'x', inputTruncated: true });
   });
 
+  test('stamping an entry as the end of its record keeps the rest of its meta', async () => {
+    const audit = t.app.get(AdminAudit);
+    const ctx = { correlationId: 'stamp' };
+    const withMeta = await audit.record({ event: 'product.action.shred', recordId: '424242', meta: { action: 'shred', input: { reason: 'spring cleaning' } } }, ctx);
+    const without = await audit.record({ event: 'product.deleted', recordId: '424243' }, ctx);
+    await audit.stampDeleted(withMeta!, 'product.action.shred', ctx);
+    await audit.stampDeleted(without!, 'product.deleted', ctx);
+    const [first, second] = await t.fresh();
+    expect(first!.meta).toEqual({ action: 'shred', input: { reason: 'spring cleaning' }, deleted: true });
+    expect(second!.meta).toEqual({ deleted: true });
+  });
+
   test('nothing sensitive was stored by anything above: the whole table is searched', async () => {
     await t.app.get(AdminAudit).idle();
     const rows = await t.auditDb.getRepository(NmaAuditEntry).find();
@@ -1098,8 +1111,70 @@ describe('audit log: failed sign-ins are bounded', () => {
       expect(recorded.filter((meta) => meta.limited)).toEqual([expect.objectContaining({ username: 'rotating50', limited: true })]);
       t.app.get(AdminAudit).flushLoginFailures(Date.now() + 61_000);
       const closed = failures(await t.fresh());
-      expect(closed).toEqual([{ ip: recorded[0]!.ip, reason: 'SUPPRESSED', suppressed: 7 }]);
+      // The summary names the address as the cap counts it (`addressBucket`: supertest's ::ffff:127.0.0.1 is 127.0.0.1).
+      expect(closed).toEqual([{ ip: addressBucket(recorded[0]!.ip), reason: 'SUPPRESSED', suppressed: 7 }]);
     } finally {
+      await t.app.close();
+    }
+  }, 60_000);
+
+  test('the whole process: 300 a minute whatever the addresses, then one count; a /64 is one address; a sign-in that succeeds is always recorded', async () => {
+    const t = await boot();
+    const audit = t.app.get(AdminAudit);
+    const from = (ip: string) => ({ ip, headers: {}, socket: {} }) as unknown as IncomingMessage;
+    const now = Date.now();
+    try {
+      // One client walking through its IPv6 /64, a new address and username each time: one address to the cap.
+      for (let attempt = 0; attempt < 60; attempt += 1) audit.recordLoginFailure({ username: `walk${attempt}`, reason: 'UNAUTHENTICATED', lockout: false }, from(`2001:db8:5:6::${(attempt + 1).toString(16)}`), { correlationId: 'walk' }, now);
+      const walked = failures(await t.fresh());
+      expect(walked).toHaveLength(51);
+      expect(walked.at(-1)).toMatchObject({ username: 'walk50', ip: '2001:db8:5:6::33', limited: true });
+      // Many addresses, one failure each: no per-address cap is reached, the ceiling is.
+      for (let attempt = 0; attempt < 400; attempt += 1) audit.recordLoginFailure({ username: `bot${attempt}`, reason: 'UNAUTHENTICATED', lockout: false }, from(`198.51.${attempt >> 8}.${attempt & 255}`), { correlationId: 'bots' }, now);
+      const bots = failures(await t.fresh());
+      expect(bots).toHaveLength(300 - 51);
+      expect(bots.at(-1)!.username).toBe(`bot${300 - 51 - 1}`);
+      // A sign-in that succeeds is recorded all the same.
+      expect((await request(t.app.getHttpServer()).post('/admin/api/session').send({ username: 'ada', password: 'ada-pass' })).status).toBe(200);
+      expect((await t.fresh()).map((entry) => entry.event)).toEqual(['auth.login']);
+      // When the minute closes: what the /64 left out, and one entry for what the ceiling left out.
+      audit.flushLoginFailures(now + 61_000);
+      const closed = failures(await t.fresh());
+      expect(closed).toHaveLength(2);
+      expect(closed).toContainEqual({ ip: '2001:db8:5:6::/64', reason: 'SUPPRESSED', suppressed: 9 });
+      expect(closed).toContainEqual({ reason: 'SUPPRESSED', suppressed: 400 - (300 - 51) });
+    } finally {
+      await t.app.close();
+    }
+  }, 60_000);
+
+  test('shutting down writes the entries still waiting, and does not wait for long on a table that does not answer', async () => {
+    const t = await boot();
+    const audit = t.app.get(AdminAudit);
+    const real = (audit as unknown as { insert: (...args: unknown[]) => Promise<void> }).insert.bind(audit);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let stuck = false;
+    const spy = spyOn(audit as unknown as { insert: (...args: unknown[]) => Promise<void> }, 'insert').mockImplementation(async (...args: unknown[]) => {
+      if (stuck) await held;
+      else await new Promise((resolve) => setTimeout(resolve, 20));
+      await real(...args);
+    });
+    try {
+      for (let index = 0; index < 3; index += 1) audit.recordDetached({ event: 'auth.login_failed', meta: { username: `late${index}` } }, { correlationId: 'shutdown' });
+      await audit.onModuleDestroy();
+      // Read without `fresh()`, which waits for the queue itself.
+      expect(await t.auditDb.getRepository(NmaAuditEntry).countBy({ correlationId: 'shutdown' })).toBe(3);
+      stuck = true;
+      audit.recordDetached({ event: 'auth.login_failed', meta: { username: 'never' } }, { correlationId: 'stuck' });
+      const started = Date.now();
+      await audit.onModuleDestroy(50);
+      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(await t.auditDb.getRepository(NmaAuditEntry).countBy({ correlationId: 'stuck' })).toBe(0);
+    } finally {
+      release();
+      await audit.idle();
+      spy.mockRestore();
       await t.app.close();
     }
   }, 60_000);

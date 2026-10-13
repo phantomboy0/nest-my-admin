@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { Column, DeleteDateColumn, Entity, In, LessThan, PrimaryGeneratedColumn, type DataSource } from 'typeorm';
 import {
   ADMIN_FILE_ENTITIES,
+  AdminAction,
   AdminAuth,
   AdminResource,
   AdminResourceBase,
@@ -113,6 +114,44 @@ class Note {
 @AdminResource(Note)
 class NoteAdmin extends AdminResourceBase<Note> {}
 
+@Entity('fu_binder')
+class Binder {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ default: '' }) name: string;
+  @Column({ type: 'varchar', length: 300, nullable: true }) cover: string | null;
+  @Column({ default: false }) archived: boolean;
+}
+
+/**
+ * No trash, and a host `delete()` that does not always delete: what is named "archive…" is only flagged and its
+ * row stays. `shred` is an action that deletes its record, `rename` one that keeps it.
+ */
+@AdminResource(Binder)
+class BinderAdmin extends AdminResourceBase<Binder> {
+  override fields: FieldsConfig<Binder> = { cover: { widget: 'file' } };
+
+  override async delete(id: RecordId, ctx: AdminContext): Promise<void> {
+    const binder = (await this.findOne(id, ctx))!;
+    if (binder.name.startsWith('archive')) await this.repositoryFor(ctx).update(binder.id, { archived: true });
+    else await super.delete(id, ctx);
+  }
+
+  /** Not handed the record at all, and it keeps the row. */
+  override async purge(id: RecordId, ctx: AdminContext): Promise<void> {
+    await this.repositoryFor(ctx).update(Number(id), { archived: true });
+  }
+
+  @AdminAction()
+  async shred(binder: Binder, _input: unknown, ctx: AdminContext): Promise<void> {
+    await this.repositoryFor(ctx).delete(binder.id);
+  }
+
+  @AdminAction()
+  async rename(binder: Binder, _input: unknown, ctx: AdminContext): Promise<void> {
+    await this.repositoryFor(ctx).update(binder.id, { name: `${binder.name} (renamed)` });
+  }
+}
+
 const users: Record<string, { id: string; displayName: string; isSuperuser: boolean }> = {
   root: { id: 'root', displayName: 'Root', isSuperuser: true },
   editor: { id: 'editor', displayName: 'Editor', isSuperuser: false },
@@ -135,7 +174,7 @@ class HeaderAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [ProductAdmin, NoteAdmin, DocAdmin, HeaderAuth] })
+@Module({ providers: [ProductAdmin, NoteAdmin, DocAdmin, BinderAdmin, HeaderAuth] })
 class FilesFixtureModule {}
 
 // 1x1 PNG
@@ -162,7 +201,7 @@ const rows = () => db.getRepository(NmaFile).find();
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'nma-files-'));
   app = await createTestApp({
-    entities: [Product, Note, Doc, ...ADMIN_FILE_ENTITIES],
+    entities: [Product, Note, Doc, Binder, ...ADMIN_FILE_ENTITIES],
     imports: [FilesFixtureModule],
     admin: {
       auth: AdminAuth.custom(HeaderAuth),
@@ -713,6 +752,55 @@ describe(`files of deleted records (${TEST_DB})`, () => {
     expect(await left(stays.keys)).toEqual({ objects: 0, rows: 0 });
   });
 
+  const binderWithCover = async (name: string) => {
+    const cover = await upload('cover', PDF, 'root', 'binder');
+    const created = await json().post('/resources/binder', { name, cover: { token: cover.token } });
+    expect(created.status).toBe(201);
+    return { id: created.body._id as string, keys: [cover.key] };
+  };
+
+  test('a host delete() that keeps the row (an archive flag) keeps its files: rows, objects and the download', async () => {
+    const binder = await binderWithCover('archive me');
+    expect((await del(`/resources/binder/${binder.id}`)).status).toBe(204);
+    // The record is still there, so its file is too: releasing it would leave a key that points at nothing.
+    const kept = await json().get(`/resources/binder/${binder.id}`);
+    expect(kept.status).toBe(200);
+    expect(kept.body.archived).toBe(true);
+    expect(kept.body._files.cover.key).toBe(binder.keys[0]);
+    expect(await left(binder.keys)).toEqual({ objects: 1, rows: 1 });
+    expect((await rowOf(binder.keys[0]!))?.status).toBe('attached');
+    expect((await download(binder.keys[0]!)).status).toBe(200);
+    // Bulk delete goes the same way.
+    const bulk = await json().post('/resources/binder/bulk-delete', { ids: [binder.id] });
+    expect(bulk.body.ok).toEqual([binder.id]);
+    expect(await left(binder.keys)).toEqual({ objects: 1, rows: 1 });
+  });
+
+  test('the same host delete() releases the files when it really deletes', async () => {
+    const binder = await binderWithCover('delete me');
+    expect((await del(`/resources/binder/${binder.id}`)).status).toBe(204);
+    expect((await json().get(`/resources/binder/${binder.id}`)).status).toBe(404);
+    expect(await left(binder.keys)).toEqual({ objects: 0, rows: 0 });
+  });
+
+  test('an action that deletes its record takes the files with it; one that keeps the record keeps them', async () => {
+    const binder = await binderWithCover('act on me');
+    const renamed = await json().post('/resources/binder/actions/rename', { ids: [binder.id] });
+    expect(renamed.status).toBe(200);
+    expect(await left(binder.keys)).toEqual({ objects: 1, rows: 1 });
+    expect((await download(binder.keys[0]!)).status).toBe(200);
+    const shredded = await json().post('/resources/binder/actions/shred', { ids: [binder.id] });
+    expect(shredded.status).toBe(200);
+    expect((await json().get(`/resources/binder/${binder.id}`)).status).toBe(404);
+    expect(await left(binder.keys)).toEqual({ objects: 0, rows: 0 });
+  });
+
+  test('a purge always releases the files, whatever the host purge() leaves', async () => {
+    const binder = await binderWithCover('purge me');
+    expect((await del(`/resources/binder/${binder.id}?purge=true`)).status).toBe(204);
+    expect(await left(binder.keys)).toEqual({ objects: 0, rows: 0 });
+  });
+
   test('a delete that rolls back keeps the files', async () => {
     const product = await productWithFiles('Survivor');
     const doc = (await json().post('/resources/doc', { title: 'Outer delete' })).body._id as string;
@@ -770,7 +858,7 @@ describe(`nma_file on another DataSource (${TEST_DB})`, () => {
   test('uploads are attached before the record commits, removals follow it, a rollback gives the upload back', async () => {
     const otherDir = await mkdtemp(join(tmpdir(), 'nma-files-other-'));
     const other = await createTestApp({
-      entities: [Product, Note, Doc],
+      entities: [Product, Note, Doc, Binder],
       dataSources: { files: [...ADMIN_FILE_ENTITIES] },
       imports: [FilesFixtureModule],
       admin: { auth: AdminAuth.custom(HeaderAuth), files: { storage: localStorage({ dir: otherDir }), dataSource: 'files' }, roles: [{ name: 'editor', permissions: ['product.*'] }, { name: 'viewer', permissions: [] }, { name: 'limited', permissions: [] }, { name: 'scoped', permissions: [] }] },
@@ -848,6 +936,16 @@ describe(`nma_file on another DataSource (${TEST_DB})`, () => {
       expect((await request(other.getHttpServer()).delete(`/admin/api/resources/product/${created.body._id}`).set('X-User', 'root')).status).toBe(204);
       expect(await files.findOneBy({ key: third.key })).toBeNull();
       expect(existsSync(join(otherDir, third.key))).toBe(false);
+
+      // A host delete() that keeps the row keeps the files here too, where the rows would go after the commit.
+      const coverUpload = await request(other.getHttpServer()).post('/admin/api/uploads?resource=binder&field=cover').set('X-User', 'root').set('Content-Type', 'application/pdf').send(PDF);
+      const cover = (await files.findOneByOrFail({ id: coverUpload.body.token })).key;
+      const binder = await request(other.getHttpServer()).post('/admin/api/resources/binder').set('X-User', 'root').send({ name: 'archive elsewhere', cover: { token: coverUpload.body.token } });
+      expect(binder.status).toBe(201);
+      expect((await request(other.getHttpServer()).delete(`/admin/api/resources/binder/${binder.body._id}`).set('X-User', 'root')).status).toBe(204);
+      expect(await files.findOneBy({ key: cover })).toMatchObject({ status: 'attached', recordId: binder.body._id });
+      expect(existsSync(join(otherDir, cover))).toBe(true);
+      expect((await request(other.getHttpServer()).get(`/admin/api/files/${cover}`).set('X-User', 'root')).status).toBe(200);
     } finally {
       await other.close();
       await rm(otherDir, { recursive: true, force: true });

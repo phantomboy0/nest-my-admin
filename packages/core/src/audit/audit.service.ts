@@ -44,6 +44,9 @@ const MAX_WAITING = 1_000;
 /** A recorded action input larger than this (bytes of JSON) is left out. */
 const INPUT_LIMIT = 8_000;
 
+/** How long a shutdown waits for the detached entries still in the queue. */
+const SHUTDOWN_WAIT_MS = 2_000;
+
 const DAY_MS = 86_400_000;
 /** The first retention sweep after boot: soon, and not while the app is still starting. */
 const FIRST_SWEEP_MS = 60_000;
@@ -174,15 +177,27 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * Stamps a delete's entry that is already in the table (`meta.deleted`; such an entry carries no other meta), on
-   * the audit log's own connection. A failure is logged, never thrown.
+   * Stamps an entry that is already in the table as the end of its record: `deleted: true` is added to whatever
+   * `meta` it has (an action's entry carries its name and input), on the audit log's own connection. A failure is
+   * logged, never thrown.
    */
   async stampDeleted(id: number, event: string, ctx: AuditContext): Promise<void> {
     try {
-      await this.db.getRepository(NmaAuditEntry).update(id, { meta: { deleted: true } } as never);
+      const repo = this.db.getRepository(NmaAuditEntry);
+      const entry = await repo.findOne({ where: { id } as never, select: { id: true, meta: true } as never });
+      if (!entry) throw new Error('the entry is not there');
+      await repo.update(id, { meta: { ...(entry.meta ?? {}), deleted: true } } as never);
     } catch (error) {
       this.logger.warn(`[${ctx.correlationId}] audit: could not stamp "${event}" (entry ${id}) as the end of its record (${message(error)})`);
     }
+  }
+
+  /**
+   * A delete whose row was to be read again after commit, and whose entry cannot be found for the stamp: the
+   * insert answered no id (a driver that reports none). Said once per write, so the missing stamp can be traced.
+   */
+  unstamped(event: string, ctx: AuditContext): void {
+    this.logger.warn(`[${ctx.correlationId}] audit: the entry of "${event}" has no id to find it by; it is not checked again after commit and stays unstamped`);
   }
 
   /** Writes an entry for something already final, on the audit log's own connection. A failure is logged, never thrown. */
@@ -222,9 +237,10 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * A failed sign-in, never awaited. Capped per address and username and per address (see `LoginFailures`), so a
-   * password-guessing run cannot fill the table: beyond the caps failures are counted, and one `SUPPRESSED` entry
-   * per closed minute says how many were left out.
+   * A failed sign-in, never awaited. Capped per address and username, per address, and for the whole process (see
+   * `LoginFailures`), so neither a password-guessing run nor a client with many addresses can fill the table:
+   * beyond the caps failures are counted, and `SUPPRESSED` entries say how many were left out when the minute
+   * closes.
    */
   recordLoginFailure(attempt: { username: string; reason: string; lockout: boolean }, req: IncomingMessage, ctx: AuditContext, now = Date.now()): void {
     if (!this.enabled) return;
@@ -256,12 +272,26 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
     this.loginTimer.unref();
   }
 
-  onModuleDestroy(): void {
+  /**
+   * Stops the timers and lets the detached entries that are still waiting (failed sign-ins) reach the table, for
+   * `wait` milliseconds at most: a shutdown never hangs on an audit table that does not answer. The DataSource is
+   * still open here (TypeORM closes it on application shutdown, after every module was destroyed).
+   */
+  async onModuleDestroy(wait = SHUTDOWN_WAIT_MS): Promise<void> {
     if (this.loginTimer) clearTimeout(this.loginTimer);
     this.loginTimer = undefined;
     // clearTimeout stops an interval too.
     for (const timer of this.retentionTimers) clearTimeout(timer);
     this.retentionTimers = [];
+    if (this.waiting === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(true), wait);
+      timer.unref();
+    });
+    const late = await Promise.race([this.idle().then(() => false), timedOut]);
+    clearTimeout(timer);
+    if (late) this.logger.warn(`audit: ${this.waiting} entries were still waiting to be written after ${wait} ms of shutdown; they may be lost`);
   }
 
   /** Resolves once every detached entry queued so far has been written (tests, shutdown). */

@@ -275,12 +275,18 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     if (!changes.deferred) await this.removeRows(manager, owner, changes);
   }
 
+  /** Whether records of this owner can hold files at all (file, image or rich-text fields, with `files` on). */
+  holdsFiles(owner: FileOwner): boolean {
+    return this.enabled && (fileFieldsOf(owner).length > 0 || richFieldsOf(owner).length > 0);
+  }
+
   /**
-   * A record deleted for good (a hard delete or a purge, never the trash) takes its files with it: the rows now
-   * (after commit when `nma_file` is on another DataSource), the objects after commit.
+   * A record that is gone for good (a purge, or a delete or an action after which no row is left: the caller,
+   * `filesParticipant`, decides; never the trash) takes its files with it: the rows now (after commit when
+   * `nma_file` is on another DataSource), the objects after commit.
    */
   async release(owner: FileOwner, recordId: string, ctx: AdminContext): Promise<FileChanges | undefined> {
-    if (!this.enabled || (fileFieldsOf(owner).length === 0 && richFieldsOf(owner).length === 0)) return undefined;
+    if (!this.holdsFiles(owner)) return undefined;
     const changes: FileChanges = { before: new Map(), fresh: [], recordId, removed: 'all', objects: [], deferred: owner.dataSource !== this.db };
     if (!changes.deferred) await this.removeRows(this.manager(owner, ctx), owner, changes);
     return changes;

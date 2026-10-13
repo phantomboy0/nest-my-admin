@@ -22,17 +22,36 @@ export interface WriteChange {
 }
 
 /**
+ * What is stored of a change's record once the host method has returned: read once per change, by the write's own
+ * manager (`WriteRunner.change`), trash included, without scopes, `query()` or a `findOne` override. Every
+ * participant is handed the same answer, so they cannot disagree on whether the record is still there.
+ */
+export interface StoredRow {
+  /** The record's key: the one the request names, else the loaded record's, else that of what the method saved. */
+  key?: RecordId;
+  /** The row, in the trash or not. Absent when there is none, when no key is known, and for a settings page. */
+  stored?: object;
+  /**
+   * The key is known and no row is left: the record is really gone. False whenever the write still reads a row,
+   * so also for a host `delete()` that only flags the record, and for a delete a host service made on another
+   * connection that this transaction cannot see (MySQL, REPEATABLE READ).
+   */
+  gone: boolean;
+}
+
+/**
  * Something that takes part in every change of a write (`WriteRunner.change`): files, the audit log.
  *
  * `before` runs ahead of the host method and answers this participant's state for the change, or `undefined` to
  * sit the change out. `after` runs once the host method has returned, still inside the write's transaction, with
- * what was saved (`null`: the record is gone; `undefined`: the method named none). `onCommit` runs once the
+ * what was saved (`null`: the record is gone; `undefined`: the method named none) and `row`, which reads what is
+ * stored now (`StoredRow`; the read is made once, when the first participant asks). `onCommit` runs once the
  * write's transaction has committed, for changes whose `after` finished; `onRollback` when it failed, for every
  * change that got a state. Both are best effort: a failure is logged, never thrown.
  */
 export interface WriteParticipant<S = unknown> {
   before(change: WriteChange, tx: AdminContext): Promise<S | undefined>;
-  after(change: WriteChange, state: S, saved: object | null | undefined, tx: AdminContext): Promise<void>;
+  after(change: WriteChange, state: S, saved: object | null | undefined, tx: AdminContext, row: () => Promise<StoredRow>): Promise<void>;
   onCommit?(change: WriteChange, state: S, tx: AdminContext): Promise<void>;
   onRollback?(change: WriteChange, state: S, tx: AdminContext): Promise<void>;
 }
