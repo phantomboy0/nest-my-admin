@@ -1,0 +1,30 @@
+{
+  "name": "nest-my-admin",
+  "version": "0.2.0",
+  "description": "Django-admin-class admin panel for NestJS + TypeORM (the same package as @nest-my-admin/core)",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/phantomboy0/nest-my-admin.git", "directory": "packages/nest-my-admin" },
+  "homepage": "https://github.com/phantomboy0/nest-my-admin#readme",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "index.d.ts"],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "prepack": "cp ../../README.md ../../LICENSE .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@nest-my-admin/core": "workspace:*"
+  }
+}

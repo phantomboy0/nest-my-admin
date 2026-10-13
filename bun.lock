@@ -105,6 +105,13 @@
         "sanitize-html",
       ],
     },
+    "packages/nest-my-admin": {
+      "name": "nest-my-admin",
+      "version": "0.2.0",
+      "dependencies": {
+        "@nest-my-admin/core": "workspace:*",
+      },
+    },
     "packages/testing": {
       "name": "@nest-my-admin/testing",
       "version": "0.2.0",
@@ -1053,6 +1060,8 @@
     "nanoid": ["nanoid@3.3.19", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug=="],
 
     "negotiator": ["negotiator@1.1.0", "", { "dependencies": { "content-type": "^2.1.0" } }, "sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg=="],
+
+    "nest-my-admin": ["nest-my-admin@workspace:packages/nest-my-admin"],
 
     "node-releases": ["node-releases@2.0.57", "", {}, "sha512-kQK9LGGFiHtrWiNhZtA7Qbw17AQz+dmsEKODRIVTXA9+e5MS/2gZEBhYJt13GrAz5/IOZKddH/0Z3TP/Zgo+yw=="],
 

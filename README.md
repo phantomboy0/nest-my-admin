@@ -11,6 +11,14 @@ Requires NestJS 11 or 12, TypeORM 0.3.20+ or 1.x, Node 20.19+ (or Bun), and Post
 The package is ESM; CommonJS apps load it through Node's `require(esm)`. A CommonJS app compiled with
 `"module": "nodenext"` (the `nest new` default since Nest 11) needs TypeScript 5.8+; with `"module": "commonjs"` any 5.x works.
 
+```bash
+npm install @nest-my-admin/core          # the admin (brings the prebuilt UI with it)
+npm install @nest-my-admin/auth          # optional: the built-in sign-in
+npm install -D @nest-my-admin/testing    # optional: test helpers
+```
+
+`nest-my-admin` (no scope) is the same package as `@nest-my-admin/core` under a shorter name: it re-exports it, at the same version.
+
 ```ts
 @AdminResource(Product, { icon: 'package' })
 export class ProductAdmin extends AdminResourceBase<Product> {
