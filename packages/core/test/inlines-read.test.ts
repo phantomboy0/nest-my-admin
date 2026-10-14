@@ -6,7 +6,7 @@ import type { IncomingMessage } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ChildEntity, Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, TableInheritance, type DataSource } from 'typeorm';
+import { ChildEntity, Column, DeleteDateColumn, Entity, JoinColumn, ManyToOne, PrimaryColumn, PrimaryGeneratedColumn, TableInheritance, type DataSource } from 'typeorm';
 import {
   ADMIN_FILE_ENTITIES,
   AdminAuth,
@@ -117,12 +117,26 @@ class OrderLine {
   @Column({ type: 'int', default: 0 }) position: number;
 }
 
+/** The link is `restricted`: only roles granted `order-line.field.orderId.view` see it, and so the inline. */
 @AdminResource(OrderLine, { title: 'product' })
-class OrderLineAdmin extends AdminResourceBase<OrderLine> {}
+class OrderLineAdmin extends AdminResourceBase<OrderLine> {
+  override fields: FieldsConfig<OrderLine> = { orderId: { restricted: true } };
+}
+
+/** Soft-deletable, linked through a lazy relation without an explicit column (link field `order`). */
+@Entity('inl_order_note')
+class OrderNote {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 40 }) text: string;
+  @ManyToOne(() => Order, { lazy: true, onDelete: 'CASCADE' }) order: Promise<Order>;
+  @DeleteDateColumn() deletedAt: Date | null;
+}
+@AdminResource(OrderNote, { title: 'text' })
+class OrderNoteAdmin extends AdminResourceBase<OrderNote> {}
 
 @AdminResource(Order, { title: 'number' })
 class OrderAdmin extends AdminResourceBase<Order> {
-  override form: FormConfig = { layout: [{ fields: ['number'] }, { section: 'Lines', inline: OrderLineAdmin, link: 'orderId', order: 'position' }] };
+  override form: FormConfig = { layout: [{ fields: ['number'] }, { section: 'Lines', inline: OrderLineAdmin, link: 'orderId', order: 'position' }, { inline: OrderNoteAdmin }] };
 }
 
 /** Reads the table itself, ignoring scopes and filters but for the link: the inline still keeps other rows out. */
@@ -143,6 +157,20 @@ class RawOrderAdmin extends AdminResourceBase<Order> {
   override form: FormConfig = { layout: [{ fields: ['number'] }, { inline: RawLineAdmin, link: 'orderId', order: 'position' }] };
 }
 
+/** Ignores every filter, the link included: the inline must still show only this order's lines. */
+@AdminResource(OrderLine, { name: 'loose-line', title: 'product' })
+class LooseLineAdmin extends AdminResourceBase<OrderLine> {
+  override async findMany() {
+    const items = await this.repository.find({ order: { position: 'ASC', id: 'ASC' } });
+    return { items, total: items.length };
+  }
+}
+
+@AdminResource(Order, { name: 'loose-order', title: 'number' })
+class LooseOrderAdmin extends AdminResourceBase<Order> {
+  override form: FormConfig = { layout: [{ fields: ['number'] }, { inline: LooseLineAdmin, link: 'orderId', order: 'position', max: 2 }] };
+}
+
 /** A resource without inlines: its answers must not change (0.2.1 shapes). */
 @Entity('inl_note')
 class Note {
@@ -156,9 +184,12 @@ const USERS: Record<string, AdminUser> = {
   root: { id: 'root', displayName: 'Root', isSuperuser: true },
   clerk: { id: 'c', displayName: 'Clerk', isSuperuser: false },
   blind: { id: 'b', displayName: 'Blind', isSuperuser: false },
+  nolink: { id: 'nl', displayName: 'No link', isSuperuser: false },
+  lines: { id: 'l', displayName: 'Lines', isSuperuser: false },
+  linesplus: { id: 'lp', displayName: 'Lines plus', isSuperuser: false },
   raw: { id: 'r', displayName: 'Raw', isSuperuser: false },
 };
-const ROLES_OF: Record<string, string[]> = { clerk: ['clerk'], raw: ['raw'], blind: ['blind'] };
+const ROLES_OF: Record<string, string[]> = { clerk: ['clerk'], raw: ['raw'], blind: ['blind'], nolink: ['nolink'], lines: ['lines'], linesplus: ['linesplus'] };
 
 @Injectable()
 class HeaderAuth implements AdminAuthAdapter {
@@ -171,11 +202,11 @@ class HeaderAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [HeaderAuth, VariantAdmin, ProductMediaAdmin, ProductAdmin, ShirtAdmin, OrderLineAdmin, OrderAdmin, RawLineAdmin, RawOrderAdmin, NoteAdmin] })
+@Module({ providers: [HeaderAuth, VariantAdmin, ProductMediaAdmin, ProductAdmin, ShirtAdmin, OrderLineAdmin, OrderNoteAdmin, OrderAdmin, RawLineAdmin, RawOrderAdmin, LooseLineAdmin, LooseOrderAdmin, NoteAdmin] })
 class InlinesModule {}
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
-const ENTITIES = [Product, Shirt, Variant, ProductMedia, Order, OrderLine, Note];
+const ENTITIES = [Product, Shirt, Variant, ProductMedia, Order, OrderLine, OrderNote, Note];
 
 let app: INestApplication;
 let dir: string;
@@ -211,6 +242,9 @@ beforeAll(async () => {
         { name: 'clerk', permissions: ['product.view', 'shirt.view', 'variant.view', 'variant.update', 'order.view'], fields: { variant: { cost: 'hidden' } }, scopes: { variant: { view: 'active' } } },
         { name: 'raw', permissions: ['raw-order.view', 'raw-line.view'], scopes: { 'raw-line': { view: 'small' } } },
         { name: 'blind', permissions: ['product.view', 'variant.view'], fields: { variant: { sort: 'hidden' } } },
+        { name: 'nolink', permissions: ['product.view', 'variant.view'], fields: { variant: { productId: 'hidden' } } },
+        { name: 'lines', permissions: ['order.view', 'order-line.view'] },
+        { name: 'linesplus', permissions: ['order.view', 'order-line.view', 'order-line.field.orderId.view'] },
       ],
     },
   });
@@ -240,14 +274,21 @@ beforeAll(async () => {
     { orderId: order.id, product: 'Pad', qty: 1, position: 2, returnOfId: other.id },
     { orderId: other.id, product: 'Cup', qty: 1, position: 0 },
   ]);
-  // A picture through the files lifecycle, so the media row carries `_files`.
-  const upload = await request(app.getHttpServer()).post('/admin/api/uploads?resource=product-media&field=image').set('X-User', 'root').set('Content-Type', 'image/png').send(PNG);
-  expect(upload.status).toBe(201);
-  const media = await root.post('/resources/product-media', { caption: 'Front', product: chair!.id, image: { token: upload.body.token } });
-  expect(media.status).toBe(201);
-  await root.post('/resources/product-media', { caption: 'Side', product: table!.id, sort: 0 });
-  await root.post('/resources/product-media', { caption: 'Top', product: desk!.id, sort: 0 });
-  await root.post('/resources/product-media', { caption: 'Back', product: desk!.id, sort: 1 });
+  const notes = db.getRepository(OrderNote);
+  const note = (text: string, of: Order) => Object.assign(new OrderNote(), { text, order: Promise.resolve(of) });
+  const [, gone] = await notes.save([note('Gift wrap', order), note('Rush', order), note('Fragile', other)]);
+  await notes.softDelete(gone!.id);
+  // Pictures through the files lifecycle, so the media rows carry `_files`.
+  const picture = async (caption: string, product: number, sort = 0) => {
+    const upload = await request(app.getHttpServer()).post('/admin/api/uploads?resource=product-media&field=image').set('X-User', 'root').set('Content-Type', 'image/png').send(PNG);
+    expect(upload.status).toBe(201);
+    const media = await root.post('/resources/product-media', { caption, product, sort, image: { token: upload.body.token } });
+    expect(media.status).toBe(201);
+  };
+  await picture('Front', chair!.id);
+  await picture('Side', table!.id);
+  await picture('Top', desk!.id, 0);
+  await picture('Back', desk!.id, 1);
 });
 
 afterAll(async () => {
@@ -385,14 +426,14 @@ describe(`_inlines on GET (${TEST_DB})`, () => {
     expect(res.body._inlines['raw-line'].rows.map((row: { product: string }) => row.product)).toEqual(['Pen', 'Pad']); // Ink has qty 3
   });
 
-  test('the queries do not grow with the rows: one read per inline', async () => {
+  test('the number of queries is constant in the number of rows (references and files in one lookup per inline)', async () => {
     selects = 0;
     await root.get(`/resources/product/${ids.table}`); // 1 variant, 1 picture
     const few = selects;
     selects = 0;
-    const desk = await root.get(`/resources/product/${ids.desk}`); // 3 variants, 2 pictures
+    const desk = await root.get(`/resources/product/${ids.desk}`); // 3 variants, 2 pictures, each with a file
     expect(desk.body._inlines.variant.rows).toHaveLength(3);
-    expect(desk.body._inlines['product-media'].rows).toHaveLength(2);
+    expect(desk.body._inlines['product-media'].rows.map((row: { _files: { image: unknown } }) => typeof row._files.image)).toEqual(['object', 'object']);
     expect(selects).toBe(few);
     selects = 0;
     await root.get(`/resources/order/${ids.order}`);
@@ -400,6 +441,43 @@ describe(`_inlines on GET (${TEST_DB})`, () => {
     selects = 0;
     await root.get(`/resources/order/${ids.other}`);
     expect(selects).toBe(lines);
+  });
+
+  test('a hidden link field hides the inline: no layout node, no child schema, no `_inlines`', async () => {
+    const schema = (await as('nolink').get('/meta/resources/product')).body;
+    expect(schema.form.layout).toEqual([{ title: 'Details', fields: ['name'], columns: 1 }]);
+    expect(schema).not.toHaveProperty('inlines');
+    const record = await as('nolink').get(`/resources/product/${ids.chair}`);
+    expect(record.status).toBe(200);
+    expect(record.body).not.toHaveProperty('_inlines');
+    // The child's own list refuses to filter on it, as before.
+    expect((await as('nolink').get(`/resources/variant?filter[productId][eq]=${ids.chair}`)).status).toBe(422);
+  });
+
+  test('a restricted link field hides the inline unless the role is granted it', async () => {
+    const lines = await as('lines').get(`/resources/order/${ids.order}`);
+    expect(lines.status).toBe(200);
+    expect(lines.body).not.toHaveProperty('_inlines');
+    expect((await as('lines').get('/meta/resources/order')).body.form.layout.map((node: { inline?: string }) => node.inline ?? 'section')).toEqual(['section']);
+    const plus = await as('linesplus').get(`/resources/order/${ids.order}`);
+    expect(Object.keys(plus.body._inlines)).toEqual(['order-line']);
+    expect(plus.body._inlines['order-line'].total).toBe(3);
+  });
+
+  test('a child findMany that ignores the link filter still shows only this parent\'s children', async () => {
+    const lines = (await root.get(`/resources/loose-order/${ids.order}`)).body._inlines['loose-line'];
+    expect(lines.rows.map((row: { product: string }) => row.product)).toEqual(['Ink', 'Pen']); // Cup is the other order's
+    expect(lines).toMatchObject({ total: 3, truncated: true });
+    const other = (await root.get(`/resources/loose-order/${ids.other}`)).body._inlines['loose-line'];
+    expect(other).toMatchObject({ total: 1, truncated: false });
+    expect(other.rows.map((row: { product: string }) => row.product)).toEqual(['Cup']);
+  });
+
+  test('soft-deleted children are left out, and a lazy relation links them', async () => {
+    const notes = (await root.get(`/resources/order/${ids.order}`)).body._inlines['order-note'];
+    expect(notes.rows.map((row: { text: string }) => row.text)).toEqual(['Gift wrap']);
+    expect(notes).toMatchObject({ total: 1, truncated: false });
+    expect(notes.rows[0].order).toEqual({ id: ids.order, title: 'O-1' });
   });
 
   test('lists and the child endpoints are unchanged: no `_inlines` on list rows', async () => {
@@ -453,6 +531,23 @@ class NotedLineAdmin extends AdminResourceBase<OrderLine> {
   override form: FormConfig = { layout: [{ fields: ['product'] }, { inline: LineNoteAdmin }] };
 }
 
+@Entity('inl_pair')
+class Pair {
+  @PrimaryColumn({ type: 'int' }) left: number;
+  @PrimaryColumn({ type: 'int' }) right: number;
+}
+@Entity('inl_pair_item')
+class PairItem {
+  @PrimaryGeneratedColumn() id: number;
+  @ManyToOne(() => Pair) pair: Pair;
+}
+@AdminResource(PairItem)
+class PairItemAdmin extends AdminResourceBase<PairItem> {}
+
+/** Lines of another DataSource. */
+@AdminResource(OrderLine, { name: 'far-line', dataSource: 'far' })
+class FarLineAdmin extends AdminResourceBase<OrderLine> {}
+
 /** A parent resource of `entity` whose layout holds `node`. */
 function parentWith(entity: Function, node: LayoutInlineConfig): Provider {
   @AdminResource(entity, { name: 'bad-parent' })
@@ -462,7 +557,7 @@ function parentWith(entity: Function, node: LayoutInlineConfig): Provider {
   return BadParentAdmin;
 }
 const boot = (entity: Function, node: LayoutInlineConfig, providers: Provider[]) =>
-  createTestApp({ entities: [Product, Shirt, Order, OrderLine, Lonely, Sticker, LineNote], providers: [...providers, parentWith(entity, node)] });
+  createTestApp({ entities: [Product, Shirt, Order, OrderLine, Lonely, Sticker, LineNote, Pair, PairItem], providers: [...providers, parentWith(entity, node)] });
 
 describe(`boot errors (${TEST_DB})`, () => {
   test('a child without a to-one relation to the parent', async () => {
@@ -501,6 +596,16 @@ describe(`boot errors (${TEST_DB})`, () => {
   test('`fields` naming the link or a field the child form does not have', async () => {
     await expect(boot(Order, { inline: OrderLineAdmin, link: 'orderId', fields: ['orderId', 'qty'] }, [OrderLineAdmin])).rejects.toThrow('fields: "orderId" is the link field; the inline sets it');
     await expect(boot(Order, { inline: OrderLineAdmin, link: 'orderId', fields: ['qtty'] }, [OrderLineAdmin])).rejects.toThrow('fields: "qtty" is not on the OrderLine form (did you mean "qty"?)');
+  });
+
+  test('a parent with a composite primary key', async () => {
+    await expect(boot(Pair, { inline: PairItemAdmin }, [PairItemAdmin])).rejects.toThrow('BadParentAdmin: form.layout inline PairItemAdmin: inlines need a parent with a single-column primary key');
+  });
+
+  test('a child on another DataSource', async () => {
+    await expect(createTestApp({ entities: [Order, OrderLine], dataSources: { far: [Order, OrderLine] }, providers: [FarLineAdmin, parentWith(Order, { inline: FarLineAdmin, link: 'orderId' })] })).rejects.toThrow(
+      'form.layout inline FarLineAdmin: FarLineAdmin is on another DataSource; a parent and its inlines are saved in one transaction',
+    );
   });
 
   test('a class that is not a registered resource, and one child twice', async () => {

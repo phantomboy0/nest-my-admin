@@ -104,7 +104,8 @@ export class InlineWriter {
   async prepare(parent: RegisteredResource, raw: unknown, ctx: AdminContext, creating: boolean): Promise<InlinePlan> {
     const { policy } = this.deps;
     const perms = policy.permissionsOf(ctx);
-    const viewable = parent.inlines.filter((inline) => perms.canOn(inline.name, 'view'));
+    // An inline whose child or link field the user may not see is not there for them (as in the schema).
+    const viewable = parent.inlines.filter((inline) => policy.canSeeInline(inline.child, inline.link, ctx));
     const sent = raw === undefined ? {} : raw;
     const shape: Record<string, string[]> = {};
     if (!isObject(sent)) throw new AdminValidationError({ _inlines: ['must be an object of inline name → changes'] });

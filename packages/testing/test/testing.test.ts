@@ -20,6 +20,7 @@ import {
   type AdminSettingsSource,
   type AuditEntry,
   type FieldsConfig,
+  type FormConfig,
   type ListConfig,
   type ListParams,
 } from '@nest-my-admin/core';
@@ -46,6 +47,7 @@ class Task {
   @Column({ length: 60 }) name: string;
   @Column({ type: 'int', nullable: true }) projectId: number | null;
   @ManyToOne(() => Project, { nullable: true, eager: true }) @JoinColumn({ name: 'projectId' }) project: Project | null;
+  @Column({ length: 40, default: '' }) code: string;
 }
 
 @Injectable()
@@ -77,6 +79,17 @@ class LeakyTaskAdmin extends AdminResourceBase<Task> {
     const items = await this.repository.find({ take: params.pageSize, order: { id: 'ASC' } }); // loads the eager project
     return { items, total: items.length };
   }
+}
+
+/** Tasks titled with a field the `coder` role hides, listed inline under a project board. */
+@Injectable()
+@AdminResource(Task, { name: 'coded-task', title: (task: Task) => `${task.name} [${task.code}]` })
+class CodedTaskAdmin extends AdminResourceBase<Task> {}
+
+@Injectable()
+@AdminResource(Project, { name: 'board', title: 'name' })
+class BoardAdmin extends AdminResourceBase<Project> {
+  override form: FormConfig = { layout: [{ fields: ['name'] }, { inline: CodedTaskAdmin, link: 'projectId' }] };
 }
 
 @Entity('tst_parcel')
@@ -129,7 +142,7 @@ class ShopPage implements AdminSettingsSource<ShopDto> {
   }
 }
 
-@Module({ providers: [ProjectAdmin, LeakyProjectAdmin, TaskAdmin, LeakyTaskAdmin, ParcelAdmin, ShopPage] })
+@Module({ providers: [ProjectAdmin, LeakyProjectAdmin, TaskAdmin, LeakyTaskAdmin, CodedTaskAdmin, BoardAdmin, ParcelAdmin, ShopPage] })
 class AppModule {}
 
 let db: TestDatabase;
@@ -150,6 +163,7 @@ beforeAll(async () => {
           { name: 'leaky', permissions: ['leaky-project.view'], fields: { 'leaky-project': { secret: 'hidden' } } },
           { name: 'editor', permissions: ['parcel.view', 'parcel.update', 'parcel.action.ship', 'page.shop', 'page.shop.update'] },
           { name: 'viewer', permissions: ['parcel.view', 'page.shop'] },
+          { name: 'coder', permissions: ['coded-task.view', 'board.view'], fields: { 'coded-task': { code: 'hidden' } } },
         ],
         resolveRoles: (user) => (user.attrs?.roles as string[] | undefined) ?? [],
       }),
@@ -159,7 +173,7 @@ beforeAll(async () => {
   const root = admin.superuser;
   const apollo = await root.create('project', { name: 'Apollo', ownerId: 'u1', secret: 'TOPSECRET-1', budget: '98765.43' });
   const borealis = await root.create('project', { name: 'Borealis', ownerId: 'u2', secret: 'TOPSECRET-2', budget: '11111.11' });
-  await root.create('task', { name: 'Launch', projectId: apollo.id });
+  await root.create('task', { name: 'Launch', projectId: apollo.id, code: 'CODE-LAUNCH' });
   await root.create('task', { name: 'Survey', projectId: borealis.id });
 });
 afterAll(async () => {
@@ -346,6 +360,13 @@ describe(`@nest-my-admin/testing (${TEST_DB})`, () => {
     const { leaks } = (error as AdminLeakError).report;
     expect(leaks.some((leak) => leak.kind === 'hidden-value' && leak.field === 'secret' && leak.value === 'TOPSECRET-1' && leak.where.startsWith('list leaky-project'))).toBe(true);
     expect((error as Error).message).toContain('hidden field "secret" of leaky-project');
+  });
+
+  test('expectNoLeaks reads the rows a parent lists inline (`_inlines`)', async () => {
+    const error = await admin.expectNoLeaks('coded-task', { as: { id: 'u1', roles: ['coder'] } }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AdminLeakError);
+    const leaks = (error as AdminLeakError).report.leaks.filter((leak) => leak.kind === 'hidden-value' && leak.field === 'code');
+    expect(leaks.some((leak) => leak.where.startsWith('get board ') && leak.where.includes('._inlines.coded-task.rows'))).toBe(true);
   });
 
   test('expectNoLeaks finds an out-of-scope record through another resource (Review Focus 4)', async () => {

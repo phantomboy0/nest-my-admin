@@ -79,6 +79,8 @@ function resolveInline(entry: RegisteredResource, node: LayoutInlineConfig, entr
   const child = entries.find((candidate) => candidate.resource.constructor === node.inline);
   if (!child) return fail(`${where}: not a registered admin resource (add it to a module's providers)`);
   if (child.dataSource !== entry.dataSource) fail(`${where}: ${child.className} is on another DataSource; a parent and its inlines are saved in one transaction`);
+  // A link holds one value: the parent's key (relations to composite keys are not fields either).
+  if (entry.schema.primaryKeys.length !== 1) fail(`${where}: inlines need a parent with a single-column primary key`);
   if (layoutInlines(child.resource.form?.layout).length > 0) fail(`${where}: ${child.className} declares inlines itself; inlines are one level deep`);
   const childName = entityName(child.metadata);
   const parentName = entityName(entry.metadata);

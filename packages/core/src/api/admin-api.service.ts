@@ -243,7 +243,7 @@ export class AdminApiService {
     if (!entity) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
     await this.policy.requireInScope(entry, id, rawId, 'view', ctx); // a findOne override may ignore scopes
     const record = await this.record(entry, entity, ctx);
-    if (entry.inlines.length > 0) record._inlines = await this.inlines.read(entry, entity, ctx);
+    if (entry.inlines.length > 0) await this.inlines.readInto(record, entry, entity, ctx);
     return record;
   }
 
@@ -415,7 +415,7 @@ export class AdminApiService {
   /** The answer of a write: the record, and for a parent with inlines its `_inlines` as they are after the save. */
   private async withInlineRows(entry: RegisteredResource, entity: object, tx: AdminContext): Promise<AdminRecord> {
     const record = await this.record(entry, entity, tx);
-    if (entry.inlines.length > 0) record._inlines = await this.inlines.read(entry, entity, tx);
+    if (entry.inlines.length > 0) await this.inlines.readInto(record, entry, entity, tx);
     return record;
   }
 
@@ -557,7 +557,7 @@ export class AdminApiService {
   private parentValues(entry: RegisteredResource, values: Record<string, unknown>, parentName: string | null, ctx: AdminContext): Record<string, unknown> {
     if (parentName === null && values._parent === undefined) return values;
     const parent = parentName === null ? undefined : this.registry.find(parentName);
-    if (!parent || !parent.inlines.some((inline) => inline.child === entry) || !this.policy.permissionsOf(ctx).canOn(parent.schema.name, 'view')) {
+    if (!parent || !parent.inlines.some((inline) => inline.child === entry && this.policy.canSeeInline(entry, inline.link, ctx)) || !this.policy.permissionsOf(ctx).canOn(parent.schema.name, 'view')) {
       throw new AdminValidationError({ parent: [`must name a resource that ${entry.schema.label} is inlined in, with values._parent`] });
     }
     const sent = values._parent;

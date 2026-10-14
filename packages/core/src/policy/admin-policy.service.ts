@@ -261,16 +261,25 @@ export class AdminPolicy implements OnApplicationBootstrap {
   }
 
   /**
-   * The layout as this user sees it: sections keep their visible fields; an inline stays only when the user may view
-   * the child resource, with the child's fields they may see and its `order` only when they may see that field (the
+   * Whether the user may see an inline at all (its schema, its rows, its changes): they may view the child resource
+   * AND see its link field. Rows listed under a parent reveal their link's value, so a link hidden (or restricted and
+   * not granted) makes the inline as absent as a child they cannot view.
+   */
+  canSeeInline(child: RegisteredResource, link: string, ctx: AdminContext): boolean {
+    if (!this.permissionsOf(ctx).canOn(child.schema.name, 'view')) return false;
+    return (this.levels(child, ctx).get(link) ?? 'hidden') !== 'hidden';
+  }
+
+  /**
+   * The layout as this user sees it: sections keep their visible fields; an inline stays only when the user may see it
+   * (`canSeeInline`), with the child's fields they may see and its `order` only when they may see that field (the
    * reader then sorts by key too); a tab left without sections by that goes too.
    */
   private cutLayout(layout: FormLayoutNode[], visible: (name: string) => boolean, ctx: AdminContext): FormLayoutNode[] {
-    const perms = this.permissionsOf(ctx);
     const cut = (node: FormLayoutSection | FormLayoutInline): FormLayoutSection | FormLayoutInline | undefined => {
       if (!('inline' in node)) return { ...node, fields: node.fields.filter(visible) };
       const child = this.registry.find(node.inline);
-      if (!child || !perms.canOn(child.schema.name, 'view')) return undefined;
+      if (!child || !this.canSeeInline(child, node.link, ctx)) return undefined;
       const levels = this.levels(child, ctx);
       const { order, ...rest } = node;
       // Rows sorted by a field the user cannot see would reveal its values: such an inline goes by key, unordered.

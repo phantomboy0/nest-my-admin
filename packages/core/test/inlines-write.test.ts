@@ -194,6 +194,7 @@ const USERS: Record<string, AdminUser> = {
   root: { id: 'root', displayName: 'Root', isSuperuser: true },
   clerk: { id: 'clerk', displayName: 'Clerk', isSuperuser: false },
   fixed: { id: 'fixed', displayName: 'Fixed', isSuperuser: false },
+  nolink: { id: 'nolink', displayName: 'No link', isSuperuser: false },
   csrf: { id: 'csrf', displayName: 'Careful', isSuperuser: true },
 };
 
@@ -253,6 +254,7 @@ beforeAll(async () => {
           scopes: { variant: { view: 'active' } },
         },
         { name: 'fixed', permissions: ['product.view', 'product.update', 'variant.view', 'variant.create', 'variant.update', 'variant.delete'], fields: { variant: { sort: 'readonly' } } },
+        { name: 'nolink', permissions: ['product.view', 'product.update', 'variant.view', 'variant.create', 'variant.update', 'variant.delete'], fields: { variant: { productId: 'hidden' } } },
       ],
     },
   });
@@ -534,6 +536,19 @@ describe(`Review Focus 3: the child's own permissions (${TEST_DB})`, () => {
     const allowed = await as('clerk').patch(`/resources/product/${id}`, { _inlines: { variant: { order: [b, a] } } });
     expect(allowed.status).toBe(200);
     expect((await variantsOf(id)).map((variant) => variant.sku)).toEqual(['RA-2', 'RA-1']);
+  });
+
+  test('a user who cannot see the link field cannot use the inline: refused like a child they cannot view, nothing applied', async () => {
+    const { id, variants } = await seed('Stool', ['ST-1']);
+    const res = await as('nolink').patch(`/resources/product/${id}`, { name: 'Stool 2', _inlines: { variant: { create: [{ _key: 'n', sku: 'ST-2', price: 1 }], delete: [String(variants[0]!.id)] } } });
+    expect(res.status).toBe(422);
+    expect(Object.keys(res.body.fields)).toEqual(['_inlines.variant']);
+    expect((await db.getRepository(Product).findOneByOrFail({ id })).name).toBe('Stool');
+    expect((await variantsOf(id)).map((variant) => variant.sku)).toEqual(['ST-1']);
+    // A save without `_inlines` works, and its answer carries no inline the user may not see.
+    const plain = await as('nolink').patch(`/resources/product/${id}`, { name: 'Stool 3' });
+    expect(plain.status).toBe(200);
+    expect(plain.body._inlines ?? {}).not.toHaveProperty('variant');
   });
 
   test('a hidden or read-only child field in an entry is 403 FORBIDDEN_FIELDS on its path', async () => {
