@@ -248,3 +248,7 @@ Open after the final review of M4 (the fixes it asked for are in; these are not)
 - `order` sorts resources among resources and pages among pages; a group still lists resources first. Mixing them needs `order` in `MetaResourceSummary`/`MetaPageSummary` and one merged list in the sidebar, the group page, the home page and the palette.
 - `AdminFiles` goes by the visibility recorded at upload: there is no way to make existing files of a field private (or public) after the fact, and a trashed record's public files stay served.
 - The README's public-files controller is exercised by a copy in `packages/core/test/admin-files.test.ts`; nothing checks that the two stay the same.
+
+## Requested by shop-nest (2026-10-14)
+
+- **Register a file the host stored itself.** A host that stores files outside the upload screen (shop-nest: product images fetched from the CRM, customer ticket attachments) needs them in `nma_file`, so that `AdminFiles`, `/api/files/*`, the record's `_files` and the delete/purge lifecycle treat them like uploads. Add a host API on `AdminFiles` (or `FilesService`), e.g. `register({ resource, field, recordId, key?, body, name, contentType?, visibility })` that sniffs and stores the body, writes an `attached` row inside the caller's transaction when given a manager (and releases it on rollback), and checks the field exists and is a file/image field of that resource; plus a way to replace and to release. The owner chose this over a shop-side second file list. Target: the next minor version.
