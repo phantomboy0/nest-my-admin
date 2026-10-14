@@ -22,6 +22,7 @@ import type { LocalizedText } from '../i18n/localized-text.js';
 import { humanize, kebabCase } from '../schema/humanize.js';
 import { dbNamesFor, type DbNames } from './db-names.js';
 import { hookWarnings } from './hook-warnings.js';
+import { resolveInlines, type RegisteredInline } from '../inlines/inline-config.js';
 
 export interface RegisteredResource {
   schema: ResourceSchema;
@@ -48,6 +49,8 @@ export interface RegisteredResource {
   actions: ReadonlyMap<string, RegisteredAction>;
   /** Where the resource stands among the resources of its group (`@AdminResource({ order })`, default 100). */
   order: number;
+  /** The child resources its form edits inline (`{ inline: ChildAdmin }` in `form.layout`), in layout order. */
+  inlines: RegisteredInline[];
 }
 
 /** TypeORM's RelationMetadata as the admin reads it (TypeORM does not export the class from its root). */
@@ -121,6 +124,7 @@ export class ResourceRegistry implements OnModuleInit {
     }
     this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
+    resolveInlines(this.list());
   }
 
   get(name: string): RegisteredResource {
@@ -290,6 +294,7 @@ export class ResourceRegistry implements OnModuleInit {
       ),
       actions,
       order,
+      inlines: [],
     });
   }
 

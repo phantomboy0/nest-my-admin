@@ -102,12 +102,45 @@ export interface FormLayoutSection {
   columns: 1 | 2 | 3;
 }
 
-export interface FormLayoutTab {
-  tab: string;
-  sections: FormLayoutSection[];
+/**
+ * A child resource edited inside the parent's form (`{ inline: ChildAdmin }` in the layout). The child's schema, cut
+ * for this user, is `ResourceSchema.inlines[inline]`; a record's rows are `_inlines[inline]` (`InlineRows`).
+ */
+export interface FormLayoutInline {
+  /** The child resource's name: the key in `inlines` and `_inlines`. */
+  inline: string;
+  /** The section's title, else the child resource's label. */
+  label: string;
+  /** `cards`: one card per row with the child's fields; `table`: one row per child, one cell per field. */
+  display: 'cards' | 'table';
+  /** The child's fields the inline shows, in order (never the link field; only fields this user may see). */
+  fields: string[];
+  /** A number field of the child that orders the rows (written 0, 1, 2… on reorder); without it rows go by key. */
+  order?: string;
+  /** Fewest rows a save may leave. */
+  min?: number;
+  /** Most rows a save may leave, and most rows read (`truncated` beyond). At most 500. */
+  max: number;
+  /** The child's field that points at the parent (set by the server). */
+  link: string;
 }
 
-export type FormLayoutNode = FormLayoutSection | FormLayoutTab;
+export interface FormLayoutTab {
+  tab: string;
+  sections: Array<FormLayoutSection | FormLayoutInline>;
+}
+
+export type FormLayoutNode = FormLayoutSection | FormLayoutTab | FormLayoutInline;
+
+/** One inline of a record (`_inlines[child]` on `GET /resources/:parent/:id`). */
+export interface InlineRows {
+  /** The children of this record, as the child's own endpoints answer them (`_id`, `_perm`, `_readonly`, `_files`…), by `order` then key. */
+  rows: AdminRecord[];
+  /** How many children of this record the user may see. */
+  total: number;
+  /** More than `max` exist: `rows` holds the first `max`, and the inline is not edited in the form. */
+  truncated: boolean;
+}
 
 /** An external link of a record (`links()` on the resource), shown in the detail header. */
 export interface RecordLink {
@@ -356,10 +389,15 @@ export interface ResourceSchema {
     requiredOnCreate: string[];
     /** Shown on the update form but not writable (`readonly: true`); records add their own in `_readonly`. */
     readonly: string[];
-    /** Sections and tabs (`form.layout`); absent = one section in form order. */
+    /** Sections, inlines and tabs (`form.layout`); absent = one section in form order. */
     layout?: FormLayoutNode[];
     constraints: { create: Record<string, FieldConstraints>; update: Record<string, FieldConstraints> };
   };
+  /**
+   * The schema of each child resource the layout places inline (`FormLayoutInline.inline`), cut for this user like
+   * its own schema. Absent when the layout has no inline the user may see.
+   */
+  inlines?: Record<string, ResourceSchema>;
 }
 
 /**
@@ -369,7 +407,8 @@ export interface ResourceSchema {
  * schema allows), and when configured `_readonly` (fields `readonlyIf` locks on this
  * record) and `_links` (`RecordLink[]`). File and image fields hold their key (a list of keys with `file.many`), and
  * resources with such fields add `_files`: field name → `AdminFileRef` (`AdminFileRef[]` with `file.many`) for every
- * field that holds a file.
+ * field that holds a file. `GET /resources/:resource/:id` of a resource with inlines adds `_inlines`: child resource
+ * name → `InlineRows`, for each inline the user may see.
  */
 export type AdminRecord = Record<string, unknown>;
 

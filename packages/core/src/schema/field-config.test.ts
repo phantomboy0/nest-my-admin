@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, expect, test } from 'bun:test';
 import type { FieldSchema } from '../contract.js';
 import { AdminField } from '../decorators/admin-field.js';
-import { applyFieldConfig, checkFieldConfig, checkLayout, localizeLayout, mergeFieldConfig } from './field-config.js';
+import { applyFieldConfig, checkFieldConfig, checkLayout, localizeLayout, mergeFieldConfig, type LayoutConfig, type LayoutInlineConfig } from './field-config.js';
 
 const field = (name: string, type: FieldSchema['type'], extra: Partial<FieldSchema> = {}): FieldSchema => ({
   name, label: name, type, nullable: false, primary: false, readonly: false, persisted: true, ...extra,
@@ -109,5 +109,37 @@ describe('layout', () => {
       { title: 'اصلی', fields: ['name'], columns: 1 },
       { tab: 'قیمت', sections: [{ fields: ['price'], columns: 2 }] },
     ]);
+  });
+
+  class ChildAdmin {}
+  const inline = ChildAdmin as unknown as LayoutInlineConfig['inline'];
+  test('inline nodes: shape checked, allowed only where inlines are', () => {
+    const ok: LayoutConfig = [{ fields: ['name'] }, { section: 'Lines', inline, display: 'table', order: 'pos', min: 1, max: 500 }, { tab: 'More', sections: [{ inline, fields: ['a'] }] }];
+    expect(() => checkLayout(ok, names, fail, { inlines: true })).not.toThrow();
+    expect(() => checkLayout(ok, names, fail)).toThrow('form.layout: inlines belong in the form of a resource');
+    const bad = (node: Partial<LayoutInlineConfig>) => () => checkLayout([{ inline, ...node } as LayoutInlineConfig], names, fail, { inlines: true });
+    expect(bad({ inline: 'Child' as unknown as LayoutInlineConfig['inline'] })).toThrow('form.layout: `inline` must be a resource class');
+    expect(bad({ display: 'grid' as 'table' })).toThrow('inline ChildAdmin: display must be "cards" or "table"');
+    expect(bad({ max: 501 })).toThrow('inline ChildAdmin: max: must be an integer from 1 to 500');
+    expect(bad({ max: 0 })).toThrow('max: must be an integer from 1 to 500');
+    expect(bad({ min: -1 })).toThrow('inline ChildAdmin: min: must be an integer from 0 to max (100)');
+    expect(bad({ min: 3, max: 2 })).toThrow('min: must be an integer from 0 to max (2)');
+    expect(bad({ min: 1.5 })).toThrow('min: must be an integer');
+    expect(bad({ fields: [] })).toThrow('inline ChildAdmin: fields: must list at least one field');
+    expect(bad({ fields: ['a', 'a'] })).toThrow('inline ChildAdmin: fields: "a" is listed twice');
+    expect(bad({ order: 3 as unknown as string })).toThrow('inline ChildAdmin: order: must be a field name');
+    expect(bad({ link: '' })).toThrow('inline ChildAdmin: link: must be a field name');
+  });
+
+  test('inline nodes are localized by the resolver, and dropped when it has none', () => {
+    const layout: LayoutConfig = [{ fields: ['name'] }, { section: { en: 'Lines', fa: 'ردیف‌ها' }, inline }, { tab: 'More', sections: [{ inline }] }];
+    const resolved = (node: LayoutInlineConfig, label: string | undefined) => ({ inline: 'child', label: label ?? 'Child', display: 'cards' as const, fields: ['a'], max: 100, link: 'parentId', ...(node.order ? { order: node.order } : {}) });
+    expect(localizeLayout(layout, 'fa', 'en', resolved)).toEqual([
+      { fields: ['name'], columns: 1 },
+      { inline: 'child', label: 'ردیف‌ها', display: 'cards', fields: ['a'], max: 100, link: 'parentId' },
+      { tab: 'More', sections: [{ inline: 'child', label: 'Child', display: 'cards', fields: ['a'], max: 100, link: 'parentId' }] },
+    ]);
+    // Without a resolver (before the registry resolves them): inline nodes are left out, and so is a tab left empty.
+    expect(localizeLayout(layout, 'en', 'en')).toEqual([{ fields: ['name'], columns: 1 }]);
   });
 });

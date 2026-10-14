@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { FormLayoutNode, FormLayoutSection } from '@nest-my-admin/core/contract';
+import type { FormLayoutInline, FormLayoutNode, FormLayoutSection } from '@nest-my-admin/core/contract';
 import { isRtl, useLocale, useT } from '@/i18n';
 import { cn } from '@/lib/utils';
 
@@ -17,10 +17,11 @@ interface FormLayoutProps {
 const COLUMNS = { 1: '', 2: 'md:grid-cols-2', 3: 'md:grid-cols-2 lg:grid-cols-3' } as const;
 
 /** Sections (with 1–3 columns on wide screens, one on phones) and tabs, from `form.layout` (spec §9.4). */
-export function FormLayout({ layout, names, render, errors }: FormLayoutProps) {
+export function FormLayout({ layout: given, names, render, errors }: FormLayoutProps) {
+  const layout = given && withoutInlines(given);
   const listed = new Set((layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((section) => section.fields));
   const rest = names.filter((name) => !listed.has(name));
-  const tabs = (layout ?? []).filter((node): node is Extract<FormLayoutNode, { tab: string }> => 'tab' in node);
+  const tabs = (layout ?? []).filter((node): node is TabNode => 'tab' in node);
   const firstTab = (layout ?? []).findIndex((node) => 'tab' in node);
   const before = firstTab === -1 ? (layout ?? []).filter((node): node is FormLayoutSection => !('tab' in node)) : (layout ?? []).slice(0, firstTab).filter((node): node is FormLayoutSection => !('tab' in node));
   const after = firstTab === -1 ? [] : (layout ?? []).slice(firstTab).filter((node): node is FormLayoutSection => !('tab' in node));
@@ -62,7 +63,15 @@ function Section({ section, render }: { section: FormLayoutSection; render: Form
   );
 }
 
-type TabNode = Extract<FormLayoutNode, { tab: string }>;
+type SectionNode = FormLayoutSection | { tab: string; sections: FormLayoutSection[] };
+type TabNode = Extract<SectionNode, { tab: string }>;
+
+const isInline = (node: FormLayoutNode): node is FormLayoutInline => 'inline' in node;
+
+/** The layout's sections and tabs; inline child sections are not rendered here. */
+function withoutInlines(layout: FormLayoutNode[]): SectionNode[] {
+  return layout.filter((node) => !isInline(node)).map((node) => ('tab' in node ? { ...node, sections: node.sections.filter((section): section is FormLayoutSection => !isInline(section)) } : (node as FormLayoutSection)));
+}
 
 /** A tablist with arrow keys (mirrored in RTL), Home and End; every panel stays mounted so edits survive switching. */
 function Tabs({ tabs, render, errors }: { tabs: TabNode[]; render: FormLayoutProps['render']; errors: FormLayoutProps['errors'] }) {

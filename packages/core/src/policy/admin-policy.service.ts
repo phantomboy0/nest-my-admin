@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { Brackets, type EntityManager, type SelectQueryBuilder, type WhereExpressionBuilder } from 'typeorm';
 import { ADMIN_OPTIONS, ADMIN_RESOURCE_METADATA } from '../constants.js';
-import type { AdminRecord, ExplainRoleSource, FieldSchema, PermissionExplanation, RecordPermissions, ResourceSchema } from '../contract.js';
+import type { AdminRecord, ExplainRoleSource, FieldSchema, FormLayoutInline, FormLayoutNode, FormLayoutSection, PermissionExplanation, RecordPermissions, ResourceSchema } from '../contract.js';
 import { recordIdOf } from '../crud/record-id.js';
 import type { RegisteredAction } from '../decorators/admin-action.js';
 import { getCanRules, getScopes, type RecordOperation, type ScopeCondition } from '../decorators/admin-scope.js';
@@ -254,16 +254,40 @@ export class AdminPolicy implements OnApplicationBootstrap {
         requiredOnCreate: schema.form.requiredOnCreate.filter((name) => create.includes(name)),
         readonly: [...new Set(shownReadonly)],
         constraints: { create: constraints(schema.form.constraints.create, create), update: constraints(schema.form.constraints.update, update) },
-        ...(schema.form.layout
-          ? {
-              layout: schema.form.layout.map((node) =>
-                'tab' in node ? { ...node, sections: node.sections.map((section) => ({ ...section, fields: section.fields.filter(visible) })) } : { ...node, fields: node.fields.filter(visible) },
-              ),
-            }
-          : {}),
+        ...(schema.form.layout ? { layout: this.cutLayout(schema.form.layout, visible, ctx) } : {}),
       },
     };
     return { schema: cut, levels };
+  }
+
+  /**
+   * The layout as this user sees it: sections keep their visible fields; an inline stays only when the user may view
+   * the child resource, with the child's fields they may see and its `order` only when they may see that field (the
+   * reader then sorts by key too); a tab left without sections by that goes too.
+   */
+  private cutLayout(layout: FormLayoutNode[], visible: (name: string) => boolean, ctx: AdminContext): FormLayoutNode[] {
+    const perms = this.permissionsOf(ctx);
+    const cut = (node: FormLayoutSection | FormLayoutInline): FormLayoutSection | FormLayoutInline | undefined => {
+      if (!('inline' in node)) return { ...node, fields: node.fields.filter(visible) };
+      const child = this.registry.find(node.inline);
+      if (!child || !perms.canOn(child.schema.name, 'view')) return undefined;
+      const levels = this.levels(child, ctx);
+      const { order, ...rest } = node;
+      // Rows sorted by a field the user cannot see would reveal its values: such an inline goes by key, unordered.
+      const ordered = order !== undefined && RANK[levels.get(order) ?? 'hidden'] >= 1;
+      return { ...rest, ...(ordered ? { order } : {}), fields: node.fields.filter((name) => RANK[levels.get(name) ?? 'hidden'] >= 1) };
+    };
+    const out: FormLayoutNode[] = [];
+    for (const node of layout) {
+      if ('tab' in node) {
+        const sections = node.sections.map(cut).filter((section) => section !== undefined);
+        if (sections.length > 0 || node.sections.length === 0) out.push({ ...node, sections });
+      } else {
+        const section = cut(node);
+        if (section) out.push(section);
+      }
+    }
+    return out;
   }
 
   /** Writes naming hidden or read-only fields are refused with their names, before anything else (spec §6.5). */

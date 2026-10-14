@@ -290,7 +290,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const writableUpdate = update.filter((name) => !readonlyNames.includes(name));
   const formReadonly = readonlyNames.filter((name) => update.includes(name) || byName.has(name));
   const layout = resource.form?.layout;
-  if (layout) checkLayout(layout, [...new Set([...create, ...update, ...formReadonly])], fail);
+  if (layout) checkLayout(layout, [...new Set([...create, ...update, ...formReadonly])], fail, { inlines: true });
 
   const dedicatedUpdateDto = resource.form?.update;
   const constraints = {

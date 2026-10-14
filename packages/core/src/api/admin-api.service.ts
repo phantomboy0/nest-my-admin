@@ -2,6 +2,8 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
 import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
+import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
+import { InlineReader } from '../inlines/inline-reader.js';
 import { persianLike } from '../i18n/persian.js';
 import { toErrorResponse } from '../http/error-response.js';
 import { toActionSchema } from '../decorators/admin-action.js';
@@ -50,7 +52,11 @@ export class AdminApiService {
     this.writes = new WriteRunner(options, this.logger, [filesParticipant(files), ...(audit.enabled ? [auditParticipant(audit)] : [])]);
     this.pages = new PageService({ pages, policy, options, files, writes: this.writes });
     this.actions = new ActionService({ policy, options, logger: this.logger, writes: this.writes, record: (entry, entity, ctx) => this.record(entry, entity, ctx) });
+    this.inlines = new InlineReader({ policy, serialize: (entry, entities, ctx) => this.fullRecords(entry, entities, ctx) });
   }
+
+  /** `_inlines` of a record: its children through each child resource's read path. */
+  private readonly inlines: InlineReader;
 
   /** Runs `@AdminAction`s; it writes and serializes through this service. */
   private readonly actions: ActionService;
@@ -123,10 +129,14 @@ export class AdminApiService {
     });
     const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes, this.files.enabled));
     const layout = entry.resource.form?.layout;
-    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale) } : entry.schema.form;
+    const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, locale, this.options.locale);
+    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
     const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
     const localized = { ...entry.schema, label: text(entry.label), related, fields, form, actions };
-    return ctx ? this.policy.view(entry, localized, ctx).schema : localized;
+    const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
+    // The child schema of every inline left in the layout (the policy removed those the user may not view).
+    const children = (schema.form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('inline' in node ? [node.inline] : []));
+    return children.length > 0 ? { ...schema, inlines: Object.fromEntries(children.map((child) => [child, this.schema(child, locale, ctx)])) } : schema;
   }
 
   async list(name: string, query: URLSearchParams, ctx: AdminContext): Promise<ListResponse> {
@@ -216,7 +226,9 @@ export class AdminApiService {
     const entity = await resource.findOne(id, ctx);
     if (!entity) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
     await this.policy.requireInScope(entry, id, rawId, 'view', ctx); // a findOne override may ignore scopes
-    return this.record(entry, entity, ctx);
+    const record = await this.record(entry, entity, ctx);
+    if (entry.inlines.length > 0) record._inlines = await this.inlines.read(entry, entity, ctx);
+    return record;
   }
 
   /** Serializes entities with their relation values and paths (`fields`) loaded and their titles. */
@@ -256,8 +268,13 @@ export class AdminApiService {
 
   /** One record with every relation field loaded (detail and write responses). */
   private async record(entry: RegisteredResource, entity: object, ctx: AdminContext): Promise<AdminRecord> {
+    return (await this.fullRecords(entry, [entity], ctx))[0]!;
+  }
+
+  /** Records as the detail endpoint answers them, every relation field loaded (in one lookup per field, not per record). */
+  private fullRecords(entry: RegisteredResource, entities: object[], ctx: AdminContext): Promise<AdminRecord[]> {
     const relations = this.view(entry, ctx).schema.fields.filter((field) => field.type === 'relation');
-    return (await this.records(entry, [entity], relations, ctx))[0]!;
+    return this.records(entry, entities, relations, ctx);
   }
 
   /** One transaction on the target's DataSource with `ctx.manager` set (see `WriteRunner.run`). */
