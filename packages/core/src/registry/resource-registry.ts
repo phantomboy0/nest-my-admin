@@ -125,6 +125,11 @@ export class ResourceRegistry implements OnModuleInit {
     this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
     resolveInlines(this.list());
+    // A parent and its inlines are saved together or not at all: a promise only a transaction can keep.
+    const parent = this.list().find((entry) => entry.inlines.length > 0);
+    if (parent && !this.options.transactions) {
+      throw new Error(`${parent.className}: form.layout has inlines, which are saved with their parent in one transaction; the admin's transactions are off (\`transactions: false\`)`);
+    }
   }
 
   get(name: string): RegisteredResource {

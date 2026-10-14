@@ -19,6 +19,8 @@ export interface AuditMeta {
   deleted?: true;
   /** `page.{name}.updated` entries: the page's name. */
   page?: string;
+  /** A child saved inline with its parent (`{child}.created|updated|deleted`): the parent's resource and record id. */
+  parent?: { resource: string; recordId: string };
   /** `auth.*` entries: where the request came from. */
   ip?: string;
   userAgent?: string;

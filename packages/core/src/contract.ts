@@ -142,6 +142,33 @@ export interface InlineRows {
   truncated: boolean;
 }
 
+/**
+ * `_inlines` in the body of `POST /resources/:parent` and `PATCH /resources/:parent/:id`: child resource name → the
+ * changes to that inline, saved with the parent in one transaction. Deletes run first, then updates, then creates,
+ * inline by inline in layout order; any failure saves nothing. At most 500 entries per inline (`create`, `update` and
+ * `delete` together, and `order` on its own).
+ *
+ * Errors use the usual `{ code, message, fields }` with these paths: `_inlines.<child>.create.<index>.<field>`,
+ * `_inlines.<child>.update.<_id>.<field>` (the `_id` as sent), `_inlines.<child>.delete.<_id>`, and
+ * `_inlines.<child>` for the count (`min`/`max`), the order list and whole-inline problems.
+ */
+export type InlineChanges = Record<string, InlineChangeSet>;
+
+export interface InlineChangeSet {
+  /** New rows: the child's create fields plus `_key` (1–64 characters, unique in the list), which `order` refers to. Never the link field. */
+  create?: Array<Record<string, unknown> & { _key: string }>;
+  /** Changed rows: `_id`, the changed fields only, and `_version` for a child with a version column (a stale one is 409). Never the link field. */
+  update?: Array<Record<string, unknown> & { _id: string; _version?: number }>;
+  /** `_id`s of rows to delete. */
+  delete?: string[];
+  /**
+   * Only for an inline with `order`, and only for a user who may update the child's order field: every row that
+   * exists after the save that this user sees, by `_id` (existing rows) or `_key` (new rows), in their new order.
+   * The server writes 0, 1, 2… into the order field; entries then may not set that field themselves.
+   */
+  order?: string[];
+}
+
 /** An external link of a record (`links()` on the resource), shown in the detail header. */
 export interface RecordLink {
   label: string;
@@ -408,7 +435,7 @@ export interface ResourceSchema {
  * record) and `_links` (`RecordLink[]`). File and image fields hold their key (a list of keys with `file.many`), and
  * resources with such fields add `_files`: field name → `AdminFileRef` (`AdminFileRef[]` with `file.many`) for every
  * field that holds a file. `GET /resources/:resource/:id` of a resource with inlines adds `_inlines`: child resource
- * name → `InlineRows`, for each inline the user may see.
+ * name → `InlineRows`, for each inline the user may see; so do the answers of its POST and PATCH, read after the save.
  */
 export type AdminRecord = Record<string, unknown>;
 
@@ -689,6 +716,8 @@ export interface AuditEntryMeta {
   deleted?: true;
   /** `page.{name}.updated`: the page's name. */
   page?: string;
+  /** A child saved inline with its parent: the parent's resource and `_id` (for readers who may view that resource). */
+  parent?: { resource: string; recordId: string };
   /** Where the request came from (`auth.*` entries); only for readers with `audit.view`. */
   ip?: string;
   userAgent?: string;

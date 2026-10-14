@@ -17,6 +17,8 @@ export interface WriteRules {
   keepDefaults?: boolean;
   /** Cleans the HTML of `richtext` fields; sent values pass through it before anything else looks at them. Required when `fields` has one. */
   sanitizeHtml?: (html: string) => string;
+  /** Properties the server sets itself (an inline's link): the DTO's errors on them are dropped. */
+  ignore?: string[];
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -128,6 +130,7 @@ export async function validateWrite(body: unknown, rules: WriteRules): Promise<o
   const instance = plainToInstance(rules.dto, plain);
   let errors = (await validate(instance, { whitelist: true, forbidNonWhitelisted: true, forbidUnknownValues: true })).filter((error) => !sent.has(error.property));
   if (rules.partial) errors = prunePartial(errors, input);
+  if (rules.ignore) errors = errors.filter((error) => !rules.ignore!.includes(error.property));
   if (errors.length > 0) throw new AdminValidationError(flattenValidationErrors(errors));
   for (const name of sent) (instance as Record<string, unknown>)[name] = input[name];
   // Constructor initializers add keys the client never sent; they would overwrite stored values on update.

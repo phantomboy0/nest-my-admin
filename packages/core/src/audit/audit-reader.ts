@@ -370,7 +370,9 @@ export class AuditReader {
     }
     // An action's input is for whoever holds the action.
     const holds = stored.action !== undefined && perms.can(actionCode(name, stored.action));
-    const meta = compact<AuditEntryMeta>({ action: stored.action, input: holds ? stored.input : undefined, inputTruncated: holds ? stored.inputTruncated : undefined, deleted: stored.deleted, ...client });
+    // A child saved inline names its parent, for readers who may view the parent's resource.
+    const parent = stored.parent && perms.canOn(stored.parent.resource, 'view') ? stored.parent : undefined;
+    const meta = compact<AuditEntryMeta>({ action: stored.action, input: holds ? stored.input : undefined, inputTruncated: holds ? stored.inputTruncated : undefined, deleted: stored.deleted, parent, ...client });
     const titled = !entry || this.policy.titleVisible(entry, ctx);
     return {
       ...base,
