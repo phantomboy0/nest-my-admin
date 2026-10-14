@@ -101,6 +101,13 @@ function resolveInline(entry: RegisteredResource, node: LayoutInlineConfig, entr
 
   const fieldOf = (name: string) => child.schema.fields.find((field) => field.name === name);
   if (node.order !== undefined && (fieldOf(node.order)?.type !== 'number' || node.order === link)) fail(`${where}: order: "${node.order}" is not a number field of ${childName}`);
+  // Positions are written one row at a time, through the child's own update (hooks, audit): two rows would hold the
+  // same position for a moment, which a unique index refuses. Moving rows through temporary positions instead would
+  // show those positions to hooks and record them in the audit log.
+  if (node.order !== undefined) {
+    const unique = [...child.metadata.uniques, ...child.metadata.indices.filter((index) => index.isUnique)].find((constraint) => constraint.columns.some((column) => column.propertyName === node.order));
+    if (unique) fail(`${where}: order: "${node.order}" is in a unique index or constraint (${unique.name}); positions are rewritten one row at a time, so they cannot be unique`);
+  }
 
   const formNames = [...new Set([...child.schema.form.create, ...child.schema.form.update, ...child.schema.form.readonly])];
   for (const name of node.fields ?? []) {

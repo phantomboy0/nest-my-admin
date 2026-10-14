@@ -4,7 +4,7 @@ import { parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { whereOf } from '../crud/stored-row.js';
 import { validateWrite } from '../crud/validate-write.js';
-import { AdminError, AdminForbiddenError, AdminForbiddenFieldsError, AdminNotFoundError, AdminValidationError } from '../errors.js';
+import { AdminBadRequestError, AdminError, AdminForbiddenError, AdminForbiddenFieldsError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import { codeForStatus, hostError, toErrorResponse } from '../http/error-response.js';
 import type { ErrorMapper } from '../options.js';
 import type { AdminPolicy, ResourceView } from '../policy/admin-policy.service.js';
@@ -124,7 +124,8 @@ export class InlineWriter {
     for (const { inline, creates, updates, deletes, order } of parsed) {
       const { child } = inline;
       if (creates.length > 0) {
-        if (!child.schema.creatable) throw new AdminForbiddenError(`${child.schema.label} records are created as one of their kinds`);
+        // As the child's own create endpoint answers it.
+        if (!child.schema.creatable) throw new AdminBadRequestError(`${child.schema.label} records are created as one of their kinds`);
         policy.require(child, 'create', ctx);
       }
       if (updates.length > 0) policy.require(child, 'update', ctx);
@@ -258,17 +259,24 @@ export class InlineWriter {
     for (const canonical of moves.keys()) if (!named.has(canonical)) named.set(canonical, { raw: canonical, id: parseRecordId(canonical, child.schema) });
     if (named.size > 0) {
       const found = await children()
-        .setFindOptions({ loadEagerRelations: true })
+        .select(keys.map((key) => `nma_child.${key}`))
         .andWhereInIds([...named.values()].map((entry) => entry.id))
         .getMany();
-      for (const entity of found as object[]) rows.set(recordIdOf(entity, keys), entity);
-      for (const [canonical, entry] of named) if (!rows.has(canonical)) throw notFound(entry.raw);
+      const owned = new Set((found as object[]).map((entity) => recordIdOf(entity, keys)));
+      for (const [canonical, entry] of named) if (!owned.has(canonical)) throw notFound(entry.raw);
       // ...and inside the scopes of what is done to it.
       const updated = [...updates.map((entry) => entry.canonical), ...[...moves.keys()]];
       const allowedUpdates = await policy.allowedIds(child, [...new Set(updated)].map((canonical) => named.get(canonical)!.id), 'update', tx);
       for (const canonical of updated) if (!allowedUpdates.has(canonical)) throw notFound(named.get(canonical)!.raw);
       const allowedDeletes = await policy.allowedIds(child, deletes.map((entry) => entry.id), 'delete', tx);
       for (const entry of deletes) if (!allowedDeletes.has(entry.canonical)) throw notFound(entry.raw);
+      // Then each row as the child's own PATCH and DELETE read it: its findOne (an override may refuse a row or load
+      // more). That entity is what @AdminCan, readonlyIf, relationOptions() values and the participants see.
+      for (const [canonical, entry] of named) {
+        const entity = await child.resource.findOne(entry.id, tx);
+        if (!entity) throw notFound(entry.raw);
+        rows.set(canonical, entity);
+      }
     }
 
     // Versions (409 naming the row), then `@AdminCan` (403), then `readonlyIf` (422).
@@ -296,7 +304,8 @@ export class InlineWriter {
       }
     }
 
-    // The count of rows that will exist (as the user sees them).
+    // The count of rows that will exist (as the user sees them). Read without a lock: two saves of the same parent at
+    // the same time can each stay within `max` and together exceed it (or go below `min`).
     if (creates.length > 0 || (deletes.length > 0 && inline.min !== undefined)) {
       const before = visible && visible.length <= MAX_INLINE_ROWS ? visible.length : await children().getCount();
       this.checkCount(inline, before - deletes.length + creates.length, errors);
@@ -380,11 +389,13 @@ export class InlineWriter {
         await run(at, { kind: 'update', target: child, existing: rows.get(canonical)!, id, dto }, async () => this.deps.reloadIfEmpty(child, await resource.update(id, dto, tx), id, tx));
       }
       const link = (parentEntity as Record<string, unknown>)[inline.referenced];
+      // The link is checked like any relation id the client sends: the child's relationOptions() may exclude parents.
+      const linkId = (parentEntity as Record<string, unknown>)[inline.relation.inverseEntityMetadata.primaryColumns[0]!.propertyName] as RelationId;
       for (const entry of creates) {
         const position = positions.get(entry.key);
         const dto = { ...entry.dto, ...(position !== undefined ? { [inline.order!]: position } : {}), [inline.link]: link };
         await run(`${at}.create.${entry.index}`, { kind: 'create', target: child, dto }, async () => {
-          if (hasIds(entry.relationIds)) await this.deps.checkRelationsExist(child, entry.relationIds, tx, await withParent(dto));
+          await this.deps.checkRelationsExist(child, new Map([...entry.relationIds, [inline.link, [linkId]]]), tx, await withParent(dto));
           const result: unknown = await resource.create(dto, tx);
           if (typeof result !== 'object' || result === null) throw new Error(`${child.className}.create() must return the created entity`);
           return result;

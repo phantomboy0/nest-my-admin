@@ -7,7 +7,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { IsBoolean, IsInt, IsOptional, IsString, Length, Min } from 'class-validator';
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, VersionColumn, type DataSource, type EntityManager, type SelectQueryBuilder } from 'typeorm';
+import { ChildEntity, Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, TableInheritance, VersionColumn, type DataSource, type EntityManager, type SelectQueryBuilder } from 'typeorm';
 import {
   ADMIN_AUDIT_ENTITIES,
   ADMIN_FILE_ENTITIES,
@@ -26,6 +26,7 @@ import {
   type AdminUser,
   type FieldsConfig,
   type FormConfig,
+  type RecordId,
 } from '../src/index.js';
 import { createTestApp } from './helpers/create-app.js';
 import { TEST_DB } from './helpers/test-db.js';
@@ -96,6 +97,10 @@ class VariantDto {
   @IsInt() productId: number;
 }
 
+/**
+ * Its own routes go through `findOne`, which refuses `HIDDEN…` rows and marks `G-…` rows as guarded; `update` and
+ * `delete` write by id, as a host service would, without reading the row again.
+ */
 @AdminResource(Variant, { title: 'sku' })
 class VariantAdmin extends AdminResourceBase<Variant> {
   override form: FormConfig = { create: VariantDto };
@@ -103,8 +108,31 @@ class VariantAdmin extends AdminResourceBase<Variant> {
   @AdminScope('active') activeOnly() {
     return { active: true };
   }
-  @AdminCan('delete') unlocked(variant: Variant) {
-    return !variant.locked;
+  @AdminScope('unlocked') unlockedOnly() {
+    return { locked: false };
+  }
+  @AdminCan('delete') unlocked(variant: Variant & { guarded?: boolean }) {
+    return !variant.locked && variant.guarded !== true;
+  }
+  @AdminCan('update') notFrozen(variant: Variant) {
+    return variant.sku !== 'FROZEN';
+  }
+  override async findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}) {
+    const found = await super.findOne(id, ctx, options);
+    if (!found || found.sku.startsWith('HIDDEN')) return null;
+    return Object.assign(found, { guarded: found.sku.startsWith('G-') });
+  }
+  override async update(id: RecordId, dto: object, ctx: AdminContext) {
+    const repo = ctx.manager!.getRepository(Variant);
+    await repo.update(id as number, dto as never);
+    return repo.findOneByOrFail({ id: id as number });
+  }
+  override async delete(id: RecordId, ctx: AdminContext) {
+    await ctx.manager!.getRepository(Variant).delete(id as number);
+  }
+  /** A closed product takes no new variants, through any route. */
+  override relationOptions(field: string, qb: SelectQueryBuilder<any>) {
+    return field === 'productId' ? qb.andWhere('option.name NOT LIKE :nmaClosed', { nmaClosed: 'Closed%' }) : qb;
   }
 }
 
@@ -181,6 +209,34 @@ class OrderAdmin extends AdminResourceBase<Order> {
   override form: FormConfig = { layout: [{ fields: ['number'] }, { inline: LineAdmin, display: 'table', order: 'position', min: 1, max: 4 }] };
 }
 
+// ── Kits: the inline child is the root of a single-table family, created only as one of its kinds ──
+
+@Entity('inw_kit')
+class Kit {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 20 }) name: string;
+}
+
+@Entity('inw_part')
+@TableInheritance({ column: { type: 'varchar', length: 20, name: 'kind' } })
+class Part {
+  @PrimaryGeneratedColumn() id: number;
+  @Column({ length: 20 }) name: string;
+  @Column({ type: 'int' }) kitId: number;
+  @ManyToOne(() => Kit, { onDelete: 'CASCADE' }) @JoinColumn({ name: 'kitId' }) kit: Kit;
+}
+
+@ChildEntity('screw')
+class Screw extends Part {}
+
+@AdminResource(Part, { name: 'part', title: 'name' })
+class PartAdmin extends AdminResourceBase<Part> {}
+
+@AdminResource(Kit, { name: 'kit', title: 'name' })
+class KitAdmin extends AdminResourceBase<Kit> {
+  override form: FormConfig = { layout: [{ fields: ['name'] }, { inline: PartAdmin }] };
+}
+
 /** A resource without inlines: its writes must not change. */
 @Entity('inw_note')
 class Note {
@@ -195,6 +251,7 @@ const USERS: Record<string, AdminUser> = {
   clerk: { id: 'clerk', displayName: 'Clerk', isSuperuser: false },
   fixed: { id: 'fixed', displayName: 'Fixed', isSuperuser: false },
   nolink: { id: 'nolink', displayName: 'No link', isSuperuser: false },
+  split: { id: 'split', displayName: 'Split', isSuperuser: false },
   csrf: { id: 'csrf', displayName: 'Careful', isSuperuser: true },
 };
 
@@ -213,11 +270,11 @@ class HeaderAuth implements AdminAuthAdapter {
   }
 }
 
-@Module({ providers: [HeaderAuth, LineService, VariantAdmin, MediaAdmin, SpecAdmin, ProductAdmin, LineAdmin, OrderAdmin, NoteAdmin] })
+@Module({ providers: [HeaderAuth, LineService, VariantAdmin, MediaAdmin, SpecAdmin, ProductAdmin, LineAdmin, OrderAdmin, NoteAdmin, PartAdmin, KitAdmin] })
 class InlinesModule {}
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
-const ENTITIES = [Category, Attribute, Product, Variant, Media, Spec, Order, Line, Note];
+const ENTITIES = [Category, Attribute, Product, Variant, Media, Spec, Order, Line, Note, Kit, Part, Screw];
 
 let app: INestApplication;
 let db: DataSource;
@@ -254,6 +311,11 @@ beforeAll(async () => {
           scopes: { variant: { view: 'active' } },
         },
         { name: 'fixed', permissions: ['product.view', 'product.update', 'variant.view', 'variant.create', 'variant.update', 'variant.delete'], fields: { variant: { sort: 'readonly' } } },
+        {
+          name: 'split',
+          permissions: ['product.view', 'product.update', 'variant.view', 'variant.update', 'variant.delete', 'media.view', 'media.update', 'media.delete'],
+          scopes: { variant: { update: 'active', delete: 'unlocked' } },
+        },
         { name: 'nolink', permissions: ['product.view', 'product.update', 'variant.view', 'variant.create', 'variant.update', 'variant.delete'], fields: { variant: { productId: 'hidden' } } },
       ],
     },
@@ -695,9 +757,9 @@ describe(`Review Focus 4: dependent options see the parent's values (${TEST_DB})
     expect(all.body.items.map((item: { title: string }) => item.title).sort()).toEqual(['Legs', 'Seat']);
   });
 
-  test('the picker refuses a `parent` that does not inline the child, and `_parent` without `parent`', async () => {
+  test('the picker refuses a `parent` that does not inline the child, or one sent without `_parent`', async () => {
     const values = encodeURIComponent(JSON.stringify({ _parent: { categoryId: cats.chairs } }));
-    expect((await root.get(`/resources/spec/fields/attributeId/options?values=${values}`)).status).toBe(422);
+    expect((await root.get(`/resources/spec/fields/attributeId/options?parent=product`)).status).toBe(422);
     expect((await root.get(`/resources/spec/fields/attributeId/options?values=${values}&parent=order`)).status).toBe(422);
     expect((await root.get(`/resources/spec/fields/attributeId/options?values=${values}&parent=nothing`)).status).toBe(422);
   });
@@ -737,6 +799,161 @@ describe(`view-as and CSRF (${TEST_DB})`, () => {
     expect((await variantsOf(id)).map((variant) => variant.sku)).toEqual(['GU-1']);
     const withToken = await as('csrf').patch(`/resources/product/${id}`, body).set('X-CSRF-Token', 'token-1');
     expect(withToken.status).toBe(200);
+  });
+});
+
+describe(`rows go through the child's own findOne (${TEST_DB})`, () => {
+  test("a row the child's findOne refuses cannot be updated, deleted or moved through the inline: 404, nothing written", async () => {
+    const { id, variants } = await seed('Veiled', ['VE-1', 'HIDDEN-1']);
+    const [shown, hidden] = variants.map((variant) => String(variant.id));
+    // The child's own routes refuse it.
+    expect((await root.patch(`/resources/variant/${hidden}`, { price: 1 })).status).toBe(404);
+    for (const changes of [{ update: [{ _id: hidden, price: 1 }] }, { delete: [hidden] }, { order: [hidden, shown] }]) {
+      const res = await root.patch(`/resources/product/${id}`, { name: 'Veiled 2', _inlines: { variant: changes } });
+      expect(res.status).toBe(404);
+    }
+    expect((await db.getRepository(Product).findOneByOrFail({ id })).name).toBe('Veiled');
+    expect((await variantsOf(id)).map((variant) => [variant.sku, variant.sort, variant.price])).toEqual([
+      ['VE-1', 0, 10],
+      ['HIDDEN-1', 1, 10],
+    ]);
+  });
+
+  test("@AdminCan over a value only findOne loads refuses the inline as it refuses the child's own DELETE", async () => {
+    const { id, variants } = await seed('Guarded set', ['G-1', 'GS-2']);
+    const guarded = String(variants[0]!.id);
+    expect((await request(app.getHttpServer()).delete(`/admin/api/resources/variant/${guarded}`).set('X-User', 'root')).status).toBe(403);
+    const res = await root.patch(`/resources/product/${id}`, { name: 'Guarded 2', _inlines: { variant: { delete: [guarded] } } });
+    expect(res.status).toBe(403);
+    expect((await db.getRepository(Product).findOneByOrFail({ id })).name).toBe('Guarded set');
+    expect((await variantsOf(id)).map((variant) => variant.sku)).toEqual(['G-1', 'GS-2']);
+  });
+
+  test('@AdminCan("update") on a child row refuses its update and its move: 403, nothing written', async () => {
+    const { id, variants } = await seed('Freezer', ['FROZEN', 'FR-2']);
+    const [frozen, other] = variants.map((variant) => String(variant.id));
+    const update = await root.patch(`/resources/product/${id}`, { name: 'Freezer 2', _inlines: { variant: { update: [{ _id: frozen, price: 1 }] } } });
+    expect(update.status).toBe(403);
+    const move = await root.patch(`/resources/product/${id}`, { name: 'Freezer 2', _inlines: { variant: { order: [other, frozen] } } });
+    expect(move.status).toBe(403);
+    expect((await db.getRepository(Product).findOneByOrFail({ id })).name).toBe('Freezer');
+    expect((await variantsOf(id)).map((variant) => [variant.sku, variant.sort, variant.price])).toEqual([
+      ['FROZEN', 0, 10],
+      ['FR-2', 1, 10],
+    ]);
+  });
+});
+
+describe(`scopes of each operation and the implicit link (${TEST_DB})`, () => {
+  test('update and delete scopes narrower than the view scope: 404 for the whole save', async () => {
+    const { id, variants } = await seed('Split', ['SL-1', 'SL-2', 'SL-3'], [{ active: false }, { locked: true }, {}]);
+    const [inactive, locked, plain] = variants.map((variant) => String(variant.id));
+    const split = as('split');
+    for (const changes of [{ update: [{ _id: inactive, price: 1 }] }, { delete: [locked] }]) {
+      const res = await split.patch(`/resources/product/${id}`, { name: 'Split 2', _inlines: { variant: changes } });
+      expect(res.status).toBe(404);
+    }
+    expect((await db.getRepository(Product).findOneByOrFail({ id })).name).toBe('Split');
+    const ok = await split.patch(`/resources/product/${id}`, { _inlines: { variant: { update: [{ _id: locked, price: 2 }], delete: [plain] } } });
+    expect(ok.status).toBe(200);
+    expect((await variantsOf(id)).map((variant) => [variant.sku, variant.price])).toEqual([
+      ['SL-1', 10],
+      ['SL-2', 2],
+    ]);
+  });
+
+  test('update and delete through an inline whose link is the implicit relation field (`product`)', async () => {
+    const { id } = await seed('Pictured', []);
+    const other = await seed('Not mine', []);
+    const media = await db.getRepository(Media).save([
+      { caption: 'One', sort: 0, product: { id } },
+      { caption: 'Two', sort: 1, product: { id } },
+      { caption: 'Theirs', sort: 0, product: { id: other.id } },
+    ]);
+    const [one, two, theirs] = media.map((row) => String(row.id));
+    const foreign = await as('split').patch(`/resources/product/${id}`, { _inlines: { media: { update: [{ _id: theirs, caption: 'Taken' }] } } });
+    expect(foreign.status).toBe(404);
+    const res = await as('split').patch(`/resources/product/${id}`, { _inlines: { media: { update: [{ _id: one, caption: 'Uno' }], delete: [two] } } });
+    expect(res.status).toBe(200);
+    expect(res.body._inlines.media.rows.map((row: { caption: string }) => row.caption)).toEqual(['Uno']);
+    const stored = await db.getRepository(Media).find({ relations: { product: true }, order: { id: 'ASC' }, where: [{ product: { id } }, { product: { id: other.id } }] });
+    expect(stored.map((row) => [row.caption, row.product.id])).toEqual([
+      ['Uno', id],
+      ['Theirs', other.id],
+    ]);
+  });
+});
+
+describe(`the link through the child's relationOptions, and kinds (${TEST_DB})`, () => {
+  test("a parent the child's relationOptions excludes for its link takes no children through the inline either", async () => {
+    const created = await root.post('/resources/product', { name: 'Closed shop', _inlines: { variant: { create: [{ _key: 'n', sku: 'CL-1', price: 1 }] } } });
+    expect(created.status).toBe(422);
+    expect(created.body.fields).toEqual({ '_inlines.variant.create.0.productId': ['does not exist'] });
+    const { id } = await seed('Closed too', []);
+    // As on the child's own create.
+    expect((await root.post('/resources/variant', { sku: 'CL-2', price: 1, productId: id })).status).toBe(422);
+    const updated = await root.patch(`/resources/product/${id}`, { name: 'Closed again', _inlines: { variant: { create: [{ _key: 'n', sku: 'CL-2', price: 1 }] } } });
+    expect(updated.status).toBe(422);
+    expect(Object.keys(updated.body.fields)).toEqual(['_inlines.variant.create.0.productId']);
+    expect((await db.getRepository(Product).findOneByOrFail({ id })).name).toBe('Closed too');
+    expect(await variantsOf(id)).toEqual([]);
+  });
+
+  test("a create in an inline of a single-table root answers as the root's own create", async () => {
+    const own = await root.post('/resources/part', { name: 'Bolt', kitId: 1 });
+    const kit = await db.getRepository(Kit).save({ name: 'K-1' });
+    const inline = await root.patch(`/resources/kit/${kit.id}`, { name: 'K-2', _inlines: { part: { create: [{ _key: 'n', name: 'Bolt' }] } } });
+    expect({ status: inline.status, code: inline.body.code }).toEqual({ status: own.status, code: own.body.code });
+    expect((await db.getRepository(Kit).findOneByOrFail({ id: kit.id })).name).toBe('K-1');
+  });
+});
+
+describe(`the audit trail and the picker (${TEST_DB})`, () => {
+  test("meta.parent is left out of a child's History for a reader who cannot see the link field", async () => {
+    const res = await root.post('/resources/product', { name: 'Audited', _inlines: { variant: { create: [{ _key: 'n', sku: 'AU-1', price: 1 }] } } });
+    expect(res.status).toBe(201);
+    const variant = res.body._inlines.variant.rows[0]._id;
+    const seen = await root.get(`/resources/variant/${variant}/history`);
+    expect(seen.body.entries[0].meta).toEqual({ parent: { resource: 'product', recordId: res.body._id } });
+    const hidden = await as('nolink').get(`/resources/variant/${variant}/history`);
+    expect(hidden.status).toBe(200);
+    expect(hidden.body.entries).toHaveLength(1);
+    expect(hidden.body.entries[0].meta?.parent).toBeUndefined();
+  });
+
+  test('`values._parent` without `?parent=` passes through to relationOptions like any other key, as before 0.3.0', async () => {
+    SpecAdmin.seen.length = 0;
+    const values = encodeURIComponent(JSON.stringify({ _parent: { categoryId: cats.chairs, _x: 1 } }));
+    const res = await root.get(`/resources/spec/fields/attributeId/options?values=${values}`);
+    expect(res.status).toBe(200);
+    expect(SpecAdmin.seen.at(-1)).toEqual({ _parent: { categoryId: cats.chairs, _x: 1 } });
+  });
+});
+
+describe('inline declarations refused at boot', () => {
+  test('an `order` field in a unique index with the link fails at boot (positions are written one row at a time)', async () => {
+    @Entity('inw_board')
+    class Board {
+      @PrimaryGeneratedColumn() id: number;
+      @Column({ length: 20 }) name: string;
+    }
+    @Entity('inw_pin')
+    @Index(['boardId', 'position'], { unique: true })
+    class Pin {
+      @PrimaryGeneratedColumn() id: number;
+      @Column({ type: 'int' }) boardId: number;
+      @ManyToOne(() => Board) @JoinColumn({ name: 'boardId' }) board: Board;
+      @Column({ type: 'int' }) position: number;
+    }
+    @AdminResource(Pin, { name: 'pin' })
+    class PinAdmin extends AdminResourceBase<Pin> {}
+    @AdminResource(Board, { name: 'board' })
+    class BoardAdmin extends AdminResourceBase<Board> {
+      override form: FormConfig = { layout: [{ fields: ['name'] }, { inline: PinAdmin, order: 'position' }] };
+    }
+    @Module({ providers: [PinAdmin, BoardAdmin] })
+    class Boards {}
+    await expect(createTestApp({ imports: [Boards], entities: [Board, Pin] })).rejects.toThrow(/unique/);
   });
 });
 

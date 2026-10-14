@@ -555,7 +555,8 @@ export class AdminApiService {
    * narrow the options: the target's query() and scopes are applied before.
    */
   private parentValues(entry: RegisteredResource, values: Record<string, unknown>, parentName: string | null, ctx: AdminContext): Record<string, unknown> {
-    if (parentName === null && values._parent === undefined) return values;
+    // Without `parent`, `_parent` is any other key of `values` (as before 0.3.0).
+    if (parentName === null) return values;
     const parent = parentName === null ? undefined : this.registry.find(parentName);
     if (!parent || !parent.inlines.some((inline) => inline.child === entry && this.policy.canSeeInline(entry, inline.link, ctx)) || !this.policy.permissionsOf(ctx).canOn(parent.schema.name, 'view')) {
       throw new AdminValidationError({ parent: [`must name a resource that ${entry.schema.label} is inlined in, with values._parent`] });
