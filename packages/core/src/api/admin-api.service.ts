@@ -306,7 +306,8 @@ export class AdminApiService {
   async create(name: string, body: unknown, ctx: AdminContext): Promise<AdminRecord> {
     const entry = this.registry.get(name);
     const { resource } = entry;
-    if (entry.schema.creatable) this.policy.require(entry, 'create', ctx);
+    // A read-only resource answers 403 (it refuses writes), not the 400 of a resource that cannot be created.
+    if (entry.schema.creatable || entry.schema.readonly) this.policy.require(entry, 'create', ctx);
     else this.policy.requireReach(entry, ctx);
     const schema = this.view(entry, ctx).schema;
     if (!entry.schema.creatable) {
