@@ -47,7 +47,7 @@ describe('layout follows the direction', () => {
       readFileSync(file, 'utf8')
         .split('\n')
         .map((line, index) => ({ file, line: index + 1, text: line }))
-        .filter(({ text }) => /className|cn\(/.test(text) && physical.test(text)),
+        .filter(({ text }) => !/^\s*(\/\/|\*|\/\*)/.test(text) && [...text.matchAll(/(["'`])(?:(?!\1).)*\1/g)].some(([quoted]) => physical.test(quoted))),
     );
     expect(offenders.map(({ file, line, text }) => `${file}:${line}: ${text.trim()}`)).toEqual([]);
   });
