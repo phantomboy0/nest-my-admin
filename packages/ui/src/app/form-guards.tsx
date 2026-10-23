@@ -35,7 +35,7 @@ export function LeaveBar({ blocker }: { blocker: Blocker }) {
   const t = useT();
   if (blocker.state !== 'blocked') return null;
   return (
-    <div role="alertdialog" aria-labelledby="leave-title" className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/50 bg-background p-3 shadow-sm">
+    <div role="alertdialog" aria-labelledby="leave-title" className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/50 bg-background p-3 shadow-sm">
       <p id="leave-title" className="flex-1 text-sm font-medium">
         {t('form.leaveTitle')}
       </p>

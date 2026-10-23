@@ -114,7 +114,7 @@ function Shell() {
 
   return (
     <div className="flex min-h-svh bg-background text-foreground">
-      <aside className={cn('hidden shrink-0 border-e bg-sidebar text-sidebar-foreground md:block', nav.railCollapsed ? 'w-16' : 'w-64')}>
+      <aside className={cn('sticky top-0 hidden h-svh shrink-0 border-e bg-sidebar text-sidebar-foreground md:block', nav.railCollapsed ? 'w-16' : 'w-64')}>
         <Sidebar title={title} logo={logo} groups={groups} rail={nav.railCollapsed} />
       </aside>
 
@@ -142,8 +142,11 @@ function Shell() {
 
       {/* inert while the drawer is open: focus and screen readers stay in the menu */}
       <div className="flex min-w-0 flex-1 flex-col" inert={menuOpen || undefined}>
-        <ViewAsBanner />
-        <Header meta={meta.data} onOpenMenu={() => setMenuOpen(true)} />
+        {/* The header (and the view-as banner) stay at the top while the page scrolls; so does the sidebar. */}
+        <div className="sticky top-0 z-30 bg-background">
+          <ViewAsBanner />
+          <Header meta={meta.data} onOpenMenu={() => setMenuOpen(true)} />
+        </div>
         <main className="flex-1 p-4 md:p-6">
           <Outlet />
         </main>
