@@ -215,7 +215,11 @@ export class AdminPolicy implements OnApplicationBootstrap {
     };
     const create = permissions.create ? schema.form.create.filter(editable) : [];
     const update = permissions.update ? schema.form.update.filter(editable) : [];
-    const shownReadonly = [...schema.form.readonly, ...schema.form.update, ...schema.form.create].filter((name) => visible(name) && !update.includes(name));
+    // Fields of the forms this user cannot edit are shown as values instead, unless no column holds them (a create-only
+    // DTO property the host's create() uses): an edit form would only show an empty lock for those.
+    const stored = new Set(schema.fields.filter((field) => field.persisted !== false).map((field) => field.name));
+    const formOnly = [...schema.form.update, ...schema.form.create].filter((name) => stored.has(name));
+    const shownReadonly = [...new Set([...schema.form.readonly, ...formOnly])].filter((name) => visible(name) && !update.includes(name));
     const keep = (names: string[], test: (name: string) => boolean) => names.filter(test);
     const constraints = <V,>(map: Record<string, V>, allowed: string[]): Record<string, V> => Object.fromEntries(Object.entries(map).filter(([name]) => allowed.includes(name.split('.')[0]!)));
     const mobile = schema.list.mobile;

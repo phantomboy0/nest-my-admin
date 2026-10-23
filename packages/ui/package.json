@@ -1,6 +1,6 @@
 {
   "name": "@nest-my-admin/ui",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Prebuilt admin UI served by @nest-my-admin/core",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/phantomboy0/nest-my-admin.git", "directory": "packages/ui" },
