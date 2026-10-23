@@ -25,6 +25,13 @@ export interface AdminResourceOptions {
   title?: TitleDefinition;
   /** TypeORM DataSource name. Defaults to the default DataSource. */
   dataSource?: string;
+  /**
+   * Nothing is created, changed or deleted through the admin, whatever the roles say: no New, Save, Delete, editable
+   * cells or inline add and remove are offered, and the API answers 403. Its `@AdminAction`s still run (they need
+   * `<resource>.action.<name>` and, on records, `<resource>.update` as usual). For logs, snapshots like orders, and
+   * records only the host's own code writes.
+   */
+  readonly?: boolean;
   /** Custom permission codes of this resource: `['view_all']` declares `<name>.view_all` for roles and `ctx.can()`. */
   permissions?: string[];
 }

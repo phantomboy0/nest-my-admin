@@ -389,6 +389,8 @@ export interface ResourceSchema {
   /** False for the root of a single-table inheritance, or when the user may not create. */
   creatable: boolean;
   /** What the signed-in user may do (spec §6.1); records may narrow update/delete in `_perm`. */
+  /** `@AdminResource({ readonly: true })`: nothing is created, changed or deleted through the admin (actions still run). */
+  readonly?: boolean;
   permissions?: { create: boolean; update: boolean; delete: boolean; purge: boolean };
   /**
    * The custom actions (`@AdminAction`) the signed-in user may run, in declaration order. Record actions are narrowed

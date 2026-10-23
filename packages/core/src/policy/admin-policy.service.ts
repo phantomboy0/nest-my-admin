@@ -133,6 +133,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
   /** 404 without any access, 403 without this operation. */
   require(entry: RegisteredResource, operation: ResourceOperation, ctx: AdminContext): void {
     this.requireReach(entry, ctx);
+    if (operation !== 'view' && entry.schema.readonly) throw new AdminForbiddenError(`${entry.schema.label} records are read-only`);
     if (!this.permissionsOf(ctx).canOn(entry.schema.name, operation)) {
       throw new AdminForbiddenError(`You may not ${operation === 'view' ? 'view' : operation} ${entry.schema.label} records`);
     }
@@ -209,9 +210,9 @@ export class AdminPolicy implements OnApplicationBootstrap {
     const r = schema.name;
     const permissions = {
       create: schema.creatable && perms.canOn(r, 'create'),
-      update: perms.canOn(r, 'update'),
-      delete: perms.canOn(r, 'delete'),
-      purge: perms.canOn(r, 'purge'),
+      update: !schema.readonly && perms.canOn(r, 'update'),
+      delete: !schema.readonly && perms.canOn(r, 'delete'),
+      purge: !schema.readonly && perms.canOn(r, 'purge'),
     };
     const create = permissions.create ? schema.form.create.filter(editable) : [];
     const update = permissions.update ? schema.form.update.filter(editable) : [];
