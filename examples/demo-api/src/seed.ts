@@ -13,6 +13,7 @@ import { Order } from './sales/order.entity.js';
 import { OrderLine } from './sales/order-line.entity.js';
 import { ShopSetting } from './settings/shop-setting.entity.js';
 import { Employee } from './staff/employee.entity.js';
+import { ProductSpec } from './catalog/product-spec.entity.js';
 
 export async function seedProducts(app: INestApplication): Promise<void> {
   const products = app.get<Repository<Product>>(getRepositoryToken(Product));
@@ -35,6 +36,10 @@ export async function seedProducts(app: INestApplication): Promise<void> {
   await app.get<Repository<StockMove>>(getRepositoryToken(StockMove)).save(
     Array.from({ length: 25 }, (_, i) => ({ productId: i % 2 ? lamp!.id : notebook!.id, delta: i % 3 === 0 ? -1 : 5, reason: `Move ${i + 1}` })),
   );
+  await app.get<Repository<ProductSpec>>(getRepositoryToken(ProductSpec)).save([
+    { productId: lamp!.id, label: 'Wattage', value: '40 W', notes: 'LED bulb included.', position: 0 },
+    { productId: lamp!.id, label: 'Cable length', value: '1.8 m', notes: null, position: 1 },
+  ]);
 }
 
 /** An article with formatted text in two languages, and an invoice waiting for its PDF. */

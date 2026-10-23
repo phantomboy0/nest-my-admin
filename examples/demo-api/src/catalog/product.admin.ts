@@ -1,6 +1,7 @@
 import { AdminResource, AdminResourceBase, AdminScope, type AdminContext, type FieldsConfig, type FormConfig, type ListConfig, type RecordId } from '@nest-my-admin/core';
 import { CreateProductDto, UpdateProductDto } from './product.dto.js';
 import { Product } from './product.entity.js';
+import { ProductSpecAdmin } from './product-spec.admin.js';
 import { ProductsService } from './products.service.js';
 
 const archived = (product: Product) => product.status === 'archived';
@@ -62,6 +63,8 @@ export class ProductAdmin extends AdminResourceBase<Product> {
         ],
       },
       { tab: { en: 'Catalog', fa: 'کاتالوگ' }, sections: [{ fields: ['categoryId', 'tags'] }] },
+      // Saved with the product in one transaction; each spec is a card with the spec's own form layout.
+      { section: { en: 'Specifications', fa: 'مشخصات فنی' }, inline: ProductSpecAdmin, display: 'cards', order: 'position', max: 30 },
     ],
   };
 
