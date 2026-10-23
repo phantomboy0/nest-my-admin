@@ -2,6 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
 import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
+import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
+import { InlineReader } from '../inlines/inline-reader.js';
+import { InlineWriter, type InlinePlan } from '../inlines/inline-writer.js';
 import { persianLike } from '../i18n/persian.js';
 import { toErrorResponse } from '../http/error-response.js';
 import { toActionSchema } from '../decorators/admin-action.js';
@@ -50,7 +53,26 @@ export class AdminApiService {
     this.writes = new WriteRunner(options, this.logger, [filesParticipant(files), ...(audit.enabled ? [auditParticipant(audit)] : [])]);
     this.pages = new PageService({ pages, policy, options, files, writes: this.writes });
     this.actions = new ActionService({ policy, options, logger: this.logger, writes: this.writes, record: (entry, entity, ctx) => this.record(entry, entity, ctx) });
+    this.inlines = new InlineReader({ policy, serialize: (entry, entities, ctx) => this.fullRecords(entry, entities, ctx) });
+    this.inlineWriter = new InlineWriter({
+      policy,
+      view: (entry, ctx) => this.view(entry, ctx),
+      sanitizeHtml: (html) => files.sanitizeHtml(html),
+      change: (change, tx, method) => this.change(change, tx, method),
+      checkRelationsExist: (entry, ids, ctx, values) => this.checkRelationsExist(entry, ids, ctx, values),
+      checkVersion: (entry, id, expected, ctx) => this.checkVersion(entry, id, expected, ctx),
+      lockedFields: (entry, entity) => this.lockedFields(entry, entity),
+      values: async (entry, entity, ctx) => toValues(await this.record(entry, entity, ctx)),
+      reloadIfEmpty: (entry, result, id, ctx) => this.reloadIfEmpty(entry, result, id, ctx),
+      errorMapper: options.errorMapper,
+    });
   }
+
+  /** `_inlines` of a POST or PATCH: the children's changes, saved inside the parent's write. */
+  private readonly inlineWriter: InlineWriter;
+
+  /** `_inlines` of a record: its children through each child resource's read path. */
+  private readonly inlines: InlineReader;
 
   /** Runs `@AdminAction`s; it writes and serializes through this service. */
   private readonly actions: ActionService;
@@ -123,10 +145,14 @@ export class AdminApiService {
     });
     const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes, this.files.enabled));
     const layout = entry.resource.form?.layout;
-    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale) } : entry.schema.form;
+    const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, locale, this.options.locale);
+    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
     const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
     const localized = { ...entry.schema, label: text(entry.label), related, fields, form, actions };
-    return ctx ? this.policy.view(entry, localized, ctx).schema : localized;
+    const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
+    // The child schema of every inline left in the layout (the policy removed those the user may not view).
+    const children = (schema.form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('inline' in node ? [node.inline] : []));
+    return children.length > 0 ? { ...schema, inlines: Object.fromEntries(children.map((child) => [child, this.schema(child, locale, ctx)])) } : schema;
   }
 
   async list(name: string, query: URLSearchParams, ctx: AdminContext): Promise<ListResponse> {
@@ -216,7 +242,9 @@ export class AdminApiService {
     const entity = await resource.findOne(id, ctx);
     if (!entity) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
     await this.policy.requireInScope(entry, id, rawId, 'view', ctx); // a findOne override may ignore scopes
-    return this.record(entry, entity, ctx);
+    const record = await this.record(entry, entity, ctx);
+    if (entry.inlines.length > 0) await this.inlines.readInto(record, entry, entity, ctx);
+    return record;
   }
 
   /** Serializes entities with their relation values and paths (`fields`) loaded and their titles. */
@@ -256,8 +284,13 @@ export class AdminApiService {
 
   /** One record with every relation field loaded (detail and write responses). */
   private async record(entry: RegisteredResource, entity: object, ctx: AdminContext): Promise<AdminRecord> {
+    return (await this.fullRecords(entry, [entity], ctx))[0]!;
+  }
+
+  /** Records as the detail endpoint answers them, every relation field loaded (in one lookup per field, not per record). */
+  private fullRecords(entry: RegisteredResource, entities: object[], ctx: AdminContext): Promise<AdminRecord[]> {
     const relations = this.view(entry, ctx).schema.fields.filter((field) => field.type === 'relation');
-    return (await this.records(entry, [entity], relations, ctx))[0]!;
+    return this.records(entry, entities, relations, ctx);
   }
 
   /** One transaction on the target's DataSource with `ctx.manager` set (see `WriteRunner.run`). */
@@ -285,10 +318,15 @@ export class AdminApiService {
         `${schema.label} records are created as one of their kinds${children.length > 0 ? `: ${children.join(', ')}` : ''}`,
       );
     }
-    this.policy.checkWriteFields(entry, body, entry.schema.form.create, ctx);
-    const dto = await validateWrite(body, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields, sanitizeHtml: (html) => this.files.sanitizeHtml(html) });
+    const { own, inlines } = splitInlines(entry, body);
+    this.policy.checkWriteFields(entry, own, entry.schema.form.create, ctx);
+    const [dto, plan] = await this.withInlines(entry, inlines, ctx, true, () =>
+      validateWrite(own, { allowed: schema.form.create, dto: resource.form?.create, fields: schema.fields, sanitizeHtml: (html) => this.files.sanitizeHtml(html) }),
+    );
     const relationIds = relationIdsOf(dto, schema);
     return this.write(entry, ctx, async (tx) => {
+      // Every refusal the children can cause is decided before the parent is written.
+      const checked = plan ? await this.inlineWriter.check(plan, undefined, tx) : undefined;
       const created = await this.change({ kind: 'create', target: entry, dto }, tx, async () => {
         await this.checkRelationsExist(entry, relationIds, tx, dto as Record<string, unknown>);
         const result: unknown = await resource.create(dto, tx);
@@ -297,7 +335,8 @@ export class AdminApiService {
         }
         return result;
       });
-      return this.record(entry, created, tx);
+      if (plan) await this.inlineWriter.apply(plan, checked!, created, tx);
+      return this.withInlineRows(entry, created, tx);
     });
   }
 
@@ -307,16 +346,21 @@ export class AdminApiService {
     const { resource } = entry;
     const schema = this.view(entry, ctx).schema;
     const id = parseRecordId(rawId, schema);
-    this.policy.checkWriteFields(entry, body, entry.schema.form.update, ctx);
+    const { own, inlines } = splitInlines(entry, body);
+    this.policy.checkWriteFields(entry, own, entry.schema.form.update, ctx);
     const updateDto = resource.form?.update;
-    const dto = await validateWrite(body, {
-      allowed: schema.form.update,
-      dto: updateDto ?? resource.form?.create,
-      partial: true, // PATCH validates only the keys that were sent, dedicated update DTO or not
-      fields: schema.fields,
-      sanitizeHtml: (html) => this.files.sanitizeHtml(html),
-    });
+    const [dto, plan] = await this.withInlines(entry, inlines, ctx, false, () =>
+      validateWrite(own, {
+        allowed: schema.form.update,
+        dto: updateDto ?? resource.form?.create,
+        partial: true, // PATCH validates only the keys that were sent, dedicated update DTO or not
+        fields: schema.fields,
+        sanitizeHtml: (html) => this.files.sanitizeHtml(html),
+      }),
+    );
     const relationIds = relationIdsOf(dto, schema);
+    // Only children change: the parent is not saved (no version bump, no entry of its own), its If-Match still holds.
+    const inlineOnly = plan !== undefined && typeof own === 'object' && own !== null && Object.keys(own).length === 0;
     return this.write(entry, ctx, async (tx) => {
       // Out of scope is "not found", before anything could reveal the record (a 409 carries it).
       await this.policy.requireInScope(entry, id, rawId, 'view', tx);
@@ -327,16 +371,52 @@ export class AdminApiService {
       this.policy.requireRecordRule(entry, 'update', existing, tx);
       const locked = this.lockedFields(entry, existing).filter((name) => Object.hasOwn(dto, name));
       if (locked.length > 0) throw new AdminValidationError(Object.fromEntries(locked.map((name) => [name, ['is read-only']])), 'Some fields are read-only');
-      const updated = await this.change({ kind: 'update', target: entry, existing, id, dto }, tx, async () => {
-        if ([...relationIds.values()].some((ids) => ids.length > 0)) {
-          // relationOptions() sees the record as it will be: what is stored, with the request's changes on top.
-          const values = { ...toValues(await this.record(entry, existing, tx)), ...(dto as Record<string, unknown>) };
-          await this.checkRelationsExist(entry, relationIds, tx, values);
-        }
-        return this.reloadIfEmpty(entry, await resource.update(id, dto, tx), id, tx);
-      });
-      return this.record(entry, updated, tx);
+      const checked = plan ? await this.inlineWriter.check(plan, existing, tx) : undefined;
+      const updated = inlineOnly
+        ? existing
+        : await this.change({ kind: 'update', target: entry, existing, id, dto }, tx, async () => {
+            if ([...relationIds.values()].some((ids) => ids.length > 0)) {
+              // relationOptions() sees the record as it will be: what is stored, with the request's changes on top.
+              const values = { ...toValues(await this.record(entry, existing, tx)), ...(dto as Record<string, unknown>) };
+              await this.checkRelationsExist(entry, relationIds, tx, values);
+            }
+            return this.reloadIfEmpty(entry, await resource.update(id, dto, tx), id, tx);
+          });
+      if (plan) await this.inlineWriter.apply(plan, checked!, updated, tx);
+      return this.withInlineRows(entry, updated, tx);
     });
+  }
+
+  /**
+   * The parent's own validation and the preparation of its `_inlines` (`InlineWriter.prepare`), with the 422s of both
+   * in one answer. A resource without inlines validates as before. On update, only a body with `_inlines` gets a plan.
+   */
+  private async withInlines(entry: RegisteredResource, inlines: unknown, ctx: AdminContext, creating: boolean, validate: () => Promise<object>): Promise<[object, InlinePlan | undefined]> {
+    if (entry.inlines.length === 0 || (!creating && inlines === undefined)) return [await validate(), undefined];
+    let dto: object | undefined;
+    let invalid: AdminValidationError | undefined;
+    try {
+      dto = await validate();
+    } catch (error) {
+      if (!(error instanceof AdminValidationError)) throw error;
+      invalid = error;
+    }
+    let plan: InlinePlan;
+    try {
+      plan = await this.inlineWriter.prepare(entry, inlines, ctx, creating);
+    } catch (error) {
+      if (invalid && error instanceof AdminValidationError) throw new AdminValidationError({ ...invalid.fields, ...error.fields }, invalid.message);
+      throw error;
+    }
+    if (invalid) throw invalid;
+    return [dto!, plan];
+  }
+
+  /** The answer of a write: the record, and for a parent with inlines its `_inlines` as they are after the save. */
+  private async withInlineRows(entry: RegisteredResource, entity: object, tx: AdminContext): Promise<AdminRecord> {
+    const record = await this.record(entry, entity, tx);
+    if (entry.inlines.length > 0) await this.inlines.readInto(record, entry, entity, tx);
+    return record;
   }
 
   async remove(name: string, rawId: string, ctx: AdminContext, version?: number): Promise<void> {
@@ -425,13 +505,13 @@ export class AdminApiService {
     const field = this.view(entry, ctx).schema.fields.find((candidate) => candidate.name === fieldName);
     if (!field) throw new AdminNotFoundError(`Unknown field "${fieldName}"`);
     if (field.type !== 'relation') throw new AdminBadRequestError(`"${fieldName}" is not a relation field`);
-    const known = new Set(['search', 'ids', 'values']);
+    const known = new Set(['search', 'ids', 'values', 'parent']);
     for (const key of new Set(query.keys())) {
       if (!known.has(key) || query.getAll(key).length > 1) {
         throw new AdminValidationError({ [key]: [known.has(key) ? 'must be given once' : 'is not a supported parameter'] });
       }
     }
-    const values = parseValues(query.get('values'));
+    const values = this.parentValues(entry, parseValues(query.get('values')), query.get('parent'), ctx);
     const relation = entry.relations.get(fieldName)!;
     const target = relation.inverseEntityMetadata;
     const key = target.primaryColumns[0]!.propertyName;
@@ -466,6 +546,25 @@ export class AdminApiService {
     const titled = !targetEntry || this.policy.titleVisible(targetEntry, ctx);
     const refs = rows.map((row) => relationRef(field, relation, row, title));
     return { items: titled ? refs : refs.map((ref) => ({ ...ref, title: `#${String(ref.id)}` })) };
+  }
+
+  /**
+   * A child's picker inside a parent's form: `?parent=<parent resource>` and `values._parent` (the parent form's values)
+   * come together. `parent` must inline this resource and be one the user may view; `_parent` reaches relationOptions()
+   * with `_resource` set to it (and keys starting with `_` dropped), as on save. Like the rest of `values`, it can only
+   * narrow the options: the target's query() and scopes are applied before.
+   */
+  private parentValues(entry: RegisteredResource, values: Record<string, unknown>, parentName: string | null, ctx: AdminContext): Record<string, unknown> {
+    // Without `parent`, `_parent` is any other key of `values` (as before 0.3.0).
+    if (parentName === null) return values;
+    const parent = parentName === null ? undefined : this.registry.find(parentName);
+    if (!parent || !parent.inlines.some((inline) => inline.child === entry && this.policy.canSeeInline(entry, inline.link, ctx)) || !this.policy.permissionsOf(ctx).canOn(parent.schema.name, 'view')) {
+      throw new AdminValidationError({ parent: [`must name a resource that ${entry.schema.label} is inlined in, with values._parent`] });
+    }
+    const sent = values._parent;
+    if (typeof sent !== 'object' || sent === null || Array.isArray(sent)) throw new AdminValidationError({ values: ['_parent must be an object of the parent form\'s values'] });
+    const own = Object.fromEntries(Object.entries(sent).filter(([key]) => !key.startsWith('_')));
+    return { ...values, _parent: { ...own, _resource: parent.schema.name } };
   }
 
   /**
@@ -606,6 +705,16 @@ function toValues(record: AdminRecord): Record<string, unknown> {
       .filter(([key]) => !key.startsWith('_'))
       .map(([key, value]) => [key, Array.isArray(value) ? value.map((item) => (isRef(item) ? item.id : item)) : isRef(value) ? value.id : value]),
   );
+}
+
+/**
+ * The body of a POST or PATCH split into the parent's own fields and its `_inlines`. A resource without inlines keeps
+ * the body as it is, so `_inlines` there is an unknown field as before.
+ */
+function splitInlines(entry: RegisteredResource, body: unknown): { own: unknown; inlines: unknown } {
+  if (entry.inlines.length === 0 || typeof body !== 'object' || body === null || Array.isArray(body) || !Object.hasOwn(body, '_inlines')) return { own: body, inlines: undefined };
+  const { _inlines: inlines, ...own } = body as Record<string, unknown>;
+  return { own, inlines };
 }
 
 /** `?values=` of the options endpoint: the form's current values as a JSON object (at most 4 KB). */

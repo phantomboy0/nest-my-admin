@@ -88,7 +88,7 @@ test('unsaved edits survive a look at the History tab, and leaving still asks (M
   await expect(page.getByLabel('Customer')).toHaveValue('Someone else');
   await page.getByRole('tab', { name: 'History' }).click();
   if (isMobile) await page.getByRole('button', { name: 'Menu', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Sales' }).getByRole('link', { name: 'Order' }).click();
+  await page.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Sales' }).getByRole('link', { name: 'Order', exact: true }).click();
   const bar = page.getByRole('alertdialog', { name: 'Leave without saving? Your changes will be lost.' });
   await expect(bar).toBeVisible(); // shown above the tabs, whichever is open
   await bar.getByRole('button', { name: 'Stay' }).click();

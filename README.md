@@ -416,6 +416,26 @@ export class MediaController {
 - `AdminFiles` is always injectable and follows `files.dataSource`. In an admin without `files`, both methods reject with an error that says `files` is missing (`files.enabled` tells beforehand); before the application has started they reject too.
 - The admin's own `url` for a public file without a `publicBaseUrl` is `<path>/api/files/<key>`, which needs an admin session: build your storefront's link from the key (`/media/${key}`) instead.
 
+#### Registering files yourself
+
+A host that stores a file itself (an image fetched from another system, an attachment its own API took) registers it, so the admin's downloads, `_files`, `publicFile` and the delete/purge cleanup treat it like an upload:
+
+```ts
+await dataSource.transaction(async (manager) => {
+  const file = await this.adminFiles.register(
+    { resource: 'product', field: 'image', recordId: product.id, body: imageStream, name: 'front.jpg' },
+    manager,
+  );
+  await manager.update(Product, product.id, { image: file.key });   // the record holds the key: you store it
+});
+```
+
+- The bytes are checked like an upload's: the type is read from the content and must fit the field's `accept`, and the size its `maxBytes`. A refusal is an `AdminValidationError` (422) on the field, and nothing is stored. The field must be a `file` or `image` field (not rich text); an unknown resource or field is an error.
+- The object is stored under a new key in the usual format, and the row is `attached` to `recordId` (`RecordId`: a value, or `{ key: value }` for composite keys; for a settings page, `resource: 'page:<name>'` and any `recordId`). `visibility` defaults to the field's.
+- **With `manager`** the row is written in that transaction when `nma_file` is on its DataSource (else at once), and if the transaction rolls back neither the row nor the object is left. Without one, the row is written at once.
+- **It does not write the record.** Store `file.key` in the column yourself, in the same transaction.
+- `release({ resource, field, recordId, key }, manager?)` is for a key the record no longer holds: its row goes, and its object after the transaction commits (at once without one). A key that is not that record's file in that field is left alone: `release` never deletes another record's file.
+
 ### Actions
 
 ```ts
@@ -508,6 +528,46 @@ export class ShopSettingsPage implements AdminSettingsSource<ShopSettingsDto> {
   - Without view, the page is a 404 and absent from the sidebar. With view only, the form is read-only. Viewing as someone is always read-only.
 - **Names.** Letters, digits, `-` and `_`; not the name of a resource, an operation (`view`, `update`, …) or a resource's custom permission. Because page codes start with `page.`, **a resource cannot be named `page` in an admin with settings pages**: boot fails and suggests `@AdminResource(Page, { name: 'content-page' })`.
 - **API.** `GET /api/pages/:name` answers `{ schema, values, secrets, files }`, and `PATCH /api/pages/:name` takes the changed keys and answers the same.
+
+### Inlines
+
+A parent's form can edit its child records (a product's variants, specifications and pictures; an order's lines), and one Save writes the parent and every change to its children in **one transaction**. The child is an ordinary resource, with its own permissions, scopes, fields, DTOs, hooks and service overrides; the parent's layout places it:
+
+```ts
+@AdminResource(OrderLine, { name: 'order-line' })
+export class OrderLineAdmin extends AdminResourceBase<OrderLine> {
+  form: FormConfig = { create: CreateOrderLineDto, update: UpdateOrderLineDto };
+}
+
+@AdminResource(Order)
+export class OrderAdmin extends AdminResourceBase<Order> {
+  form: FormConfig = {
+    create: CreateOrderDto,
+    update: UpdateOrderDto,
+    layout: [
+      { section: { en: 'Order', fa: 'سفارش' }, fields: ['number', 'customer'], columns: 2 },
+      { section: { en: 'Lines', fa: 'ردیف‌ها' }, inline: OrderLineAdmin, display: 'table', fields: ['productId', 'description', 'quantity', 'unitPrice'], order: 'position', min: 1, max: 50 },
+    ],
+  };
+}
+```
+
+- **`inline`**: the child resource class. Its entity needs exactly one many-to-one (or owning one-to-one) relation to the parent's entity: that relation's field is the **link** (`orderId`). With several candidates, name it with `link: 'orderId'`. The server sets the link; a client that sends it is refused (422), and an update cannot change it.
+- **`display`**: `cards` (default; each child is a card with the child's own form layout) or `table` (one row per child, one cell per field: for short rows like order lines; on phones the table scrolls sideways).
+- **`fields`**: which of the child's form fields the inline shows, in order (default: the child's update form fields without the link). Fields it does not show keep their stored values, and their DTO defaults on create.
+- **`order`**: a number field of the child. Rows are read sorted by it (then by key), and dragging or the up/down buttons write 0, 1, 2… into it on save. Without it rows go by key and cannot be reordered.
+- **`min`**, **`max`** (default 100, at most 500): how many rows a save may leave, checked on the server after the changes (422 on the inline). `max` is also how many rows are read: a record with more shows them read-only, with a link to the child's list filtered by the parent.
+- One level only: an inline cannot contain inlines (boot error). A child may be inlined into more than one parent (with different links).
+
+**Permissions.** An inline never widens access: a user reads, adds, changes, removes or reorders a child through an inline only as they could through the child's own resource (`order-line.view`, `.create`, `.update`, `.delete`, its field levels and scopes, each row's `@AdminCan`), and only the children of this parent. A user without `<child>.view` does not see the inline at all; without `<child>.delete` there is no remove button, and a crafted delete is a 403 that saves nothing. Since children are saved with the parent, the save also needs `<parent>.create` (a new parent) or `<parent>.update`. View-as shows inlines read-only, like everything else.
+
+**Saving.** The form sends, next to the parent's fields, `_inlines: { <child>: { create, update, delete, order } }` (`InlineChanges` in the contract): new rows with a `_key`, changed fields of changed rows with their `_id` (and `_version` for a child with a version column), the ids to delete, and the new order. Inside the parent's write the parent is saved first (a save with only inline changes does not update the parent), then each inline in layout order: deletes, updates, creates, each through the child resource's own `delete`/`update`/`create` and its write participants (files, audit). Any error rolls back everything; errors name the row (`_inlines.order-line.create.2.quantity`, `_inlines.order-line.update.17.unitPrice`) and the form shows them on that row. At most 500 entries per inline per request.
+
+**Options that depend on the parent.** A child's `relationOptions(field, qb, ctx, values)` receives `values._parent`: the parent form's values as the user sees them (unsaved, in the picker; body over stored, on save), with `_parent._resource` naming the parent. Use it to narrow a picker to what the parent allows, such as the attributes of the product's category.
+
+**History.** Each child change is the child's own audit entry (`order-line.created`, …) in the child's history, with `meta.parent` naming the parent (for readers who may view the parent's resource). The parent's History tab shows the parent's own entries only.
+
+**Duplicate** copies the parent only, not its children (the copied form says so).
 
 ## Transactions, context and errors
 
@@ -756,6 +816,21 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - **A delete on another connection** (MySQL, a service that ignores `ctx.manager`) is noticed by one more read right after the commit, and its entry is stamped as the record's end then. That step can miss: a key that is created again between the commit and the read leaves the entry unstamped; so does a crash, a failed read or a failed update in that step (failures are logged with the correlation id). An unstamped ending means a later record with the same key shows the earlier entries in its history.
   - **Read replicas.** Reads outside a transaction (that check after commit; with `transactions: false` the before and after images too) go through `dataSource.manager`, which TypeORM replication may send to a replica. A lagging replica then still shows a deleted row (no stamp), or shows an update as unchanged (a smaller diff, or no entry).
   - **Scopes that depend on a field.** A record's history is open to whoever may open the record now. A reader whose scope depends on a field (`ownerId`, a status) reads the values the record had before it entered their scope, in the fields they may view.
+
+## Upgrading to 0.3.0
+
+Nothing in 0.3.0 breaks an app that runs on 0.2.1: no option or export was removed or changed, no table or stored key changed, and a resource without inlines answers exactly as before (responses only gain fields). All five packages are 0.3.0; upgrade them together, as before.
+
+**New**
+
+- **Inlines**: child resources edited in the parent's form and saved with it in one transaction. See [Inlines](#inlines).
+- **`AdminFiles.register()` and `release()`**: files a host stored itself become files of a record's field. See "Registering files yourself" under [Files](#files-images-and-rich-text).
+- **A key column named `id` without a label is "شناسه" in Persian** (still "Id" in English).
+
+**What a 0.2.1 app may notice**
+
+- `relationOptions(field, qb, ctx, values)`: a key named `_parent` in `values` now has a meaning when the picker belongs to an inline (`?parent=` on the options route); without `?parent=` it is passed through as before.
+- The UI's lists, sidebar and header: the sidebar and the header stay in place while the page scrolls, and in right-to-left languages table headers start on the right like their cells.
 
 ## Upgrading to 0.2.1
 

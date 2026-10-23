@@ -2,11 +2,12 @@ import { Fragment, useRef, useState, type FormEvent, type ReactNode } from 'reac
 import { Copy, ExternalLink, Lock } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { AdminRecord, FieldSchema, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, FieldSchema, FormLayoutInline, InlineChanges, InlineRows, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
 import { FieldInput, RichText } from '@/app/field-input';
 import { RecordActions } from '@/app/action-button';
 import { LeaveBar, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
 import { FormLayout } from '@/app/form-layout';
+import { InlineSection } from '@/app/inline-section';
 import { HistoryTab, historyKey } from '@/app/history-tab';
 import { ObjectInput } from '@/app/object-input';
 import { DisplayValue, ValueBadge } from '@/app/widgets/badge';
@@ -14,8 +15,9 @@ import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { ApiError, api, describeError } from '@/lib/api';
 import { shownErrors } from '@/lib/form-errors';
-import { useT } from '@/i18n';
+import { useLocale, useT } from '@/i18n';
 import { formatCell } from '@/lib/format';
+import { hasInlineErrors, inlineErrorsOf, inlinePayload, inlineRowsOf, type InlineErrors, type InlineRowsState } from '@/lib/inline-changes';
 import { dependencyValues, toFormValues, toPayload, withoutImages, type FormValue, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -106,6 +108,7 @@ interface RecordFormProps {
 
 function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: openTab, onTab: setTab }: RecordFormProps) {
   const t = useT();
+  const { locale } = useLocale();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   // Edit forms also show read-only fields: `readonly` in the config, and those `readonlyIf` locks on this record.
@@ -122,6 +125,13 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   const [base, setBase] = useState<AdminRecord | undefined>(record);
   const [initial, setInitial] = useState<FormValues>(() => toFormValues(fields, record ?? (source ? copyOf(schema, source) : undefined)));
   const [values, setValues] = useState<FormValues>(initial);
+  // Inline child records (`{ inline: ChildAdmin }` in the layout), saved with the parent. A copy starts without them.
+  const inlines = inlinesOf(schema);
+  const rowsOf = (from: AdminRecord | undefined): InlineRowsState => Object.fromEntries(inlines.map((inline) => [inline.inline, inlineRowsOf(inline, schema.inlines![inline.inline]!, from)]));
+  const [initialRows, setInitialRows] = useState<InlineRowsState>(() => rowsOf(record));
+  const [rows, setRows] = useState<InlineRowsState>(initialRows);
+  const [inlineErrors, setInlineErrors] = useState<Record<string, InlineErrors>>({});
+  const sentInlines = useRef<InlineChanges | undefined>(undefined);
   const version = schema.version ? base?.[schema.version] : undefined;
   const [conflict, setConflict] = useState<AdminRecord | null>(null);
   const dependencies = dependencyValues(fields, values);
@@ -153,7 +163,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   const uploads = useUploadGate(() => setFormError(null));
 
   // Unsaved changes: in-app navigation asks first (an inline bar), closing the tab asks through the browser.
-  const dirty = JSON.stringify(values) !== JSON.stringify(initial);
+  const dirty = JSON.stringify(values) !== JSON.stringify(initial) || JSON.stringify(rows) !== JSON.stringify(initialRows);
   const { blocker, release } = useUnsavedGuard(dirty);
 
   const formRef = useRef<HTMLFormElement>(null);
@@ -173,9 +183,13 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
       if (then === 'stay' && mode === 'edit') {
         // Continue from what was stored; the record query refetches for `_readonly` and `_links`.
         const next = toFormValues(fields, stored);
+        const nextRows = rowsOf(stored);
         setBase(stored);
         setInitial(next);
         setValues(next);
+        setInitialRows(nextRows);
+        setRows(nextRows);
+        setInlineErrors({});
         setNotice(t('form.savedName', { name: title }));
         await queryClient.invalidateQueries({ queryKey: ['record', schema.name, id] });
         return;
@@ -196,8 +210,10 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
         setConflict(error.body.current);
         return;
       }
-      const shown = shownErrors(error, names);
-      setFieldErrors(shown.fields);
+      const shown = shownErrors(error, [...names, '_inlines']);
+      const split = inlineErrorsOf(shown.fields, sentInlines.current);
+      setFieldErrors(split.parent);
+      setInlineErrors(split.inlines);
       setFormError(shown.form);
     },
   });
@@ -221,7 +237,12 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   const visible = fields.filter((field) => isShown(field, values));
 
   function payloadOf() {
-    return toPayload(visible, values, mode === 'edit' ? initial : undefined);
+    const own = toPayload(visible, values, mode === 'edit' ? initial : undefined);
+    const children = inlinePayload(inlines, schema.inlines ?? {}, initialRows, rows, (inline, count) =>
+      inline.min !== undefined && count < inline.min ? t('inline.countMin', { min: inline.min, count }) : count > inline.max ? t('inline.countMax', { max: inline.max, count }) : null,
+    );
+    sentInlines.current = children.changes;
+    return { payload: children.changes ? { ...own.payload, _inlines: children.changes } : own.payload, errors: own.errors, inlineErrors: children.errors };
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -236,14 +257,15 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
       uploads.refuse();
       return;
     }
-    const { payload, errors } = payloadOf();
+    const { payload, errors, inlineErrors: rowErrors } = payloadOf();
     const formMode = mode === 'create' ? 'create' : 'update';
     const constraints = Object.fromEntries(Object.entries(schema.form.constraints[formMode]).filter(([name]) => visible.some((field) => field.name === name.split('.')[0])));
     const ruleErrors = validatePayload(payload, constraints, formMode);
     const allErrors = { ...ruleErrors, ...errors }; // conversion errors ("must be a number") win for the same field
     setFieldErrors(allErrors);
+    setInlineErrors(rowErrors);
     setFormError(null);
-    if (Object.keys(allErrors).length === 0) save.mutate({ payload, version, then });
+    if (Object.keys(allErrors).length === 0 && !hasInlineErrors(rowErrors)) save.mutate({ payload, version, then });
     else setTab('details'); // ⌘S from the History tab: the errors are on the form
   }
 
@@ -261,6 +283,28 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
     setInitial(next);
     setValues(next);
     setFieldErrors({});
+    // The 409's `current` is the parent alone: the rows keep their edits, against the rows as they were read.
+  }
+
+  function renderInline(inline: FormLayoutInline): ReactNode | null {
+    const child = schema.inlines?.[inline.inline];
+    if (!child) return null;
+    const read = (record?._inlines as Record<string, InlineRows> | undefined)?.[inline.inline];
+    const truncated = read?.truncated && id !== undefined ? { total: read.total, href: `/${child.name}?${new URLSearchParams({ [`filter[${inline.link}]`]: String(record?.[schema.primaryKeys[0]!] ?? id) })}` } : undefined;
+    return (
+      <InlineSection
+        inline={inline}
+        child={child}
+        rows={rows[inline.inline] ?? []}
+        onChange={(next) => setRows((previous) => ({ ...previous, [inline.inline]: next }))}
+        readOnly={!canUpdate || truncated !== undefined}
+        errors={inlineErrors[inline.inline]}
+        parent={schema.name}
+        parentValues={dependencies}
+        onBusy={uploads.setBusy}
+        truncated={truncated}
+      />
+    );
   }
 
   function renderField(name: string): ReactNode | null {
@@ -312,6 +356,11 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
           onChanged={onChanged}
         />
       )}
+      {source && inlines.length > 0 && (
+        <p role="note" className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          {t('inline.duplicateNote', { names: new Intl.ListFormat(locale).format(inlines.map((inline) => inline.label)) })}
+        </p>
+      )}
       {!canUpdate && (
         <p role="note" className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
           {t('form.viewOnly')}
@@ -349,7 +398,13 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
         className={tab === 'details' ? 'contents' : 'hidden'}
         {...(hasHistory ? { role: 'tabpanel', id: 'record-panel-details', 'aria-labelledby': 'record-tab-details' } : {})}
       >
-        <FormLayout layout={schema.form.layout} names={allFields.map((field) => field.name)} errors={fieldErrors} render={renderField} />
+        <FormLayout
+          layout={schema.form.layout}
+          names={allFields.map((field) => field.name)}
+          errors={{ ...fieldErrors, ...Object.fromEntries(Object.entries(inlineErrors).filter(([, found]) => hasInlineErrors({ found })).map(([child]) => [`_inlines.${child}`, ['']])) }}
+          render={renderField}
+          renderInline={renderInline}
+        />
         <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
           {canUpdate && (
             <Button type="submit" value="list" disabled={save.isPending || uploads.busy} aria-keyshortcuts="Control+S Meta+S">
@@ -408,6 +463,13 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
       </div>
     </form>
   );
+}
+
+/** The inline sections of the layout (tabs included) whose child this user may see. */
+function inlinesOf(schema: ResourceSchema): FormLayoutInline[] {
+  return (schema.form.layout ?? [])
+    .flatMap((node) => ('tab' in node ? node.sections : [node]))
+    .filter((node): node is FormLayoutInline => 'inline' in node && schema.inlines?.[node.inline] !== undefined);
 }
 
 type RecordTab = 'details' | 'history';

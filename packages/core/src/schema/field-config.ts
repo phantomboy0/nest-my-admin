@@ -1,6 +1,7 @@
-import type { FieldSchema, FieldType, FormLayoutNode, FormLayoutSection } from '../contract.js';
+import type { FieldSchema, FieldType, FormLayoutInline, FormLayoutNode, FormLayoutSection } from '../contract.js';
 import { BADGE_COLORS, WIDGETS, getAdminFieldOptions, type AdminFieldOptions, type WidgetName } from '../decorators/admin-field.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
+import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { didYouMean } from './suggest.js';
 
 /** A resource's `fields` entry: the static options plus `readonlyIf`, evaluated on the server per record. */
@@ -18,11 +19,50 @@ export interface LayoutSectionConfig {
   /** Columns on wide screens (one on phones). Default 1. */
   columns?: 1 | 2 | 3;
 }
+/** Default and hard cap of `max` on an inline. */
+export const DEFAULT_INLINE_MAX = 100;
+export const MAX_INLINE_ROWS = 500;
+
+/**
+ * A child resource edited inside the parent's form (Django's inlines): its records whose link points at the parent,
+ * as a table or as cards. The child is an ordinary resource with its own permissions, scopes, fields and services.
+ */
+export interface LayoutInlineConfig {
+  /** The section's title. Default: the child resource's label. */
+  section?: LocalizedText;
+  /**
+   * The child resource class. Its entity must have one many-to-one (or owning one-to-one) relation to the parent's
+   * entity (or to the root of its single-table family); name it with `link` when it has several.
+   */
+  inline: abstract new (...args: any[]) => AdminResourceBase<any>;
+  /** The child's field that points at the parent (`productId`), when there are several candidates. */
+  link?: string;
+  /** `cards` (default): stacked cards with the child's form layout; `table`: one row per child, one cell per field. */
+  display?: 'cards' | 'table';
+  /** Which of the child's form fields the inline shows, in order. Default: its update form fields but the link. */
+  fields?: string[];
+  /** A number field of the child: rows are read by it (then by key) and reordering writes 0, 1, 2… into it. */
+  order?: string;
+  /** Fewest rows a save may leave. */
+  min?: number;
+  /** Most rows a save may leave and the form edits (default 100, at most 500). */
+  max?: number;
+}
+
 export interface LayoutTabConfig {
   tab: LocalizedText;
-  sections: LayoutSectionConfig[];
+  sections: Array<LayoutSectionConfig | LayoutInlineConfig>;
 }
-export type LayoutConfig = Array<LayoutSectionConfig | LayoutTabConfig>;
+export type LayoutConfig = Array<LayoutSectionConfig | LayoutTabConfig | LayoutInlineConfig>;
+
+export function isInlineConfig(node: LayoutSectionConfig | LayoutTabConfig | LayoutInlineConfig): node is LayoutInlineConfig {
+  return 'inline' in node;
+}
+
+/** Every inline node of a layout, tabs included, in layout order. */
+export function layoutInlines(layout: LayoutConfig | undefined): LayoutInlineConfig[] {
+  return (layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).filter(isInlineConfig);
+}
 
 /** Field types each widget can edit or show. */
 const WIDGET_TYPES: Record<WidgetName, readonly FieldType[]> = {
@@ -66,6 +106,16 @@ export function mergeFieldConfig(sources: Array<Function | undefined>, resourceF
   for (const source of sources) for (const [name, options] of Object.entries(getAdminFieldOptions(source))) add(name, options);
   for (const [name, options] of Object.entries(resourceFields ?? {})) add(name, options);
   return merged;
+}
+
+/**
+ * A primary key named `id` without a label of its own gets the built-in one: its humanized name ("Id") as before,
+ * and "شناسه" in Persian.
+ */
+export function withIdLabel(fields: FieldSchema[], config: Map<string, FieldConfig>): Map<string, FieldConfig> {
+  const id = fields.find((field) => field.name === 'id' && field.primary);
+  if (id && config.get('id')?.label === undefined) config.set('id', { ...config.get('id'), label: { en: id.label, fa: 'شناسه' } });
+  return config;
 }
 
 /** Widgets a `secret` field can use: anything else would show, upload or format its value. */
@@ -158,11 +208,20 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
   return out;
 }
 
-/** Every layout name is a form field, listed once. */
-export function checkLayout(layout: LayoutConfig, formNames: string[], fail: (message: string) => never): void {
+/**
+ * Every layout name is a form field, listed once. Inline nodes (only where `allow.inlines`: a resource's form) are
+ * checked for their shape here; the registry resolves them against the child once every resource is known.
+ */
+export function checkLayout(layout: LayoutConfig, formNames: string[], fail: (message: string) => never, allow: { inlines?: boolean } = {}): void {
   const seen = new Set<string>();
-  const sections = layout.flatMap((node) => ('tab' in node ? node.sections : [node]));
-  for (const section of sections) {
+  const nodes = layout.flatMap((node) => ('tab' in node ? node.sections : [node]));
+  for (const node of nodes) {
+    if (isInlineConfig(node)) {
+      if (!allow.inlines) fail('form.layout: inlines belong in the form of a resource');
+      checkInlineShape(node, fail);
+      continue;
+    }
+    const section = node;
     if (section.columns !== undefined && ![1, 2, 3].includes(section.columns)) fail('form.layout: columns must be 1, 2 or 3');
     for (const name of section.fields) {
       if (!formNames.includes(name)) fail(`form.layout: "${name}" is not on the form${didYouMean(name, formNames)}`);
@@ -172,11 +231,53 @@ export function checkLayout(layout: LayoutConfig, formNames: string[], fail: (me
   }
 }
 
-export function localizeLayout(layout: LayoutConfig, locale: string, defaultLocale: string): FormLayoutNode[] {
-  const section = (node: LayoutSectionConfig): FormLayoutSection => ({
-    ...(node.section !== undefined ? { title: resolveText(node.section, locale, defaultLocale) } : {}),
-    fields: [...node.fields],
-    columns: node.columns ?? 1,
-  });
-  return layout.map((node) => ('tab' in node ? { tab: resolveText(node.tab, locale, defaultLocale), sections: node.sections.map(section) } : section(node)));
+const isFieldName = (value: unknown) => typeof value === 'string' && value.length > 0;
+
+/** The options of an inline node that need no other resource to check. */
+function checkInlineShape(node: LayoutInlineConfig, fail: (message: string) => never): void {
+  if (typeof node.inline !== 'function') fail('form.layout: `inline` must be a resource class (`inline: VariantAdmin`)');
+  const where = `form.layout inline ${node.inline.name}`;
+  if (node.display !== undefined && node.display !== 'cards' && node.display !== 'table') fail(`${where}: display must be "cards" or "table"`);
+  const max = node.max ?? DEFAULT_INLINE_MAX;
+  if (!Number.isInteger(max) || max < 1 || max > MAX_INLINE_ROWS) fail(`${where}: max: must be an integer from 1 to ${MAX_INLINE_ROWS}`);
+  if (node.min !== undefined && (!Number.isInteger(node.min) || node.min < 0 || node.min > max)) fail(`${where}: min: must be an integer from 0 to max (${max})`);
+  if (node.link !== undefined && !isFieldName(node.link)) fail(`${where}: link: must be a field name`);
+  if (node.order !== undefined && !isFieldName(node.order)) fail(`${where}: order: must be a field name`);
+  if (node.fields !== undefined) {
+    if (!Array.isArray(node.fields) || node.fields.length === 0) fail(`${where}: fields: must list at least one field`);
+    const listed = new Set<string>();
+    for (const name of node.fields) {
+      if (!isFieldName(name)) fail(`${where}: fields: must be field names`);
+      if (listed.has(name)) fail(`${where}: fields: "${name}" is listed twice`);
+      listed.add(name);
+    }
+  }
+}
+
+/**
+ * The layout with texts in `locale`. `inline` turns an inline node into what the UI gets (given the section's title in
+ * `locale`); nodes it answers `undefined` for are left out, and so is a tab left without sections by that.
+ */
+export function localizeLayout(
+  layout: LayoutConfig,
+  locale: string,
+  defaultLocale: string,
+  inline?: (node: LayoutInlineConfig, label: string | undefined) => FormLayoutInline | undefined,
+): FormLayoutNode[] {
+  const section = (node: LayoutSectionConfig | LayoutInlineConfig): FormLayoutSection | FormLayoutInline | undefined => {
+    const title = node.section !== undefined ? resolveText(node.section, locale, defaultLocale) : undefined;
+    if (isInlineConfig(node)) return inline?.(node, title);
+    return { ...(title !== undefined ? { title } : {}), fields: [...node.fields], columns: node.columns ?? 1 };
+  };
+  const out: FormLayoutNode[] = [];
+  for (const node of layout) {
+    if ('tab' in node) {
+      const sections = node.sections.map(section).filter((item) => item !== undefined);
+      if (sections.length > 0 || node.sections.length === 0) out.push({ tab: resolveText(node.tab, locale, defaultLocale), sections });
+    } else {
+      const item = section(node);
+      if (item) out.push(item);
+    }
+  }
+  return out;
 }

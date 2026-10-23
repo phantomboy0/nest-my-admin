@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import type { Readable } from 'node:stream';
+import type { EntityManager } from 'typeorm';
+import type { AdminFile } from './admin-file.js';
 import { NmaFile } from './entities.js';
-import { FilesService } from './files.service.js';
+import { FilesService, type RegisterFileInput, type ReleaseFileInput } from './files.service.js';
 import { assertStorageKey } from './storage.js';
 
 /** What the admin knows about a public file. */
@@ -79,6 +81,28 @@ export class AdminFiles {
     const object = await this.files.storage.get(row.key);
     // A storage that cannot tell (s3Storage answers 0 for a response without Content-Length) gets the recorded size.
     return object ? { body: object.body, contentType: row.contentType, size: object.size > 0 ? object.size : row.size, name: row.name } : null;
+  }
+
+  /**
+   * Records a file the host stored itself (an image fetched from another system, an attachment its own API took) as a
+   * file of a record's file or image field, so downloads, `_files`, `publicFile` and the delete/purge cleanup treat it
+   * like an upload. The bytes are checked like an upload's (type from the content against `accept`, `maxBytes`: a 422
+   * `AdminValidationError` on the field) and stored under a new key; the field's visibility applies unless given.
+   *
+   * It does not write the record: store the returned `key` in the column yourself, in the same transaction. With
+   * `manager` the row is written in that transaction (when `nma_file` is on its DataSource), and a rollback leaves
+   * neither the row nor the object; without one the row is written at once.
+   */
+  register(input: RegisterFileInput, manager?: EntityManager): Promise<AdminFile> {
+    return this.files.register(input, manager);
+  }
+
+  /**
+   * A key a record no longer holds: its row is deleted, and its object after `manager`'s transaction commits (at once
+   * without one). A key that is not that record's file in that field is left alone: it never deletes another record's file.
+   */
+  release(input: ReleaseFileInput, manager?: EntityManager): Promise<void> {
+    return this.files.releaseHeld(input, manager);
   }
 
   private async publicRow(key: unknown): Promise<NmaFile | null> {

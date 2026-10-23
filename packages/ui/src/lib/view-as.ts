@@ -12,6 +12,7 @@ export function readOnlySchema(schema: ResourceSchema): ResourceSchema {
     permissions: { create: false, update: false, delete: false, purge: false },
     list: { ...schema.list, editable: [] },
     form: { ...schema.form, create: [], update: [], requiredOnCreate: [], readonly: [...new Set([...schema.form.readonly, ...schema.form.update, ...schema.form.create])] },
+    ...(schema.inlines ? { inlines: Object.fromEntries(Object.entries(schema.inlines).map(([name, child]) => [name, readOnlySchema(child)])) } : {}),
   };
 }
 

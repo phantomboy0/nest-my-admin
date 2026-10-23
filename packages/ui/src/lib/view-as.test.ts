@@ -21,6 +21,14 @@ describe('view-as', () => {
     expect(cut.form).toMatchObject({ create: [], update: [], requiredOnCreate: [], readonly: ['sku', 'price', 'name'] });
   });
 
+  test('inline children lose every write too', () => {
+    const child = { creatable: true, permissions: { create: true, update: true, delete: true, purge: false }, list: { editable: [] }, actions: [], form: { create: ['qty'], update: ['qty'], requiredOnCreate: [], readonly: [] } };
+    const schema = { ...child, inlines: { line: child } } as unknown as ResourceSchema;
+    const cut = readOnlySchema(schema).inlines!.line!;
+    expect(cut.permissions).toEqual({ create: false, update: false, delete: false, purge: false });
+    expect(cut.form).toMatchObject({ create: [], update: [], readonly: ['qty'] });
+  });
+
   test('settings pages are read-only, whatever the answer says', () => {
     const page = { schema: { name: 'shop', readonly: false }, values: { shopName: 'Demo' }, secrets: { apiKey: true }, files: {} } as unknown as PageResponse;
     const cut = readOnlyPage(page);

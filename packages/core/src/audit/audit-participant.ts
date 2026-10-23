@@ -77,8 +77,10 @@ export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState
       const { target } = change;
       // A resource action names no record: there is no row to read.
       const named = 'schema' in target && !(change.kind === 'action' && state.recordId === undefined);
-      const input = 'schema' in target ? await recordEntry(target, change, state, saved, named ? await row() : { gone: false }, tx.manager ?? target.dataSource.manager) : pageEntry(target, state, saved);
-      if (!input) return;
+      const entry = 'schema' in target ? await recordEntry(target, change, state, saved, named ? await row() : { gone: false }, tx.manager ?? target.dataSource.manager) : pageEntry(target, state, saved);
+      if (!entry) return;
+      // A child saved inline with its parent says which parent (the parent's History can list it later).
+      const input = change.parent ? { ...entry, meta: { ...entry.meta, parent: change.parent } } : entry;
       if (audit.joins(tx)) state.entryId = await audit.record(input, tx);
       else if (tx.manager) state.pending = input;
       else await audit.recordAfter(input, tx);

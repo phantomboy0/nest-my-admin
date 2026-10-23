@@ -370,7 +370,10 @@ export class AuditReader {
     }
     // An action's input is for whoever holds the action.
     const holds = stored.action !== undefined && perms.can(actionCode(name, stored.action));
-    const meta = compact<AuditEntryMeta>({ action: stored.action, input: holds ? stored.input : undefined, inputTruncated: holds ? stored.inputTruncated : undefined, deleted: stored.deleted, ...client });
+    // A child saved inline names its parent, for readers who may view the parent's resource and see the child's link
+    // field (a hidden link must not be readable from the child's History).
+    const parent = stored.parent && entry && perms.canOn(stored.parent.resource, 'view') && this.seesLink(entry, stored.parent.resource, ctx) ? stored.parent : undefined;
+    const meta = compact<AuditEntryMeta>({ action: stored.action, input: holds ? stored.input : undefined, inputTruncated: holds ? stored.inputTruncated : undefined, deleted: stored.deleted, parent, ...client });
     const titled = !entry || this.policy.titleVisible(entry, ctx);
     return {
       ...base,
@@ -380,6 +383,12 @@ export class AuditReader {
       ...(row.changes !== null ? { changes: this.mask(row.changes, entry, perms, levels, ctx) } : {}),
       ...(meta ? { meta } : {}),
     };
+  }
+
+  /** Whether the reader sees the link field of `child`'s inline in `parent` (`canSeeInline`). */
+  private seesLink(child: RegisteredResource, parent: string, ctx: AdminContext): boolean {
+    const inline = this.registry.find(parent)?.inlines.find((candidate) => candidate.child === child);
+    return inline !== undefined && this.policy.canSeeInline(child, inline.link, ctx);
   }
 
   /** A field the reader may not view on the record keeps its name and loses its values. */

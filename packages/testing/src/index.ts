@@ -199,7 +199,8 @@ export class AdminTesting {
   /**
    * Crawls everything `options.as` can reach around `resource` and fails (with `AdminLeakError`) when any value of a
    * field hidden from them, or any record outside their scopes, shows up: in meta, the schema, every list page, each
-   * record, global search for the hidden values, and other resources' relation columns and pickers. With the audit
+   * record, global search for the hidden values, other resources' relation columns and pickers, and the rows parents list
+   * inline (`_inlines` of each parent record on the first page). With the audit
    * log on, also in each record's history and (for a user with `audit.view`) the audit page, where the values the
    * hidden fields held before count too.
    */
@@ -350,6 +351,17 @@ export class AdminTesting {
           for (const ref of refs(record[field.name])) {
             if (outsideKeys.has(String(ref.id)) && !ref.title.startsWith('#')) leaks.push({ kind: 'out-of-scope-record', resource, record: String(ref.id), where: `list ${other} ${idOf(record)} ${field.name}`, value: shorten(ref.title) });
           }
+        }
+      }
+      // A parent that lists this resource inline: each of its records carries rows of this resource in `_inlines`.
+      if (otherSchema.inlines?.[resource]) {
+        for (const record of page.items) {
+          const parent = await call(() => user.get(other, idOf(record)));
+          scan(`get ${other} ${idOf(record)}`, parent, false);
+          const rows = (parent._inlines as Record<string, { rows?: AdminRecord[] }> | undefined)?.[resource]?.rows ?? [];
+          rows.forEach((row, index) => {
+            if (outsideIds.has(idOf(row))) leaks.push({ kind: 'out-of-scope-record', resource, record: idOf(row), where: `get ${other} ${idOf(record)} $._inlines.${resource}.rows[${index}]` });
+          });
         }
       }
       for (const field of pointing) {

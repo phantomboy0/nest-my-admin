@@ -14,7 +14,7 @@ import { buildResourceSchema } from '../schema/build-resource-schema.js';
 import { getAdminFieldOptions } from '../decorators/admin-field.js';
 import { nestedProtected, protectedInside, protectedOption, type ProtectedInside } from '../schema/dto-form.js';
 import { dtoPropertyNames } from '../schema/dto-fields.js';
-import { mergeFieldConfig, type FieldConfig } from '../schema/field-config.js';
+import { mergeFieldConfig, withIdLabel, type FieldConfig } from '../schema/field-config.js';
 import { operatorsFor } from '../schema/filter-operators.js';
 import { relationFields, type RelationLike } from '../schema/relation-fields.js';
 import { compileTitle, type TitleFn } from '../schema/titles.js';
@@ -22,6 +22,7 @@ import type { LocalizedText } from '../i18n/localized-text.js';
 import { humanize, kebabCase } from '../schema/humanize.js';
 import { dbNamesFor, type DbNames } from './db-names.js';
 import { hookWarnings } from './hook-warnings.js';
+import { resolveInlines, type RegisteredInline } from '../inlines/inline-config.js';
 
 export interface RegisteredResource {
   schema: ResourceSchema;
@@ -48,6 +49,8 @@ export interface RegisteredResource {
   actions: ReadonlyMap<string, RegisteredAction>;
   /** Where the resource stands among the resources of its group (`@AdminResource({ order })`, default 100). */
   order: number;
+  /** The child resources its form edits inline (`{ inline: ChildAdmin }` in `form.layout`), in layout order. */
+  inlines: RegisteredInline[];
 }
 
 /** TypeORM's RelationMetadata as the admin reads it (TypeORM does not export the class from its root). */
@@ -121,6 +124,12 @@ export class ResourceRegistry implements OnModuleInit {
     }
     this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
+    resolveInlines(this.list());
+    // A parent and its inlines are saved together or not at all: a promise only a transaction can keep.
+    const parent = this.list().find((entry) => entry.inlines.length > 0);
+    if (parent && !this.options.transactions) {
+      throw new Error(`${parent.className}: form.layout has inlines, which are saved with their parent in one transaction; the admin's transactions are off (\`transactions: false\`)`);
+    }
   }
 
   get(name: string): RegisteredResource {
@@ -284,12 +293,13 @@ export class ResourceRegistry implements OnModuleInit {
       sortPaths: new Map(),
       label: definition.label ?? schema.label,
       relatedFieldLabels: [],
-      fieldConfig: mergeFieldConfig(
-        [definition.entity, resource.form?.create, resource.form?.update ?? resource.form?.create],
-        resource.fields as Record<string, FieldConfig | undefined>,
+      fieldConfig: withIdLabel(
+        schema.fields,
+        mergeFieldConfig([definition.entity, resource.form?.create, resource.form?.update ?? resource.form?.create], resource.fields as Record<string, FieldConfig | undefined>),
       ),
       actions,
       order,
+      inlines: [],
     });
   }
 

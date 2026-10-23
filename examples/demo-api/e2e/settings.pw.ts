@@ -115,7 +115,7 @@ test('settings are saved; the secret is replaced and never shown again; a logo i
   // Leaving with unsaved changes asks first.
   await page.getByLabel('Support email').fill('help@shop.example.test');
   if (isMobile) await page.getByRole('button', { name: 'Menu', exact: true }).click();
-  await page.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Sales' }).getByRole('link', { name: 'Order' }).click();
+  await page.getByRole('navigation', { name: 'Resources' }).getByRole('list', { name: 'Sales' }).getByRole('link', { name: 'Order', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toContainText('Leave without saving?');
   await page.getByRole('button', { name: 'Stay' }).click();
   await expect(page).toHaveURL(/\/admin\/p\/shop$/);

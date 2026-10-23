@@ -19,6 +19,8 @@ export interface WriteChange {
   dto?: object;
   /** An `@AdminAction` run (`kind: 'action'`): the action, and its input as validated, before any method saw it. */
   action?: { definition: RegisteredAction; input: object };
+  /** A change to a child saved inline with its parent: the parent's resource and `_id` (the audit entry's `meta.parent`). */
+  parent?: { resource: string; recordId: string };
 }
 
 /**

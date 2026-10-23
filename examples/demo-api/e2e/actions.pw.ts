@@ -159,7 +159,7 @@ test('a resource action runs from the list toolbar with its form (M4-2)', async 
 test.describe('roles and actions', () => {
   test('the role matrix lists actions and settings pages; the debugger explains them (M4-2)', async ({ page }) => {
     await page.goto('/admin/-/roles/catalog-editor');
-    await page.getByRole('button', { name: 'Fields and scopes of Order' }).click();
+    await page.getByRole('button', { name: 'Fields and scopes of Order', exact: true }).click();
     const orderActions = page.locator('[data-actions="order"]');
     await expect(orderActions.getByLabel('Ship')).toBeChecked();
     await expect(orderActions.getByLabel('Mark paid')).not.toBeChecked();

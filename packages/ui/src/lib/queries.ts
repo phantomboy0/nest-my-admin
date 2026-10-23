@@ -46,10 +46,10 @@ export const useRecord = (resource: string, id: string | undefined) =>
 
 /** Picker options for `search` (runs only while `enabled`, i.e. while the picker is open). */
 /** `values`: the form's current values as JSON, for options that depend on other fields. */
-export const useOptions = (resource: string, field: string, search: string, enabled: boolean, values?: string) =>
+export const useOptions = (resource: string, field: string, search: string, enabled: boolean, values?: string, parent?: string) =>
   useQuery({
-    queryKey: ['options', resource, field, search, values ?? ''],
-    queryFn: () => api.options(resource, field, { search, values }),
+    queryKey: ['options', resource, field, search, values ?? '', parent ?? ''],
+    queryFn: () => api.options(resource, field, { search, values, parent }),
     enabled,
     placeholderData: keepPreviousData,
   });

@@ -18,7 +18,8 @@ export {
   type RecordLinkConfig,
 } from './resource/admin-resource-base.js';
 export { AdminField, BADGE_COLORS, WIDGETS, type AdminFieldOptions, type FileFieldOptions, type BadgeColor, type WidgetName } from './decorators/admin-field.js';
-export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutSectionConfig, LayoutTabConfig } from './schema/field-config.js';
+export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutInlineConfig, LayoutSectionConfig, LayoutTabConfig } from './schema/field-config.js';
+export type { RegisteredInline } from './inlines/inline-config.js';
 export { AdminContext } from './resource/admin-context.js';
 export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from './decorators/admin-scope.js';
 export { AdminAction, type ActionOutcome, type AdminActionOptions } from './decorators/admin-action.js';
@@ -30,6 +31,7 @@ export { ADMIN_AUDIT_ENTITIES, NmaAuditEntry, type AuditMeta } from './audit/ent
 export type { AuditChange } from './audit/diff.js';
 export type { AdminFile } from './files/admin-file.js';
 export { AdminFiles, type AdminPublicFile, type AdminPublicFileBody } from './files/admin-files.service.js';
+export type { RegisterFileInput, ReleaseFileInput } from './files/files.service.js';
 export { localStorage, type AdminStorage, type LocalStorageOptions } from './files/storage.js';
 export { s3Storage, type S3StorageOptions } from './files/s3-storage.js';
 export { accepts, sniff } from './files/sniff.js';
