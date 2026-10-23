@@ -15,7 +15,7 @@ export default defineConfig({
   webServer: {
     command: 'bun src/main.ts',
     // Uploads go to a directory of this run, never to the demo's own var/uploads.
-    env: { PORT: '3310', NMA_UPLOAD_DIR: join(tmpdir(), `nma-e2e-uploads-${process.pid}`) },
+    env: { PORT: '3310', NMA_LOGIN_ATTEMPTS_PER_MINUTE: '200', NMA_UPLOAD_DIR: join(tmpdir(), `nma-e2e-uploads-${process.pid}`) },
     url: 'http://localhost:3310/admin/api/meta',
     reuseExistingServer: false,
     timeout: 60_000,

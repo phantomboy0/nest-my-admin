@@ -48,6 +48,8 @@ import { StaffModule } from './staff/staff.module.js';
         bootstrapSuperuser: { username: 'admin', password: process.env.NMA_DEMO_PASSWORD ?? 'admin-demo-pass', displayName: 'Demo Admin' },
         // Encrypts two-factor keys at rest: `openssl rand -base64 32`, kept out of the repository.
         ...(process.env.NMA_SECRET_KEY ? { secretKey: process.env.NMA_SECRET_KEY } : {}),
+        // The E2E run signs in many times from one address within a minute (the default allows 20).
+        ...(process.env.NMA_LOGIN_ATTEMPTS_PER_MINUTE ? { loginAttemptsPerMinute: Number(process.env.NMA_LOGIN_ATTEMPTS_PER_MINUTE) } : {}),
         issuer: 'Demo shop',
       }),
     }),

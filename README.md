@@ -817,6 +817,10 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - **Read replicas.** Reads outside a transaction (that check after commit; with `transactions: false` the before and after images too) go through `dataSource.manager`, which TypeORM replication may send to a replica. A lagging replica then still shows a deleted row (no stamp), or shows an update as unchanged (a smaller diff, or no entry).
   - **Scopes that depend on a field.** A record's history is open to whoever may open the record now. A reader whose scope depends on a field (`ownerId`, a status) reads the values the record had before it entered their scope, in the fields they may view.
 
+## Upgrading to 0.3.1
+
+A fix, nothing to change in an app on 0.3.0. A property of a create DTO that is not a column (a value your `create()` uses, such as the price of a first variant) is no longer shown on the edit form as an empty read-only field; a create-only column (a number fixed once saved) still is. `form.readonly` in the schema changes accordingly.
+
 ## Upgrading to 0.3.0
 
 Nothing in 0.3.0 breaks an app that runs on 0.2.1: no option or export was removed or changed, no table or stored key changed, and a resource without inlines answers exactly as before (responses only gain fields). All five packages are 0.3.0; upgrade them together, as before.

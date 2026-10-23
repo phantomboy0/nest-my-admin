@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { Module, type INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { IsInt, IsOptional, IsString } from 'class-validator';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import { AdminField, AdminResource, AdminResourceBase, type FieldsConfig, type LayoutConfig } from '../src/index.js';
 import { createTestApp } from './helpers/create-app.js';
@@ -47,7 +48,31 @@ class GadgetAdmin extends AdminResourceBase<Gadget> {
   }
 }
 
-@Module({ providers: [GadgetAdmin] })
+@Entity('fc_widget')
+class Widget {
+  @PrimaryGeneratedColumn() id: number;
+  @Column() name: string;
+  @Column({ default: '' }) code: string;
+}
+
+class CreateWidgetDto {
+  @IsString() name: string;
+  /** A column set once, on create. */
+  @IsOptional() @IsString() code?: string;
+  /** Not a column: the host's create() uses it (the shop's default-variant price is one). */
+  @IsOptional() @IsInt() initialStock?: number;
+}
+
+class UpdateWidgetDto {
+  @IsOptional() @IsString() name?: string;
+}
+
+@AdminResource(Widget, { name: 'fc-widget' })
+class WidgetAdmin extends AdminResourceBase<Widget> {
+  override form = { create: CreateWidgetDto, update: UpdateWidgetDto };
+}
+
+@Module({ providers: [GadgetAdmin, WidgetAdmin] })
 class GadgetModule {}
 
 let app: INestApplication;
@@ -55,7 +80,7 @@ const http = () => request(app.getHttpServer());
 const base = '/admin/api/resources/gadget';
 
 beforeAll(async () => {
-  app = await createTestApp({ imports: [GadgetModule], entities: [Gadget], admin: { locale: 'en', locales: ['en', 'fa'] } });
+  app = await createTestApp({ imports: [GadgetModule], entities: [Gadget, Widget], admin: { locale: 'en', locales: ['en', 'fa'] } });
 });
 afterAll(async () => {
   await app.close();
@@ -90,6 +115,14 @@ describe(`field config (${TEST_DB})`, () => {
     expect(form.update).not.toContain('slug');
     expect(form.readonly).toContain('slug');
     expect(form.create).toContain('slug');
+  });
+
+  test('a create-only column is shown read-only on edit; a create-only DTO field that is not a column is not', async () => {
+    const { form, fields } = (await http().get('/admin/api/meta/resources/fc-widget')).body;
+    expect(form.create).toEqual(['name', 'code', 'initialStock']);
+    expect(form.readonly).toContain('code');
+    expect(form.readonly).not.toContain('initialStock');
+    expect(fields.find((f: { name: string }) => f.name === 'initialStock').persisted).toBe(false);
   });
 
   test('records carry _readonly and safe, localized _links', async () => {
