@@ -25,6 +25,10 @@ interface FieldInputProps {
   onBusy?: (busy: boolean) => void;
   /** Start of the input's id (`field`): a form shown over another one (an action's dialog) needs ids of its own. */
   idPrefix?: string;
+  /** Inside an inline: the parent resource, whose form values `formValues` carries as `_parent`. */
+  parent?: string;
+  /** The label is for screen readers only (a table inline names the column in its header). */
+  hideLabel?: boolean;
 }
 
 // Tiptap is only downloaded by forms that have a rich-text field.
@@ -44,7 +48,7 @@ const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive';
 
 /** One field of a form: its label, the widget (`field.widget`, else inferred from the type), help and errors. */
-export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange, onBusy, idPrefix = 'field' }: FieldInputProps) {
+export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange, onBusy, idPrefix = 'field', parent, hideLabel }: FieldInputProps) {
   const id = `${idPrefix}-${field.name}`;
   const errorId = `${id}-error`;
   const helpId = `${id}-help`;
@@ -64,7 +68,7 @@ export function FieldInput({ resource, field, value, required, errors, constrain
       )}
     </>
   );
-  const label = <Label htmlFor={id}>{labelText}</Label>;
+  const label = <Label htmlFor={id} className={hideLabel ? 'sr-only' : undefined}>{labelText}</Label>;
   const help = field.help ? (
     <p id={helpId} className="text-sm text-muted-foreground">
       {field.help}
@@ -111,6 +115,7 @@ export function FieldInput({ resource, field, value, required, errors, constrain
         onChange={onChange}
         clearable={field.nullable}
         values={formValues}
+        parent={parent}
         invalid={invalid}
         describedBy={describedBy}
       />

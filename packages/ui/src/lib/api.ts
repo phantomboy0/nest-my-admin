@@ -130,11 +130,12 @@ export const api = {
   remove: (resource: string, id: string, version?: unknown) =>
     request<void>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'DELETE', headers: ifMatch(version) }),
   /** Picker options of a relation field: matching `search`, or the records with these `ids`. */
-  options: (resource: string, field: string, query: { search?: string; ids?: Array<string | number>; values?: string }) => {
+  options: (resource: string, field: string, query: { search?: string; ids?: Array<string | number>; values?: string; parent?: string }) => {
     const params = new URLSearchParams();
     if (query.ids) params.set('ids', query.ids.join(','));
     else if (query.search) params.set('search', query.search);
     if (query.values) params.set('values', query.values);
+    if (query.parent && query.values) params.set('parent', query.parent);
     return request<OptionsResponse>(`/resources/${enc(resource)}/fields/${enc(field)}/options${params.size ? `?${params}` : ''}`);
   },
   /** Deletes each record on its own; `failed` says which could not be deleted and why. */

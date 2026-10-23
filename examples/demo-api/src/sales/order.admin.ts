@@ -13,6 +13,7 @@ import { ConflictException } from '@nestjs/common';
 import { In } from 'typeorm';
 import { CreateOrderDto, ShipOrderDto, StaleDraftsDto, UpdateOrderDto } from './order.dto.js';
 import { Order } from './order.entity.js';
+import { OrderLineAdmin } from './order-line.admin.js';
 
 /**
  * Orders move through their statuses with actions, never through the form: Mark paid, Ship (asks for the tracking
@@ -48,7 +49,22 @@ export class OrderAdmin extends AdminResourceBase<Order> {
     },
     tracking: { label: { en: 'Tracking code', fa: 'کد رهگیری' }, readonly: true },
   };
-  form: FormConfig = { create: CreateOrderDto, update: UpdateOrderDto };
+  form: FormConfig = {
+    create: CreateOrderDto,
+    update: UpdateOrderDto,
+    layout: [
+      { section: { en: 'Order', fa: 'سفارش' }, fields: ['number', 'customer', 'total', 'tracking'], columns: 2 },
+      // Saved with the order in one transaction; `position` is written 0, 1, 2… by drag and the arrows.
+      {
+        section: { en: 'Lines', fa: 'ردیف‌ها' },
+        inline: OrderLineAdmin,
+        display: 'table',
+        fields: ['productId', 'description', 'quantity', 'unitPrice'],
+        order: 'position',
+        max: 50,
+      },
+    ],
+  };
 
   @AdminAction({ label: { en: 'Mark paid', fa: 'پرداخت شد' }, icon: 'credit-card' })
   async markPaid(order: Order, _input: unknown, ctx: AdminContext): Promise<ActionOutcome> {

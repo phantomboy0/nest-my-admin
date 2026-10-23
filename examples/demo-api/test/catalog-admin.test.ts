@@ -283,7 +283,7 @@ describe('the catalog-editor role (editor)', () => {
   test('sees the catalog without suppliers, and no cost', async () => {
     const meta = (await editor.get('/admin/api/meta')).body;
     const names = meta.groups.flatMap((group: { resources: Array<{ name: string }> }) => group.resources.map((resource) => resource.name)).sort();
-    expect(names).toEqual(['category', 'order', 'product', 'stock-move', 'tag']); // no articles, no invoices
+    expect(names).toEqual(['category', 'order', 'order-line', 'product', 'stock-move', 'tag']); // no articles, no invoices
     expect(meta.groups.flatMap((group: { pages: Array<{ name: string }> }) => group.pages.map((page) => page.name))).toEqual(['shop']);
     const schema = (await editor.get('/admin/api/meta/resources/product')).body;
     expect(schema.list.columns).not.toContain('cost');

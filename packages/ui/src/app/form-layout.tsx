@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { FormLayoutInline, FormLayoutNode, FormLayoutSection } from '@nest-my-admin/core/contract';
 import { isRtl, useLocale, useT } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -10,30 +10,29 @@ interface FormLayoutProps {
   names: string[];
   /** The field's input, or null when it is hidden (`showIf`) or not on this form. */
   render: (name: string) => ReactNode | null;
-  /** Fields with errors: their tab is marked. */
+  /** Fields with errors: their tab is marked (an inline with errors as `_inlines.<child>`). */
   errors: Record<string, string[]>;
+  /** An inline section of the layout; without it, inlines are left out. */
+  renderInline?: (inline: FormLayoutInline) => ReactNode | null;
 }
 
 const COLUMNS = { 1: '', 2: 'md:grid-cols-2', 3: 'md:grid-cols-2 lg:grid-cols-3' } as const;
 
 /** Sections (with 1–3 columns on wide screens, one on phones) and tabs, from `form.layout` (spec §9.4). */
-export function FormLayout({ layout: given, names, render, errors }: FormLayoutProps) {
-  const layout = given && withoutInlines(given);
-  const listed = new Set((layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((section) => section.fields));
+export function FormLayout({ layout: given, names, render, errors, renderInline }: FormLayoutProps) {
+  const layout = given && (renderInline ? (given as SectionNode[]) : withoutInlines(given));
+  const listed = new Set((layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((section) => (isInline(section) ? [] : section.fields)));
   const rest = names.filter((name) => !listed.has(name));
   const tabs = (layout ?? []).filter((node): node is TabNode => 'tab' in node);
   const firstTab = (layout ?? []).findIndex((node) => 'tab' in node);
-  const before = firstTab === -1 ? (layout ?? []).filter((node): node is FormLayoutSection => !('tab' in node)) : (layout ?? []).slice(0, firstTab).filter((node): node is FormLayoutSection => !('tab' in node));
-  const after = firstTab === -1 ? [] : (layout ?? []).slice(firstTab).filter((node): node is FormLayoutSection => !('tab' in node));
+  const before = firstTab === -1 ? (layout ?? []).filter((node): node is Block => !('tab' in node)) : (layout ?? []).slice(0, firstTab).filter((node): node is Block => !('tab' in node));
+  const after = firstTab === -1 ? [] : (layout ?? []).slice(firstTab).filter((node): node is Block => !('tab' in node));
+  const block = (node: Block, key: string) => (isInline(node) ? <Fragment key={key}>{renderInline?.(node)}</Fragment> : <Section key={key} section={node} render={render} />);
   return (
     <>
-      {before.map((section, index) => (
-        <Section key={`b${index}`} section={section} render={render} />
-      ))}
-      {tabs.length > 0 && <Tabs tabs={tabs} render={render} errors={errors} />}
-      {after.map((section, index) => (
-        <Section key={`a${index}`} section={section} render={render} />
-      ))}
+      {before.map((node, index) => block(node, `b${index}`))}
+      {tabs.length > 0 && <Tabs tabs={tabs} render={render} errors={errors} block={block} />}
+      {after.map((node, index) => block(node, `a${index}`))}
       {rest.length > 0 && <Section section={{ fields: rest, columns: 1 }} render={render} />}
     </>
   );
@@ -63,24 +62,26 @@ function Section({ section, render }: { section: FormLayoutSection; render: Form
   );
 }
 
-type SectionNode = FormLayoutSection | { tab: string; sections: FormLayoutSection[] };
+type Block = FormLayoutSection | FormLayoutInline;
+type SectionNode = Block | { tab: string; sections: Block[] };
 type TabNode = Extract<SectionNode, { tab: string }>;
 
-const isInline = (node: FormLayoutNode): node is FormLayoutInline => 'inline' in node;
+const isInline = (node: FormLayoutNode | Block): node is FormLayoutInline => 'inline' in node;
 
-/** The layout's sections and tabs; inline child sections are not rendered here. */
+/** The layout's sections and tabs without inline child sections (forms that have no inlines to show). */
 function withoutInlines(layout: FormLayoutNode[]): SectionNode[] {
   return layout.filter((node) => !isInline(node)).map((node) => ('tab' in node ? { ...node, sections: node.sections.filter((section): section is FormLayoutSection => !isInline(section)) } : (node as FormLayoutSection)));
 }
 
 /** A tablist with arrow keys (mirrored in RTL), Home and End; every panel stays mounted so edits survive switching. */
-function Tabs({ tabs, render, errors }: { tabs: TabNode[]; render: FormLayoutProps['render']; errors: FormLayoutProps['errors'] }) {
+function Tabs({ tabs, render, errors, block }: { tabs: TabNode[]; render: FormLayoutProps['render']; errors: FormLayoutProps['errors']; block: (node: Block, key: string) => ReactNode }) {
   const t = useT();
   const { locale } = useLocale();
   const base = useId();
   const [active, setActive] = useState(0);
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
-  const hasErrors = (tab: TabNode) => tab.sections.some((section) => section.fields.some((name) => Object.keys(errors).some((key) => key === name || key.startsWith(`${name}.`))));
+  const hasErrors = (tab: TabNode) =>
+    tab.sections.some((section) => (isInline(section) ? [`_inlines.${section.inline}`] : section.fields).some((name) => Object.keys(errors).some((key) => key === name || key.startsWith(`${name}.`))));
   // After a refused save, show a tab with errors if the open one has none.
   useEffect(() => {
     if (hasErrors(tabs[active]!)) return;
@@ -135,9 +136,7 @@ function Tabs({ tabs, render, errors }: { tabs: TabNode[]; render: FormLayoutPro
       </div>
       {tabs.map((tab, index) => (
         <div key={index} id={`${base}-panel-${index}`} role="tabpanel" aria-labelledby={`${base}-tab-${index}`} hidden={index !== active} className={cn('flex-col gap-5', index === active ? 'flex' : 'hidden')}>
-          {tab.sections.map((section, sectionIndex) => (
-            <Section key={sectionIndex} section={section} render={render} />
-          ))}
+          {tab.sections.map((section, sectionIndex) => block(section, String(sectionIndex)))}
         </div>
       ))}
     </div>

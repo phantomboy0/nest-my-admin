@@ -24,12 +24,12 @@ import { StaffModule } from './staff/staff.module.js';
       // `editor` edits the catalog: products (drafts only, price read-only, no cost), categories and tags. They also
       // handle orders: they may ship them (`order.action.ship`, with `order.update`, which every action on a record
       // needs), but not mark them paid or cancel them, and they see the shop's settings without being able to save
-      // them (`page.shop` without `page.shop.update`).
+      // them (`page.shop` without `page.shop.update`). They edit an order's lines but cannot remove one (no `order-line.delete`).
       roles: [
         {
           name: 'catalog-editor',
           label: { en: 'Catalog editor', fa: 'ویرایشگر کاتالوگ' },
-          permissions: ['product.view', 'product.update', 'category.*', 'tag.*', 'stock-move.view', 'order.view', 'order.update', 'order.action.ship', 'page.shop'],
+          permissions: ['product.view', 'product.update', 'category.*', 'tag.*', 'stock-move.view', 'order.view', 'order.update', 'order.action.ship', 'order-line.view', 'order-line.create', 'order-line.update', 'page.shop'],
           fields: { product: { price: 'readonly' } },
           scopes: { product: { update: 'drafts' } },
         },

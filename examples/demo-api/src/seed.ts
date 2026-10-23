@@ -10,6 +10,7 @@ import { StockMove } from './catalog/stock-move.entity.js';
 import { Tag } from './catalog/tag.entity.js';
 import { Article } from './content/article.entity.js';
 import { Order } from './sales/order.entity.js';
+import { OrderLine } from './sales/order-line.entity.js';
 import { ShopSetting } from './settings/shop-setting.entity.js';
 import { Employee } from './staff/employee.entity.js';
 
@@ -57,6 +58,11 @@ export async function seedSales(app: INestApplication): Promise<void> {
     { number: 'SO-1003', customer: 'مریم میرزاخانی', total: '7.00', status: 'paid' },
     { number: 'SO-1004', customer: 'Alan Turing', total: '499.00', status: 'draft' },
     { number: 'SO-1005', customer: 'Katherine Johnson', total: '1299.00', status: 'cancelled' },
+  ]);
+  const first = await orders.findOneByOrFail({ number: 'SO-1001' });
+  await app.get<Repository<OrderLine>>(getRepositoryToken(OrderLine)).save([
+    { orderId: first.id, description: 'Desk lamp', quantity: 2, unitPrice: '24.95', position: 0 },
+    { orderId: first.id, description: 'Standing desk', quantity: 1, unitPrice: '474.00', position: 1 },
   ]);
 }
 
