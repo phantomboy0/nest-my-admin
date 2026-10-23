@@ -20,6 +20,9 @@ import { NmaFile } from './entities.js';
 import { createSanitizer, imageKeysOf, resolveImages, type ImageUrls } from './rich-text.js';
 import { accepts, extensionOf, sniff } from './sniff.js';
 import { encodeKey, type AdminStorage } from './storage.js';
+import { TransactionFiles } from './transaction-files.js';
+import { encodeRecordId } from '../crud/record-id.js';
+import type { RecordId } from '../resource/admin-resource-base.js';
 
 /** Bytes read before the type is decided; enough for every magic number and the first entries of a zip. */
 const HEAD_BYTES = 8192;
@@ -51,6 +54,29 @@ export interface FileChanges {
 }
 
 const INVALID_UPLOAD = 'is not a valid upload';
+
+/** A file a host stored itself (`AdminFiles.register`). */
+export interface RegisterFileInput {
+  /** A resource's name, or `page:<name>` for a settings page. */
+  resource: string;
+  /** A file or image field of it. */
+  field: string;
+  /** The record the file belongs to (any value for a settings page). */
+  recordId: RecordId;
+  body: Readable | Buffer;
+  /** The file's name, as an uploader's `X-File-Name` would be (cleaned the same way). */
+  name: string;
+  /** Default: the field's `file.visibility`. */
+  visibility?: 'public' | 'private';
+}
+
+/** A file a record no longer holds (`AdminFiles.release`). */
+export interface ReleaseFileInput {
+  resource: string;
+  field: string;
+  recordId: RecordId;
+  key: string;
+}
 const NOT_FOUND = 'File not found';
 
 /** Uploads, the files of records, downloads and cleanup (spec §8.2). */
@@ -120,6 +146,9 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
   }
+
+  /** Objects of files registered or released inside a host's transaction, deleted when it ends one way or the other. */
+  private readonly transactions = new TransactionFiles((error) => this.logger.warn(`files: could not finish a registered file after its transaction (${message(error)})`));
 
   private readonly ownerCache = new WeakMap<RegisteredResource | RegisteredPage, FileOwner>();
 
@@ -426,6 +455,103 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
+   * A file the host stored itself, recorded as an `attached` file of a record's file or image field: checked like an
+   * upload (sniffed type against `accept`, `maxBytes`), stored under a key in the usual format, and its row written
+   * with `manager` (inside the caller's transaction when `nma_file` shares its DataSource) or at once. When that
+   * transaction rolls back, the object goes (and a row written outside it). The caller stores the returned key.
+   */
+  async register(input: RegisterFileInput, manager?: EntityManager): Promise<AdminFile> {
+    const files = this.options.files;
+    if (!files) throw new Error('nest-my-admin: AdminFiles needs `files` in AdminModule.forRoot() (a storage, and ADMIN_FILE_ENTITIES in the DataSource)');
+    const { owner, recordId } = this.hostTarget(input);
+    const config = owner.fieldConfig.get(input.field);
+    if (config?.widget !== 'file' && config?.widget !== 'image') throw new Error(`nest-my-admin: AdminFiles.register: ${owner.name}.${input.field} is not a file or image field`);
+    const limit = config.file?.maxBytes ?? files.maxBytes;
+    const accept = config.file?.accept ?? (config.widget === 'image' ? ['image/*'] : ['*/*']);
+    const bytes = await readAll(input.body, limit);
+    if (bytes === undefined) throw new AdminValidationError({ [input.field]: [`is larger than the ${limit} byte limit`] });
+    const type = sniff(bytes.subarray(0, HEAD_BYTES));
+    if (type === undefined || !accepts(type, accept)) throw new AdminValidationError({ [input.field]: ['is not an accepted file type'] });
+
+    const now = new Date();
+    const key = `${owner.keyPrefix}/${input.field}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}${extensionOf(type)}`;
+    const row = {
+      id: randomUUID(),
+      key,
+      name: cleanName(encodeURIComponent(input.name), extensionOf(type)),
+      contentType: type,
+      size: bytes.length,
+      visibility: input.visibility ?? config.file?.visibility ?? 'private',
+      status: 'attached' as const,
+      resource: owner.name,
+      field: input.field,
+      recordId,
+      createdBy: null,
+      createdAt: now,
+    };
+    await this.storage.put(key, Readable.from([bytes]), { contentType: type, size: bytes.length });
+    const shared = manager !== undefined && manager.connection === this.db;
+    try {
+      await (shared ? manager : this.db.manager).getRepository(NmaFile).insert(row);
+    } catch (error) {
+      await this.storage.delete(key).catch(() => undefined);
+      throw error;
+    }
+    if (manager) {
+      this.transactions.add(manager, {
+        rolledBack: async () => {
+          if (!shared) await this.db.getRepository(NmaFile).delete({ id: row.id });
+          await this.storage.delete(key);
+        },
+      });
+    }
+    return markAdminFile({ key, name: row.name, contentType: type, size: row.size, url: this.url(row), isNew: true });
+  }
+
+  /**
+   * A key the record no longer holds: its row goes (with `manager`, inside the caller's transaction when it can) and
+   * the object after commit (at once without a transaction). A key that is not this record's file in this field is
+   * left alone.
+   */
+  async releaseHeld(input: ReleaseFileInput, manager?: EntityManager): Promise<void> {
+    if (!this.options.files) throw new Error('nest-my-admin: AdminFiles needs `files` in AdminModule.forRoot() (a storage, and ADMIN_FILE_ENTITIES in the DataSource)');
+    const { owner, recordId } = this.hostTarget(input);
+    const shared = manager !== undefined && manager.connection === this.db;
+    const where = { key: input.key, resource: owner.name, field: input.field, recordId, status: 'attached' as const };
+    const repo = (shared ? manager : this.db.manager).getRepository(NmaFile);
+    if (!shared && manager && manager.queryRunner?.isTransactionActive) {
+      // The row is on another DataSource: it goes once the caller's transaction committed, with the object.
+      if ((await repo.countBy(where)) === 0) return;
+      this.transactions.add(manager, { committed: async () => this.deleteHeld(this.db.manager, where) });
+      return;
+    }
+    const found = await repo.findOneBy(where);
+    if (!found) return;
+    await repo.delete({ id: found.id });
+    const removeObject = () => this.storage.delete(found.key);
+    if (!(manager && this.transactions.add(manager, { committed: removeObject }))) await removeObject();
+  }
+
+  private async deleteHeld(manager: EntityManager, where: { key: string; resource: string; field: string; recordId: string; status: 'attached' }): Promise<void> {
+    const repo = manager.getRepository(NmaFile);
+    const found = await repo.findOneBy(where);
+    if (!found) return;
+    await repo.delete({ id: found.id });
+    await this.storage.delete(found.key);
+  }
+
+  /** The owner and `nma_file.recordId` a host names; unknown owners and fields are programming errors. */
+  private hostTarget(input: { resource: string; field: string; recordId: RecordId }): { owner: FileOwner; recordId: string } {
+    if (!this.ready) throw new Error('nest-my-admin: AdminFiles answers once the application has started (after onApplicationBootstrap)');
+    const owner = this.findOwner(input.resource);
+    if (!owner) throw new Error(`nest-my-admin: AdminFiles: unknown resource "${input.resource}"`);
+    if (!owner.hasField(input.field)) throw new Error(`nest-my-admin: AdminFiles: unknown field "${input.field}" of ${owner.name}`);
+    const id = input.recordId;
+    const recordId = owner.name.startsWith(PAGE_OWNER_PREFIX) ? owner.recordId({}) : typeof id === 'object' ? owner.recordId(id) : encodeRecordId([id]);
+    return { owner, recordId };
+  }
+
+  /**
    * `POST /api/uploads?resource=&field=` (`resource` is a resource's name, or `page:<name>`): the body is the raw file. The type is sniffed from its first bytes and checked
    * against the field's `accept` before anything is written; the object is streamed to storage under a byte limit.
    */
@@ -526,6 +652,23 @@ export class FilesService implements OnApplicationBootstrap, OnModuleDestroy {
 }
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** The bytes of a host's file, or undefined past `limit`. */
+async function readAll(body: Readable | Buffer, limit: number): Promise<Buffer | undefined> {
+  if (Buffer.isBuffer(body)) return body.length > limit ? undefined : body;
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of body) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    total += buffer.length;
+    if (total > limit) {
+      body.destroy();
+      return undefined;
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
+}
 
 /** Who an upload belongs to, as `nma_file.createdBy` stores it. */
 const userIdOf = (ctx: AdminContext): string | null => (ctx.user ? String(ctx.user.id).slice(0, 100) : null);

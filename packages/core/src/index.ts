@@ -31,6 +31,7 @@ export { ADMIN_AUDIT_ENTITIES, NmaAuditEntry, type AuditMeta } from './audit/ent
 export type { AuditChange } from './audit/diff.js';
 export type { AdminFile } from './files/admin-file.js';
 export { AdminFiles, type AdminPublicFile, type AdminPublicFileBody } from './files/admin-files.service.js';
+export type { RegisterFileInput, ReleaseFileInput } from './files/files.service.js';
 export { localStorage, type AdminStorage, type LocalStorageOptions } from './files/storage.js';
 export { s3Storage, type S3StorageOptions } from './files/s3-storage.js';
 export { accepts, sniff } from './files/sniff.js';
