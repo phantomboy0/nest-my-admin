@@ -108,6 +108,16 @@ export function mergeFieldConfig(sources: Array<Function | undefined>, resourceF
   return merged;
 }
 
+/**
+ * A primary key named `id` without a label of its own gets the built-in one: its humanized name ("Id") as before,
+ * and "شناسه" in Persian.
+ */
+export function withIdLabel(fields: FieldSchema[], config: Map<string, FieldConfig>): Map<string, FieldConfig> {
+  const id = fields.find((field) => field.name === 'id' && field.primary);
+  if (id && config.get('id')?.label === undefined) config.set('id', { ...config.get('id'), label: { en: id.label, fa: 'شناسه' } });
+  return config;
+}
+
 /** Widgets a `secret` field can use: anything else would show, upload or format its value. */
 const SECRET_WIDGETS: readonly WidgetName[] = ['text', 'password'];
 

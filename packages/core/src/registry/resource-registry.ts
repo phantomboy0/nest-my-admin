@@ -14,7 +14,7 @@ import { buildResourceSchema } from '../schema/build-resource-schema.js';
 import { getAdminFieldOptions } from '../decorators/admin-field.js';
 import { nestedProtected, protectedInside, protectedOption, type ProtectedInside } from '../schema/dto-form.js';
 import { dtoPropertyNames } from '../schema/dto-fields.js';
-import { mergeFieldConfig, type FieldConfig } from '../schema/field-config.js';
+import { mergeFieldConfig, withIdLabel, type FieldConfig } from '../schema/field-config.js';
 import { operatorsFor } from '../schema/filter-operators.js';
 import { relationFields, type RelationLike } from '../schema/relation-fields.js';
 import { compileTitle, type TitleFn } from '../schema/titles.js';
@@ -293,9 +293,9 @@ export class ResourceRegistry implements OnModuleInit {
       sortPaths: new Map(),
       label: definition.label ?? schema.label,
       relatedFieldLabels: [],
-      fieldConfig: mergeFieldConfig(
-        [definition.entity, resource.form?.create, resource.form?.update ?? resource.form?.create],
-        resource.fields as Record<string, FieldConfig | undefined>,
+      fieldConfig: withIdLabel(
+        schema.fields,
+        mergeFieldConfig([definition.entity, resource.form?.create, resource.form?.update ?? resource.form?.create], resource.fields as Record<string, FieldConfig | undefined>),
       ),
       actions,
       order,

@@ -59,6 +59,12 @@ describe('labels per language (Review Focus 1, 3)', () => {
     expect((await get('/admin/api/meta/resources/customer', 'en')).body.label).toBe('Customers');
   });
 
+  test('a primary key named id has a built-in Persian label', async () => {
+    const label = async (language: string) => (await get('/admin/api/meta/resources/customer', language)).body.fields.find((field: { name: string }) => field.name === 'id').label;
+    expect(await label('fa')).toBe('شناسه');
+    expect(await label('en')).toBe('Id');
+  });
+
   test('the page carries locales and branding', async () => {
     const html = (await get('/admin/')).text;
     expect(html).toContain('"title":"Shop","locale":"en","locales":["en","fa"],"branding":{"primaryColor":"#0f766e","radius":"0.25rem"}');
