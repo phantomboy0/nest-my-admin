@@ -780,6 +780,9 @@ export interface AuditResponse {
 export type LocalizedLabel = string | Record<string, string>;
 
 /** Host branding (spec §9.5). Colours and lengths are validated by core before they reach the page. */
+/** A status colour of the design (badges, computed cells, stat changes). */
+export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'primary';
+
 export interface BrandingConfig {
   name?: LocalizedLabel;
   logo?: string;

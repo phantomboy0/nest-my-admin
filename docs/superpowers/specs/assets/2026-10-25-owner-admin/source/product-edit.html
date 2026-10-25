@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="utf-8">
+<title>ویرایش محصول</title>
+<script src="f9dca952-f977-41f9-886b-a9b4e20e9e94"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("ffac1af1-3b72-4a99-aadb-8b44d7c5c981") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("725a49af-2185-42a9-ac27-ef5cdc7961c7") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("ffac1af1-3b72-4a99-aadb-8b44d7c5c981") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("725a49af-2185-42a9-ac27-ef5cdc7961c7") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("ffac1af1-3b72-4a99-aadb-8b44d7c5c981") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("725a49af-2185-42a9-ac27-ef5cdc7961c7") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("ffac1af1-3b72-4a99-aadb-8b44d7c5c981") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("725a49af-2185-42a9-ac27-ef5cdc7961c7") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>
+body{margin:0}
+.app *{box-sizing:border-box}
+.th-light{--bg:#fafafa;--card:#ffffff;--fg:#0a0a0a;--muted:#f4f4f5;--mfg:#686868;--border:#e8e8e8;--input:#e0e0e0;--ok:#15803d;--okbg:#e7f6ec;--warn:#975a00;--warnbg:#fcf1d8;--bad:#c11f1f;--badbg:#fde8e8;--info:#3c42b0;--infobg:#eceefc;--pfg:#ffffff;--acc-text:var(--primary);--soft:color-mix(in oklab,var(--primary) 8%,transparent);--shadow:0 1px 2px rgba(0,0,0,.04);--overlay:rgba(10,10,10,.42)}
+.th-dark{--bg:#0a0a0a;--card:#151515;--fg:#f4f4f4;--muted:#222222;--mfg:#a3a3a3;--border:#ffffff1a;--input:#ffffff24;--ok:#4ade80;--okbg:#22c55e1f;--warn:#fbbf24;--warnbg:#f59e0b1f;--bad:#f87171;--badbg:#ef44441f;--info:#a5b4fc;--infobg:#6366f124;--pfg:#ffffff;--acc-text:color-mix(in oklab,var(--primary) 50%,white);--soft:color-mix(in oklab,var(--primary) 20%,transparent);--shadow:none;--overlay:rgba(0,0,0,.6)}
+.app{direction:rtl;font-family:Vazirmatn,Tahoma,system-ui,sans-serif;background:var(--bg);color:var(--fg);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.app h1,.app h2,.app h3,.app p{margin:0}
+.app a{color:var(--acc-text);text-decoration:none}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.mut{color:var(--mfg)}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--input);background:var(--card);color:var(--fg);font:inherit;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--muted)}
+.btn-p{background:var(--primary);border-color:var(--primary);color:var(--pfg)}
+.btn-p:hover{background:var(--primary);opacity:.92}
+.btn-dd{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn-dd:hover{background:var(--bad);opacity:.92}
+.btn-g{background:transparent;border-color:transparent}
+.btn-i{width:36px;padding:0}
+.btn-sm{height:32px;padding:0 10px;font-size:12.5px}
+.badge{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;line-height:1}
+.b-ok{background:var(--okbg);color:var(--ok)}.b-warn{background:var(--warnbg);color:var(--warn)}.b-bad{background:var(--badbg);color:var(--bad)}.b-info{background:var(--infobg);color:var(--info)}.b-mut{background:var(--muted);color:var(--mfg)}
+.inp{height:36px;width:100%;border:1px solid var(--input);border-radius:8px;background:var(--card);color:var(--fg);font:inherit;font-size:13px;padding:0 12px}
+.inp:focus{outline:3px solid var(--soft);border-color:var(--primary)}
+.inp-sm{height:32px;padding:0 8px;font-size:12.5px}
+textarea.inp{height:auto;padding:8px 12px;resize:vertical;line-height:1.7}
+.fld{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lbl{font-size:13px;font-weight:500}
+.hint{font-size:12px;color:var(--mfg)}
+.affix{display:flex;align-items:stretch;border:1px solid var(--input);border-radius:8px;background:var(--card);overflow:hidden}
+.affix input{border:0;outline:0;flex:1;min-width:0;background:transparent;font:inherit;font-size:13px;color:var(--fg);padding:0 12px;height:34px}
+.affix span{display:flex;align-items:center;padding:0 10px;background:var(--muted);color:var(--mfg);font-size:12.5px;border-inline-start:1px solid var(--input)}
+.sel{display:flex;align-items:center;justify-content:space-between;gap:8px;height:36px;width:100%;border:1px solid var(--input);border-radius:8px;background:var(--card);color:var(--fg);font:inherit;font-size:13px;padding:0 12px;cursor:pointer}
+.sw{width:36px;height:20px;border-radius:999px;background:var(--input);position:relative;border:0;padding:0;cursor:pointer;flex-shrink:0;display:inline-block}
+.sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.sw.on{background:var(--primary)}.sw.on::after{right:18px}
+.sec{scroll-margin-top:110px}
+.sh{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border)}
+.sh h2{font-size:15px;font-weight:600}
+.sb-body{padding:20px;display:flex;flex-direction:column;gap:16px}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:16px}
+.g3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:16px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:right;font-weight:500;color:var(--mfg);padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12.5px;background:color-mix(in oklab,var(--muted) 50%,transparent)}
+.tbl td{padding:6px 10px;border-bottom:1px solid var(--border);white-space:nowrap;vertical-align:middle}
+.tbl tr.mod td{background:var(--soft)}
+.anchor{display:inline-flex;align-items:center;gap:6px;height:40px;padding:0 12px;border-bottom:2px solid transparent;margin-bottom:-1px;color:var(--mfg)!important;font-size:13px;white-space:nowrap}
+.anchor.on{color:var(--fg)!important;border-bottom-color:var(--fg);font-weight:600}
+.anchor .badge{height:18px;padding:0 6px;font-size:11px}
+.tile{display:flex;flex-direction:column;gap:8px}
+.img{position:relative;aspect-ratio:1;border-radius:10px;background:var(--muted);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--mfg)}
+.grip{position:absolute;top:6px;right:6px;width:28px;height:28px;border-radius:6px;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:grab;color:var(--mfg)}
+.tmenu{position:absolute;top:6px;left:6px;width:28px;height:28px;border-radius:6px;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--fg);padding:0;cursor:pointer}
+.sb{width:256px;flex:0 0 256px;background:var(--card);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:100vh}
+.sb-item{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:8px;color:var(--fg)!important;font-size:13.5px;border:0;background:transparent;font-family:inherit;width:100%;cursor:pointer;text-align:right}
+.sb-item:hover{background:var(--muted)}
+.sb-subs{margin:2px 18px 4px 0;padding-right:10px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:1px}
+.sb-sub{display:flex;align-items:center;height:32px;padding:0 10px;border-radius:7px;color:var(--mfg)!important;font-size:13px}
+.sb-sub.on{background:var(--soft);color:var(--acc-text)!important;font-weight:600}
+.cnt{margin-inline-start:auto;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--muted);color:var(--mfg);font-size:11px;display:inline-flex;align-items:center;justify-content:center}
+.kbd{font-family:ui-monospace,monospace;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:1px 5px;background:var(--muted);color:var(--mfg);direction:ltr}
+.mono{font-family:ui-monospace,monospace;direction:ltr;unicode-bidi:isolate}
+.tl{display:flex;gap:14px;position:relative;padding-bottom:18px}
+.tl:last-child{padding-bottom:0}
+.tl-dot{width:10px;height:10px;border-radius:50%;background:var(--card);border:2px solid var(--mfg);margin-top:6px;flex-shrink:0;position:relative;z-index:1}
+.tl-line{position:absolute;top:18px;bottom:0;right:4px;width:2px;background:var(--border)}
+.tl:last-child .tl-line{display:none}
+.mob-only{display:none!important}
+@media (max-width:768px){.sb{display:none}.mob-only{display:inline-flex!important}.hide-sm{display:none!important}.pg{padding:16px!important}}
+</style>
+</helmet>
+<div class="app {{theme}}" style="--primary: {{accent}}; min-height: 100vh; display: flex; flex-wrap: wrap">
+
+<aside class="sb">
+<div style="display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 56px; border-bottom: 1px solid var(--border)">
+<div style="width: 30px; height: 30px; border-radius: 8px; background: var(--primary); color: var(--pfg); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">ف</div>
+<div style="line-height: 1.3"><div style="font-weight: 600; font-size: 14px">[نام فروشگاه]</div><div class="mut" style="font-size: 11.5px">پنل مدیریت</div></div>
+</div>
+<nav aria-label="منوی اصلی" style="flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 2px">
+<a class="sb-item" href="Main.dc.html"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>داشبورد</a>
+<button class="sb-item" aria-expanded="false"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"></circle><circle cx="19" cy="21" r="1"></circle><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path></svg>فروش<span class="cnt">۱۸</span><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+<button class="sb-item" aria-expanded="true"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><path d="m3.3 7 7.7 4.7a2 2 0 0 0 2 0L20.7 7"></path></svg>محصولات<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div class="sb-subs"><a class="sb-sub on" href="Products.dc.html">محصولات</a><a class="sb-sub" href="#">دسته‌بندی‌ها</a><a class="sb-sub" href="#">برندها</a><a class="sb-sub" href="#">ویژگی‌ها</a><a class="sb-sub" href="#">موجودی<span class="cnt">۵</span></a></div>
+<button class="sb-item" aria-expanded="false"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>مشتری‌ها<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+<button class="sb-item" aria-expanded="false"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>پشتیبانی<span class="cnt" style="background: var(--primary); color: var(--pfg)">۵</span><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+<button class="sb-item" aria-expanded="false"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>محتوا<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+<a class="sb-item" href="#"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 7h-9"></path><path d="M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>تنظیمات</a>
+</nav>
+<div style="padding: 10px; border-top: 1px solid var(--border)">
+<button class="sb-item" aria-expanded="false" style="color: var(--mfg)!important"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14a9 3 0 0 0 18 0V5"></path><path d="M3 12a9 3 0 0 0 18 0"></path></svg>پیشرفته<svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+</div>
+</aside>
+
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--card)">
+<button class="btn btn-g btn-i mob-only" aria-label="باز کردن منو"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>
+<button class="btn btn-g btn-i hide-sm" aria-label="جمع کردن منو"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M15 3v18"></path></svg></button>
+<nav aria-label="مسیر" style="display: flex; align-items: center; gap: 6px; font-size: 13.5px; min-width: 0"><span class="mut hide-sm">محصولات</span><svg class="i mut hide-sm" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg><button sc-camel-on-click="{{tryLeave}}" style="border: 0; background: none; font: inherit; color: var(--mfg); padding: 0; cursor: pointer">محصولات</button><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg><span style="font-weight: 500; white-space: nowrap">کتانی رانینگ آرس</span></nav>
+<div style="margin-inline-start: auto; display: flex; gap: 6px; align-items: center">
+<button class="btn hide-sm" style="width: 220px; justify-content: flex-start; color: var(--mfg); font-weight: 400"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>جستجو…<span class="kbd" style="margin-inline-start: auto">⌘K</span></button>
+<button class="btn btn-g btn-i" aria-label="اعلان‌ها"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></button>
+</div>
+</header>
+
+<main class="pg" style="padding: 24px 28px 28px; display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 1320px; margin: 0 auto">
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px">
+<button class="btn btn-i" aria-label="بازگشت به فهرست محصولات" sc-camel-on-click="{{tryLeave}}"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></button>
+<div style="width: 48px; height: 48px; border-radius: 10px; background: var(--muted); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; color: var(--mfg)" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 20px; height: 20px"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg></div>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><h1 style="font-size: 20px; font-weight: 700">کتانی رانینگ آرس</h1><span class="badge b-mut">پیش‌نویس</span></div>
+<p class="mut" style="font-size: 12.5px"><span class="mono">ARS-RN-001</span> · آخرین ویرایش ۱۲ دقیقه پیش توسط [نام کاربر]</p>
+</div>
+<div style="margin-inline-start: auto; display: flex; gap: 8px; flex-wrap: wrap">
+<button class="btn"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>پیش‌نمایش</button>
+<button class="btn"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="14" height="14" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>کپی</button>
+<button class="btn btn-i" aria-label="کارهای بیشتر"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+<button class="btn btn-p"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>انتشار</button>
+</div>
+</div>
+
+<nav aria-label="بخش‌های محصول" style="position: sticky; top: 0; z-index: 3; background: var(--bg); display: flex; gap: 2px; border-bottom: 1px solid var(--border); overflow-x: auto">
+<a class="anchor on" href="#basic" aria-current="true">اطلاعات اصلی</a>
+<a class="anchor" href="#price">قیمت و موجودی</a>
+<a class="anchor" href="#images">تصاویر<span class="badge b-mut">۵</span></a>
+<a class="anchor" href="#variants">تنوع‌ها<span class="badge b-mut">۱۲</span></a>
+<a class="anchor" href="#attrs">ویژگی‌ها<span class="badge b-mut">۵</span></a>
+<a class="anchor" href="#qa">پرسش‌ها<span class="badge b-warn">۱ بی‌پاسخ</span></a>
+<a class="anchor" href="#files">فایل‌ها<span class="badge b-mut">۲</span></a>
+<a class="anchor" href="#history">تاریخچه</a>
+</nav>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+<div style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<section id="basic" class="card sec">
+<div class="sh"><h2>اطلاعات اصلی</h2></div>
+<div class="sb-body">
+<div class="fld"><label class="lbl" for="name">نام محصول</label><input id="name" class="inp" sc-camel-default-value="کتانی رانینگ آرس" sc-camel-on-input="{{markDirty}}"></div>
+<div class="fld"><label class="lbl" for="slug">نامک (آدرس)</label><div class="affix" style="direction: ltr"><span style="border-inline-start: 0; border-inline-end: 1px solid var(--input)" class="mono">/product/</span><input id="slug" class="mono" sc-camel-default-value="ars-running-shoe" sc-camel-on-input="{{markDirty}}"></div></div>
+<div class="g2">
+<div class="fld"><span class="lbl">دسته‌بندی</span><button class="sel">کفش ورزشی<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+<div class="fld"><span class="lbl">برند</span><button class="sel">آرس<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+</div>
+<div class="fld"><label class="lbl" for="short">توضیح کوتاه</label><textarea id="short" class="inp" rows="2" sc-camel-on-input="{{markDirty}}" sc-camel-default-value="کتانی سبک با رویه مش تنفسی و زیره EVA، مناسب دویدن روزانه و پیاده‌روی."></textarea><span class="hint">در فهرست محصولات و نتایج جستجو دیده می‌شود.</span></div>
+<div class="fld"><label class="lbl" for="desc">توضیحات کامل</label>
+<div style="border: 1px solid var(--input); border-radius: 8px; overflow: hidden">
+<div style="display: flex; gap: 2px; padding: 4px; border-bottom: 1px solid var(--border); background: color-mix(in oklab, var(--muted) 50%, transparent)">
+<button class="btn btn-g btn-i btn-sm" aria-label="پررنگ" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"></path></svg></button>
+<button class="btn btn-g btn-i btn-sm" aria-label="مورب" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M19 4h-9"></path><path d="M14 20H5"></path><path d="M15 4 9 20"></path></svg></button>
+<button class="btn btn-g btn-i btn-sm" aria-label="فهرست" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 6h.01"></path><path d="M3 12h.01"></path><path d="M3 18h.01"></path><path d="M8 6h13"></path><path d="M8 12h13"></path><path d="M8 18h13"></path></svg></button>
+<button class="btn btn-g btn-i btn-sm" aria-label="پیوند" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></button>
+</div>
+<textarea id="desc" rows="5" sc-camel-on-input="{{markDirty}}" style="width: 100%; border: 0; outline: 0; resize: vertical; padding: 10px 12px; font: inherit; font-size: 13px; line-height: 1.8; background: var(--card); color: var(--fg); display: block" sc-camel-default-value="[توضیحات کامل محصول: جنس، کاربرد، راهنمای نگهداری]"></textarea>
+</div>
+</div>
+</div>
+</section>
+
+<section id="price" class="card sec">
+<div class="sh"><h2>قیمت و موجودی</h2></div>
+<div class="sb-body">
+<div class="g3">
+<div class="fld"><label class="lbl" for="p1">قیمت</label><div class="affix"><input id="p1" sc-camel-default-value="۳٬۲۵۰٬۰۰۰" sc-camel-on-input="{{markDirty}}"><span>تومان</span></div></div>
+<div class="fld"><label class="lbl" for="p2">قیمت فروش ویژه</label><div class="affix" style="border-color: var(--primary); box-shadow: 0 0 0 3px var(--soft)"><input id="p2" sc-camel-default-value="۲٬۸۹۰٬۰۰۰" sc-camel-on-input="{{markDirty}}"><span>تومان</span></div><span class="hint">۱۱٪ تخفیف</span></div>
+<div class="fld"><span class="lbl">بازه فروش ویژه</span><button class="sel"><span style="display: inline-flex; align-items: center; gap: 8px"><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h18"></path></svg>۱۴۰۵/۰۸/۰۱ تا ۱۴۰۵/۰۸/۱۵</span></button></div>
+</div>
+<div style="height: 1px; background: var(--border)"></div>
+<div class="g3">
+<div class="fld"><label class="lbl" for="sku">SKU پایه</label><input id="sku" class="inp mono" sc-camel-default-value="ARS-RN-001" sc-camel-on-input="{{markDirty}}" style="text-align: left"></div>
+<div class="fld"><span class="lbl">موجودی کل</span><div class="inp" style="display: flex; align-items: center; background: var(--muted); color: var(--mfg)">۴۲ عدد</div><span class="hint">جمع موجودی ۱۲ تنوع</span></div>
+<div class="fld"><label class="lbl" for="low">هشدار رو به اتمام</label><div class="affix"><input id="low" sc-camel-default-value="۵" sc-camel-on-input="{{markDirty}}"><span>عدد</span></div></div>
+</div>
+<div style="display: flex; align-items: center; gap: 12px"><button class="sw on" role="switch" aria-checked="true" aria-label="مدیریت موجودی در سطح تنوع"></button><div style="line-height: 1.45"><div style="font-size: 13px; font-weight: 500">مدیریت موجودی در سطح تنوع</div><div class="hint">موجودی و قیمت هر تنوع جداگانه در بخش «تنوع‌ها» تنظیم می‌شود.</div></div></div>
+</div>
+</section>
+
+<section id="images" class="card sec">
+<div class="sh"><h2>تصاویر</h2><span class="hint">برای تغییر ترتیب بکشید · اولین تصویر، تصویر اصلی است</span><button class="btn btn-sm" style="margin-inline-start: auto"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg>بارگذاری</button></div>
+<div class="sb-body">
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px">
+<div class="tile">
+<div class="img" style="border: 2px solid var(--primary)"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 28px; height: 28px; stroke-width: 1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>
+<span class="grip" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></span>
+<button class="tmenu" aria-label="گزینه‌های تصویر ۱"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+<span class="badge" style="position: absolute; bottom: 8px; right: 8px; background: var(--primary); color: var(--pfg)"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 12px; height: 12px; fill: currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>تصویر اصلی</span>
+</div>
+<input class="inp inp-sm" aria-label="متن جایگزین تصویر ۱" sc-camel-default-value="کتانی آرس مشکی، نمای کنار" sc-camel-on-input="{{markDirty}}">
+</div>
+<div class="tile">
+<div class="img"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 28px; height: 28px; stroke-width: 1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>
+<span class="grip" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></span>
+<button class="tmenu" aria-label="گزینه‌های تصویر ۲"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+</div>
+<input class="inp inp-sm" aria-label="متن جایگزین تصویر ۲" sc-camel-default-value="کتانی آرس مشکی، نمای بالا" sc-camel-on-input="{{markDirty}}">
+</div>
+<div class="tile">
+<div class="img" style="background: transparent; border: 2px dashed var(--primary)"><span class="hint" style="color: var(--acc-text)">رها کنید</span></div>
+<div style="height: 32px"></div>
+</div>
+<div class="tile" style="transform: rotate(-2deg) translateY(-6px)">
+<div class="img" style="box-shadow: 0 16px 32px rgba(0,0,0,.18); background: var(--card)"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 28px; height: 28px; stroke-width: 1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>
+<span class="grip" aria-hidden="true" style="cursor: grabbing; color: var(--fg)"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></span>
+</div>
+<input class="inp inp-sm" aria-label="متن جایگزین تصویر ۳" sc-camel-default-value="زیره EVA" sc-camel-on-input="{{markDirty}}">
+</div>
+<div class="tile">
+<div class="img"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 28px; height: 28px; stroke-width: 1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>
+<span class="grip" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></span>
+<button class="tmenu" aria-label="گزینه‌های تصویر ۴"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+</div>
+<input class="inp inp-sm" aria-label="متن جایگزین تصویر ۴" placeholder="متن جایگزین را بنویسید" sc-camel-on-input="{{markDirty}}" style="border-color: var(--warn)">
+</div>
+<div class="tile">
+<div class="img"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 28px; height: 28px; stroke-width: 1.5"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>
+<span class="grip" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></span>
+<button class="tmenu" aria-label="گزینه‌های تصویر ۵"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+</div>
+<input class="inp inp-sm" aria-label="متن جایگزین تصویر ۵" sc-camel-default-value="کتانی آرس سفید" sc-camel-on-input="{{markDirty}}">
+</div>
+<button class="img" style="border: 1.5px dashed var(--input); background: transparent; font: inherit; cursor: pointer; flex-direction: column; gap: 6px; padding: 8px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 22px; height: 22px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg><span style="font-size: 12.5px; font-weight: 500; color: var(--fg)">افزودن تصویر</span><span class="hint" style="font-size: 11px">JPG / PNG / WEBP</span></button>
+</div>
+<p class="hint" style="display: flex; align-items: center; gap: 6px; color: var(--warn)"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>یک تصویر متن جایگزین ندارد.</p>
+</div>
+</section>
+
+<section id="variants" class="card sec" style="overflow: hidden">
+<div class="sh" style="flex-wrap: wrap"><h2>تنوع‌ها</h2><span class="badge b-mut">۱۲</span><span class="hint">رنگ × سایز</span>
+<div style="margin-inline-start: auto; display: flex; gap: 8px"><button class="btn btn-sm">ساخت خودکار از ویژگی‌ها</button><button class="btn btn-sm"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>افزودن تنوع</button></div></div>
+<div style="overflow-x: auto">
+<sc-raw-table class="tbl">
+<sc-raw-thead><sc-raw-tr><sc-raw-th style="width: 28px"></sc-raw-th><sc-raw-th>رنگ</sc-raw-th><sc-raw-th>سایز</sc-raw-th><sc-raw-th>SKU</sc-raw-th><sc-raw-th style="min-width: 150px">قیمت (تومان)</sc-raw-th><sc-raw-th style="min-width: 90px">موجودی</sc-raw-th><sc-raw-th>فعال</sc-raw-th><sc-raw-th style="width: 40px"></sc-raw-th></sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-raw-tr><sc-raw-td class="mut" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></sc-raw-td><sc-raw-td><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 50%; background: #111; border: 1px solid var(--border)"></span>مشکی</span></sc-raw-td><sc-raw-td>۴۱</sc-raw-td><sc-raw-td class="mono mut" style="font-size: 12px">ARS-RN-001-B41</sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="قیمت مشکی ۴۱" sc-camel-default-value="۲٬۸۹۰٬۰۰۰" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="موجودی مشکی ۴۱" sc-camel-default-value="۶" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><button class="sw on" role="switch" aria-checked="true" aria-label="فعال مشکی ۴۱"></button></sc-raw-td><sc-raw-td><button class="btn btn-g btn-i btn-sm" aria-label="حذف تنوع" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></button></sc-raw-td></sc-raw-tr>
+<sc-raw-tr><sc-raw-td class="mut" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></sc-raw-td><sc-raw-td><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 50%; background: #111; border: 1px solid var(--border)"></span>مشکی</span></sc-raw-td><sc-raw-td>۴۲</sc-raw-td><sc-raw-td class="mono mut" style="font-size: 12px">ARS-RN-001-B42</sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="قیمت مشکی ۴۲" sc-camel-default-value="۲٬۸۹۰٬۰۰۰" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="موجودی مشکی ۴۲" sc-camel-default-value="۸" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><button class="sw on" role="switch" aria-checked="true" aria-label="فعال مشکی ۴۲"></button></sc-raw-td><sc-raw-td><button class="btn btn-g btn-i btn-sm" aria-label="حذف تنوع" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></button></sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="mod"><sc-raw-td aria-hidden="true"><span style="display: block; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); margin: auto"></span></sc-raw-td><sc-raw-td><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 50%; background: #111; border: 1px solid var(--border)"></span>مشکی</span></sc-raw-td><sc-raw-td>۴۳</sc-raw-td><sc-raw-td class="mono mut" style="font-size: 12px">ARS-RN-001-B43</sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="قیمت مشکی ۴۳" sc-camel-default-value="۲٬۷۵۰٬۰۰۰" sc-camel-on-input="{{markDirty}}" style="border-color: var(--primary)"></sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="موجودی مشکی ۴۳" sc-camel-default-value="۵" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><button class="sw on" role="switch" aria-checked="true" aria-label="فعال مشکی ۴۳"></button></sc-raw-td><sc-raw-td><button class="btn btn-g btn-i btn-sm" aria-label="بازگردانی تغییر" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg></button></sc-raw-td></sc-raw-tr>
+<sc-raw-tr><sc-raw-td class="mut" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></sc-raw-td><sc-raw-td><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 1px solid var(--input)"></span>سفید</span></sc-raw-td><sc-raw-td>۴۲</sc-raw-td><sc-raw-td class="mono mut" style="font-size: 12px">ARS-RN-001-W42</sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="قیمت سفید ۴۲" sc-camel-default-value="۲٬۸۹۰٬۰۰۰" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="موجودی سفید ۴۲" sc-camel-default-value="۴" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><button class="sw on" role="switch" aria-checked="true" aria-label="فعال سفید ۴۲"></button></sc-raw-td><sc-raw-td><button class="btn btn-g btn-i btn-sm" aria-label="حذف تنوع" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></button></sc-raw-td></sc-raw-tr>
+<sc-raw-tr><sc-raw-td class="mut" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24" style="width: 14px; height: 14px"><circle cx="9" cy="12" r="1"></circle><circle cx="9" cy="5" r="1"></circle><circle cx="9" cy="19" r="1"></circle><circle cx="15" cy="12" r="1"></circle><circle cx="15" cy="5" r="1"></circle><circle cx="15" cy="19" r="1"></circle></svg></sc-raw-td><sc-raw-td><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 1px solid var(--input)"></span>سفید</span></sc-raw-td><sc-raw-td>۴۴</sc-raw-td><sc-raw-td class="mono mut" style="font-size: 12px">ARS-RN-001-W44</sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="قیمت سفید ۴۴" sc-camel-default-value="۲٬۸۹۰٬۰۰۰" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><div style="display: flex; align-items: center; gap: 6px"><input class="inp inp-sm" aria-label="موجودی سفید ۴۴" sc-camel-default-value="۲" sc-camel-on-input="{{markDirty}}" style="border-color: var(--warn)"><svg class="i" sc-camel-view-box="0 0 24 24" role="img" aria-label="رو به اتمام" style="width: 14px; height: 14px; color: var(--warn)"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></div></sc-raw-td><sc-raw-td><button class="sw on" role="switch" aria-checked="true" aria-label="فعال سفید ۴۴"></button></sc-raw-td><sc-raw-td><button class="btn btn-g btn-i btn-sm" aria-label="حذف تنوع" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></button></sc-raw-td></sc-raw-tr>
+<sc-raw-tr class="mod"><sc-raw-td aria-hidden="true"><span class="badge b-info" style="height: 18px; padding: 0 5px; font-size: 10.5px">جدید</span></sc-raw-td><sc-raw-td><button class="sel" style="height: 32px; font-size: 12.5px; padding: 0 8px; min-width: 96px">انتخاب رنگ<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m6 9 6 6 6-6"></path></svg></button></sc-raw-td><sc-raw-td><button class="sel" style="height: 32px; font-size: 12.5px; padding: 0 8px; min-width: 72px">سایز<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m6 9 6 6 6-6"></path></svg></button></sc-raw-td><sc-raw-td class="mut" style="font-size: 12px">خودکار</sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="قیمت تنوع جدید" placeholder="۲٬۸۹۰٬۰۰۰" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><input class="inp inp-sm" aria-label="موجودی تنوع جدید" placeholder="۰" sc-camel-on-input="{{markDirty}}"></sc-raw-td><sc-raw-td><button class="sw" role="switch" aria-checked="false" aria-label="فعال تنوع جدید"></button></sc-raw-td><sc-raw-td><button class="btn btn-g btn-i btn-sm" aria-label="حذف ردیف" style="width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></sc-raw-td></sc-raw-tr>
+</sc-raw-tbody>
+</sc-raw-table>
+</div>
+<div style="padding: 10px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; font-size: 13px"><button class="btn btn-g btn-sm" style="color: var(--acc-text)">نمایش ۷ تنوع دیگر<svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m6 9 6 6 6-6"></path></svg></button><span class="mut" style="margin-inline-start: auto">۲ ردیف تغییر کرده</span></div>
+</section>
+
+<section id="attrs" class="card sec">
+<div class="sh"><h2>ویژگی‌ها</h2><span class="hint">در جدول مشخصات صفحه محصول نمایش داده می‌شود</span></div>
+<div class="sb-body" style="gap: 10px">
+<div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 36px; gap: 8px; align-items: center" class="mut"><span style="font-size: 12.5px">ویژگی</span><span style="font-size: 12.5px">مقدار</span><span></span></div>
+<div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 36px; gap: 8px; align-items: center"><button class="sel">جنس رویه<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><input class="inp" aria-label="مقدار جنس رویه" sc-camel-default-value="مش تنفسی" sc-camel-on-input="{{markDirty}}"><button class="btn btn-g btn-i" aria-label="حذف ویژگی"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 36px; gap: 8px; align-items: center"><button class="sel">جنس زیره<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><input class="inp" aria-label="مقدار جنس زیره" sc-camel-default-value="EVA" sc-camel-on-input="{{markDirty}}"><button class="btn btn-g btn-i" aria-label="حذف ویژگی"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 36px; gap: 8px; align-items: center"><button class="sel">وزن<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><div class="affix"><input aria-label="مقدار وزن" sc-camel-default-value="۲۸۰" sc-camel-on-input="{{markDirty}}"><span>گرم</span></div><button class="btn btn-g btn-i" aria-label="حذف ویژگی"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 36px; gap: 8px; align-items: center"><button class="sel">کاربرد<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><input class="inp" aria-label="مقدار کاربرد" sc-camel-default-value="دویدن روزانه، پیاده‌روی" sc-camel-on-input="{{markDirty}}"><button class="btn btn-g btn-i" aria-label="حذف ویژگی"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<div style="display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) 36px; gap: 8px; align-items: center"><button class="sel">کشور سازنده<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button><input class="inp" aria-label="مقدار کشور سازنده" placeholder="[کشور سازنده]" sc-camel-on-input="{{markDirty}}"><button class="btn btn-g btn-i" aria-label="حذف ویژگی"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button></div>
+<button class="btn btn-sm" style="align-self: flex-start"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>افزودن ویژگی</button>
+</div>
+</section>
+
+<section id="qa" class="card sec">
+<div class="sh"><h2>پرسش‌ها</h2><span class="badge b-mut">۳</span></div>
+<div style="display: flex; flex-direction: column">
+<div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-weight: 600; font-size: 13.5px">برای دویدن روی تردمیل هم مناسب است؟</span><span class="badge b-warn">بی‌پاسخ</span><span class="mut" style="font-size: 12px; margin-inline-start: auto">مهدی کاظمی · ۱۴۰۵/۰۸/۰۲</span></div>
+<label for="ans" style="position: absolute; width: 1px; height: 1px; overflow: hidden">پاسخ</label>
+<textarea id="ans" class="inp" rows="2" placeholder="پاسخ خود را بنویسید…"></textarea>
+<div style="display: flex; gap: 8px; justify-content: flex-end"><button class="btn btn-sm btn-g">پنهان کردن پرسش</button><button class="btn btn-sm btn-p">ارسال پاسخ</button></div>
+</div>
+<div style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-weight: 600; font-size: 13.5px">سایزبندی استاندارد است یا کوچک‌تر می‌زند؟</span><span class="badge b-ok">پاسخ داده شده</span><span class="mut" style="font-size: 12px; margin-inline-start: auto">نرگس امینی · ۱۴۰۵/۰۷/۳۰</span></div>
+<p class="mut" style="font-size: 13px; padding-right: 12px; border-right: 2px solid var(--border)">سایزبندی استاندارد است؛ اگر پای پهن دارید یک سایز بزرگ‌تر انتخاب کنید.</p>
+</div>
+<div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-weight: 600; font-size: 13.5px">رنگ سرمه‌ای هم موجود می‌شود؟</span><span class="badge b-mut">پنهان</span><span class="mut" style="font-size: 12px; margin-inline-start: auto">کاربر مهمان · ۱۴۰۵/۰۷/۲۹</span></div>
+</div>
+</div>
+</section>
+
+<section id="files" class="card sec">
+<div class="sh"><h2>فایل‌ها</h2><span class="hint">قابل دانلود برای مشتری در صفحه محصول</span></div>
+<div style="display: flex; flex-direction: column">
+<div style="display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border)"><div style="width: 36px; height: 36px; border-radius: 8px; background: var(--muted); display: flex; align-items: center; justify-content: center"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path></svg></div><div style="flex: 1; line-height: 1.45"><div style="font-size: 13.5px; font-weight: 500">راهنمای سایز</div><div class="mut" style="font-size: 12px"><span class="mono">size-guide.pdf</span> · ۲۴۰ کیلوبایت</div></div><button class="btn btn-g btn-i" aria-label="حذف فایل"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></button></div>
+<div style="display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border)"><div style="width: 36px; height: 36px; border-radius: 8px; background: var(--muted); display: flex; align-items: center; justify-content: center"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path></svg></div><div style="flex: 1; line-height: 1.45"><div style="font-size: 13.5px; font-weight: 500">شرایط گارانتی</div><div class="mut" style="font-size: 12px"><span class="mono">warranty.pdf</span> · ۱۱۸ کیلوبایت</div></div><button class="btn btn-g btn-i" aria-label="حذف فایل"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></button></div>
+<div style="padding: 14px 20px"><button style="width: 100%; height: 64px; border: 1.5px dashed var(--input); border-radius: 10px; background: transparent; font: inherit; font-size: 13px; color: var(--mfg); display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m17 8-5-5-5 5"></path><path d="M12 3v12"></path></svg>فایل را اینجا رها کنید یا <span style="color: var(--acc-text); font-weight: 500">انتخاب کنید</span></button></div>
+</div>
+</section>
+
+<section id="history" class="card sec">
+<div class="sh"><h2>تاریخچه</h2></div>
+<div class="sb-body" style="gap: 0">
+<div class="tl"><span class="tl-dot" style="border-color: var(--primary)"></span><span class="tl-line"></span><div style="line-height: 1.55"><div style="font-size: 13px"><b style="font-weight: 600">[نام کاربر]</b> قیمت تنوع «مشکی ۴۳» را تغییر داد</div><div class="mut" style="font-size: 12.5px"><s>۲٬۸۹۰٬۰۰۰</s> ← ۲٬۷۵۰٬۰۰۰ تومان · ۱۴۰۵/۰۸/۰۳ ۱۰:۱۲ · ذخیره نشده</div></div></div>
+<div class="tl"><span class="tl-dot"></span><span class="tl-line"></span><div style="line-height: 1.55"><div style="font-size: 13px"><b style="font-weight: 600">رضا (انبار)</b> موجودی ۳ تنوع را به‌روز کرد</div><div class="mut" style="font-size: 12.5px">موجودی کل ۳۱ ← ۴۲ · ۱۴۰۵/۰۸/۰۲ ۱۶:۴۰</div></div></div>
+<div class="tl"><span class="tl-dot"></span><span class="tl-line"></span><div style="line-height: 1.55"><div style="font-size: 13px"><b style="font-weight: 600">[نام کاربر]</b> ۵ تصویر بارگذاری کرد</div><div class="mut" style="font-size: 12.5px">۱۴۰۵/۰۷/۲۸ ۱۲:۰۵</div></div></div>
+<div class="tl"><span class="tl-dot"></span><span class="tl-line"></span><div style="line-height: 1.55"><div style="font-size: 13px"><b style="font-weight: 600">[نام کاربر]</b> محصول را ایجاد کرد</div><div class="mut" style="font-size: 12.5px">۱۴۰۵/۰۷/۲۸ ۱۱:۴۲</div></div></div>
+</div>
+</section>
+
+<sc-if value="{{dirty}}" hint-placeholder-val="{{true}}">
+<div role="region" aria-label="ذخیره تغییرات" style="position: sticky; bottom: 16px; z-index: 4; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px 10px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.12)">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: var(--warn)"></span>
+<div style="line-height: 1.4"><div style="font-size: 13.5px; font-weight: 600">تغییرات ذخیره نشده</div><div class="mut" style="font-size: 12px">قیمت فروش ویژه، ۲ تنوع</div></div>
+<div style="margin-inline-start: auto; display: flex; gap: 8px"><button class="btn" sc-camel-on-click="{{discard}}">انصراف</button><button class="btn btn-p" sc-camel-on-click="{{save}}">ذخیره تغییرات<span class="kbd" style="background: transparent; border-color: color-mix(in oklab, var(--pfg) 40%, transparent); color: var(--pfg)">⌘S</span></button></div>
+</div>
+</sc-if>
+<sc-if value="{{saved}}" hint-placeholder-val="{{false}}">
+<div role="status" style="position: sticky; bottom: 16px; z-index: 4; align-self: center; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--fg); color: var(--card); border-radius: 10px; font-size: 13px; box-shadow: 0 12px 32px rgba(0,0,0,.18)"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>تغییرات ذخیره شد</div>
+</sc-if>
+
+</div>
+
+<aside style="flex: 1 1 280px; max-width: 100%; display: flex; flex-direction: column; gap: 16px">
+<section class="card">
+<div class="sh"><h2>وضعیت</h2></div>
+<div class="sb-body">
+<div class="fld"><span class="lbl">وضعیت انتشار</span><button class="sel"><span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--mfg)"></span>پیش‌نویس</span><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg></button></div>
+<div class="fld"><span class="lbl">زمان انتشار</span><button class="sel"><span style="display: inline-flex; align-items: center; gap: 8px"><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h18"></path></svg>بلافاصله پس از انتشار</span></button></div>
+<div style="display: flex; align-items: center; gap: 10px"><button class="sw on" role="switch" aria-checked="true" aria-label="نمایش در جستجوی فروشگاه"></button><span style="font-size: 13px">نمایش در جستجوی فروشگاه</span></div>
+<div style="display: flex; align-items: center; gap: 10px"><button class="sw" role="switch" aria-checked="false" aria-label="محصول ویژه صفحه اول"></button><span style="font-size: 13px">محصول ویژه صفحه اول</span></div>
+</div>
+</section>
+<section class="card">
+<div class="sh"><h2>اطلاعات رکورد</h2></div>
+<dl style="margin: 0; padding: 14px 20px; display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; font-size: 13px">
+<dt class="mut">شناسه</dt><dd style="margin: 0">۱۸۴۲</dd>
+<dt class="mut">ایجاد</dt><dd style="margin: 0">۱۴۰۵/۰۷/۲۸</dd>
+<dt class="mut">آخرین ویرایش</dt><dd style="margin: 0">۱۴۰۵/۰۸/۰۳ ۱۰:۱۲</dd>
+<dt class="mut">ویرایش توسط</dt><dd style="margin: 0">[نام کاربر]</dd>
+</dl>
+</section>
+<section class="card" style="padding: 16px 20px; display: flex; flex-direction: column; gap: 8px">
+<h2 style="font-size: 14px; font-weight: 600">حذف محصول</h2>
+<p class="mut" style="font-size: 12.5px">تنوع‌ها، تصاویر و پرسش‌های این محصول هم حذف می‌شوند.</p>
+<button class="btn btn-sm" style="color: var(--bad); align-self: flex-start">حذف محصول</button>
+</section>
+</aside>
+</div>
+
+</main>
+</div>
+
+<sc-if value="{{guard}}" hint-placeholder-val="{{false}}">
+<div style="position: fixed; inset: 0; z-index: 10; background: var(--overlay); display: flex; align-items: center; justify-content: center; padding: 16px">
+<div role="alertdialog" aria-labelledby="gt" aria-describedby="gd" class="card" style="width: 440px; max-width: 100%; padding: 22px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 24px 64px rgba(0,0,0,.25)">
+<h2 id="gt" style="font-size: 17px; font-weight: 700">تغییرات ذخیره نشده‌اند</h2>
+<p id="gd" class="mut" style="font-size: 13.5px">اگر از این صفحه خارج شوید، تغییر قیمت فروش ویژه و ۲ تنوع از بین می‌رود.</p>
+<div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 10px">
+<button class="btn" sc-camel-on-click="{{stay}}">ماندن در صفحه</button>
+<button class="btn" style="color: var(--bad)" sc-camel-on-click="{{leave}}">خروج بدون ذخیره</button>
+<button class="btn btn-p" sc-camel-on-click="{{saveLeave}}">ذخیره و خروج</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#5B5BD6&quot;,&quot;options&quot;:[&quot;#5B5BD6&quot;,&quot;#2563EB&quot;,&quot;#0E7490&quot;,&quot;#9333EA&quot;],&quot;section&quot;:&quot;تم&quot;},&quot;dark&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;section&quot;:&quot;تم&quot;},&quot;showGuard&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;section&quot;:&quot;حالت‌ها&quot;},&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:3300}}">
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.state || {};
+    const dirty = s.dirty ?? true;
+    const guard = s.guard ?? (this.props.showGuard ?? false);
+    return {
+      accent: this.props.accent ?? '#5B5BD6',
+      theme: (this.props.dark ?? false) ? 'th-dark' : 'th-light',
+      dirty, guard, saved: !!s.saved && !dirty,
+      markDirty: () => { if (!dirty) this.setState({ dirty: true, saved: false }); },
+      save: () => this.setState({ dirty: false, saved: true }),
+      discard: () => this.setState({ dirty: false, saved: false }),
+      tryLeave: () => { if (dirty) this.setState({ guard: true }); },
+      stay: () => this.setState({ guard: false }),
+      leave: () => this.setState({ guard: false, dirty: false }),
+      saveLeave: () => this.setState({ guard: false, dirty: false, saved: true })
+    };
+  }
+}
+</script>
+
+
+</body></html>

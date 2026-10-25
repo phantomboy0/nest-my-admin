@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="utf-8">
+<title>داشبورد — موبایل</title>
+<script src="d77d8634-c593-42e3-a34c-9af08d0ebcd2"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("8de3bfae-86ae-4f00-b7f6-9050407172f5") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("a76e5efc-c091-46ea-9f6e-be5ef6275cc8") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("8de3bfae-86ae-4f00-b7f6-9050407172f5") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("a76e5efc-c091-46ea-9f6e-be5ef6275cc8") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("8de3bfae-86ae-4f00-b7f6-9050407172f5") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("a76e5efc-c091-46ea-9f6e-be5ef6275cc8") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("8de3bfae-86ae-4f00-b7f6-9050407172f5") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("a76e5efc-c091-46ea-9f6e-be5ef6275cc8") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>
+body{margin:0}
+.app *{box-sizing:border-box}
+.th-light{--bg:#fafafa;--card:#ffffff;--fg:#0a0a0a;--muted:#f4f4f5;--mfg:#686868;--border:#e8e8e8;--input:#e0e0e0;--ok:#15803d;--okbg:#e7f6ec;--warn:#975a00;--warnbg:#fcf1d8;--bad:#c11f1f;--badbg:#fde8e8;--info:#3c42b0;--infobg:#eceefc;--pfg:#ffffff;--acc-text:var(--primary);--soft:color-mix(in oklab,var(--primary) 9%,transparent);--shadow:0 1px 2px rgba(0,0,0,.04)}
+.th-dark{--bg:#0a0a0a;--card:#151515;--fg:#f4f4f4;--muted:#222222;--mfg:#a3a3a3;--border:#ffffff1a;--input:#ffffff24;--ok:#4ade80;--okbg:#22c55e1f;--warn:#fbbf24;--warnbg:#f59e0b1f;--bad:#f87171;--badbg:#ef44441f;--info:#a5b4fc;--infobg:#6366f124;--pfg:#ffffff;--acc-text:color-mix(in oklab,var(--primary) 50%,white);--soft:color-mix(in oklab,var(--primary) 22%,transparent);--shadow:none}
+.app{direction:rtl;font-family:Vazirmatn,Tahoma,system-ui,sans-serif;background:var(--bg);color:var(--fg);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.app h1,.app h2,.app h3,.app p{margin:0}
+.app a{color:var(--acc-text);text-decoration:none}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.mut{color:var(--mfg)}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:44px;padding:0 14px;border-radius:10px;border:1px solid var(--input);background:var(--card);color:var(--fg);font:inherit;font-size:14px;font-weight:500;cursor:pointer;white-space:nowrap}
+.btn-g{background:transparent;border-color:transparent}
+.btn-i{width:44px;padding:0}
+.badge{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;line-height:1}
+.b-ok{background:var(--okbg);color:var(--ok)}.b-warn{background:var(--warnbg);color:var(--warn)}.b-bad{background:var(--badbg);color:var(--bad)}.b-info{background:var(--infobg);color:var(--info)}.b-mut{background:var(--muted);color:var(--mfg)}
+.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:var(--muted);border-radius:10px;padding:3px;gap:2px}
+.tab{height:38px;border-radius:8px;border:0;background:transparent;font:inherit;font-size:14px;color:var(--mfg)}
+.tab.on{background:var(--card);color:var(--fg);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.ch{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.ch h2{font-size:15px;font-weight:600}
+.va{margin-inline-start:auto;display:inline-flex;align-items:center;gap:2px;font-size:13px;font-weight:500;min-height:32px}
+.row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);min-height:64px;color:var(--fg)!important}
+.row:last-child{border-bottom:0}
+.bar-row{display:grid;grid-template-columns:84px minmax(0,1fr) 32px;align-items:center;gap:10px;font-size:13px}
+.track{height:10px;border-radius:999px;background:var(--muted);overflow:hidden}
+.fill{height:100%;border-radius:999px;background:var(--primary)}
+.stat{padding:14px;display:flex;flex-direction:column;gap:6px}
+.stat .v{font-size:19px;font-weight:700;line-height:1.3}
+</style>
+</helmet>
+<div class="app {{theme}}" style="--primary: {{accent}}; width: 390px; min-height: 2760px">
+
+<header style="position: sticky; top: 0; z-index: 2; height: 56px; display: flex; align-items: center; gap: 4px; padding: 0 6px; background: var(--card); border-bottom: 1px solid var(--border)">
+<button class="btn btn-g btn-i" aria-label="باز کردن منو"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>
+<span style="font-size: 16px; font-weight: 600">داشبورد</span>
+<div style="margin-inline-start: auto; display: flex">
+<button class="btn btn-g btn-i" aria-label="جستجو"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></button>
+<button class="btn btn-g btn-i" aria-label="اعلان‌ها" style="position: relative"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg><span style="position: absolute; top: 11px; left: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); border: 2px solid var(--card)"></span></button>
+</div>
+</header>
+
+<main style="padding: 16px; display: flex; flex-direction: column; gap: 14px">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div class="tabs" role="tablist" aria-label="بازه زمانی"><button class="tab on" role="tab" aria-selected="true">امروز</button><button class="tab" role="tab" aria-selected="false">هفته</button><button class="tab" role="tab" aria-selected="false">ماه</button><button class="tab" role="tab" aria-selected="false">سال</button></div>
+<button class="btn" style="width: 100%; justify-content: flex-start"><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4"></path><path d="M8 2v4"></path><path d="M3 10h18"></path></svg>۱۴۰۵/۰۸/۰۳<span class="mut" style="margin-inline-start: auto; font-size: 13px; font-weight: 400">تغییر بازه</span></button>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div class="card stat"><span class="mut" style="font-size: 12.5px">فروش امروز</span><span class="v">۴۸٬۶۵۰٬۰۰۰</span><span style="display: flex; align-items: center; gap: 6px; font-size: 12px"><span class="badge b-bad"><svg class="i" sc-camel-view-box="0 0 24 24" role="img" aria-label="کاهش" style="width: 12px; height: 12px; transform: scaleX(-1)"><path d="M22 17 13.5 8.5 8.5 13.5 2 7"></path><path d="M16 17h6v-6"></path></svg>۱۳٫۱٪</span><span class="mut">تومان</span></span></div>
+<div class="card stat"><span class="mut" style="font-size: 12.5px">سفارش‌های پرداخت‌شده</span><span class="v">۳۷</span><span style="display: flex; align-items: center; gap: 6px; font-size: 12px"><span class="badge b-bad"><svg class="i" sc-camel-view-box="0 0 24 24" role="img" aria-label="کاهش" style="width: 12px; height: 12px; transform: scaleX(-1)"><path d="M22 17 13.5 8.5 8.5 13.5 2 7"></path><path d="M16 17h6v-6"></path></svg>۱۴٪</span></span></div>
+<div class="card stat"><span class="mut" style="font-size: 12.5px">مشتری جدید</span><span class="v">۱۴</span><span style="display: flex; align-items: center; gap: 6px; font-size: 12px"><span class="badge b-ok"><svg class="i" sc-camel-view-box="0 0 24 24" role="img" aria-label="افزایش" style="width: 12px; height: 12px; transform: scaleX(-1)"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"></path><path d="M16 7h6v6"></path></svg>۱۶٪</span></span></div>
+<div class="card stat"><span class="mut" style="font-size: 12.5px">میانگین سبد</span><span class="v">۱٬۳۱۴٬۸۶۵</span><span style="display: flex; align-items: center; gap: 6px; font-size: 12px"><span class="badge b-ok"><svg class="i" sc-camel-view-box="0 0 24 24" role="img" aria-label="افزایش" style="width: 12px; height: 12px; transform: scaleX(-1)"><path d="M22 7 13.5 15.5 8.5 10.5 2 17"></path><path d="M16 7h6v6"></path></svg>۱٫۲٪</span><span class="mut">تومان</span></span></div>
+</div>
+<p class="mut" style="font-size: 12px; margin-top: -4px">تغییرات نسبت به دیروز</p>
+
+<section class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px"><h2 style="font-size: 15px; font-weight: 600">نمودار فروش ۳۰ روز اخیر</h2><p class="mut" style="font-size: 12.5px">مجموع ۱٬۴۴۴ میلیون تومان</p></div>
+<div style="height: 150px">
+<svg sc-camel-view-box="0 0 600 200" sc-camel-preserve-aspect-ratio="none" role="img" aria-label="نمودار خطی فروش روزانه" style="width: 100%; height: 100%; display: block">
+<g style="stroke: var(--border)"><path d="M0 56H600" vector-effect="non-scaling-stroke"></path><path d="M0 128H600" vector-effect="non-scaling-stroke"></path><path d="M0 200H600" vector-effect="non-scaling-stroke"></path></g>
+<path d="M600 135.2 L579.3 120.8 L558.6 128 L537.9 110 L517.2 88.4 L496.6 102.8 L475.9 142.4 L455.2 131.6 L434.5 113.6 L413.8 99.2 L393.1 84.8 L372.4 74 L351.7 95.6 L331 124.4 L310.3 117.2 L289.7 106.4 L269 92 L248.3 63.2 L227.6 77.6 L206.9 102.8 L186.2 113.6 L165.5 95.6 L144.8 81.2 L124.1 66.8 L103.4 56 L82.8 84.8 L62.1 99.2 L41.4 88.4 L20.7 70.4 L0 95.6 L0 200 L600 200 Z" style="fill: var(--soft); stroke: none"></path>
+<path d="M600 135.2 L579.3 120.8 L558.6 128 L537.9 110 L517.2 88.4 L496.6 102.8 L475.9 142.4 L455.2 131.6 L434.5 113.6 L413.8 99.2 L393.1 84.8 L372.4 74 L351.7 95.6 L331 124.4 L310.3 117.2 L289.7 106.4 L269 92 L248.3 63.2 L227.6 77.6 L206.9 102.8 L186.2 113.6 L165.5 95.6 L144.8 81.2 L124.1 66.8 L103.4 56 L82.8 84.8 L62.1 99.2 L41.4 88.4 L20.7 70.4 L0 95.6" vector-effect="non-scaling-stroke" style="fill: none; stroke: var(--primary); stroke-width: 2; stroke-linejoin: round"></path>
+</svg>
+</div>
+<div class="mut" style="display: flex; justify-content: space-between; font-size: 11.5px" aria-hidden="true"><span>۴ مهر</span><span>۱۸ مهر</span><span>۳ آبان</span></div>
+</section>
+
+<section class="card" style="padding: 16px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 2px"><h2 style="font-size: 15px; font-weight: 600">سفارش‌ها بر اساس مرحله ارسال</h2><p class="mut" style="font-size: 12.5px">۲۵۹ سفارش در ۳۰ روز اخیر</p></div>
+<div class="bar-row"><span>در صف</span><div class="track"><div class="fill" style="width: 14%"></div></div><span class="mut" style="text-align: left">۱۸</span></div>
+<div class="bar-row"><span>تأیید شده</span><div class="track"><div class="fill" style="width: 19%"></div></div><span class="mut" style="text-align: left">۲۴</span></div>
+<div class="bar-row"><span>آماده‌سازی</span><div class="track"><div class="fill" style="width: 24%"></div></div><span class="mut" style="text-align: left">۳۱</span></div>
+<div class="bar-row"><span>آماده ارسال</span><div class="track"><div class="fill" style="width: 9%"></div></div><span class="mut" style="text-align: left">۱۲</span></div>
+<div class="bar-row"><span>تحویل پست</span><div class="track"><div class="fill" style="width: 36%"></div></div><span class="mut" style="text-align: left">۴۶</span></div>
+<div class="bar-row"><span>تحویل شده</span><div class="track"><div class="fill" style="width: 100%"></div></div><span class="mut" style="text-align: left">۱۲۸</span></div>
+</section>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<section class="card" style="padding: 14px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center">
+<div style="position: relative; width: 84px; height: 84px">
+<svg sc-camel-view-box="0 0 100 100" role="img" aria-label="۷۲ درصد" style="width: 84px; height: 84px; transform: rotate(-90deg)"><circle cx="50" cy="50" r="42" style="fill: none; stroke: var(--muted); stroke-width: 10"></circle><circle cx="50" cy="50" r="42" style="fill: none; stroke: var(--primary); stroke-width: 10; stroke-linecap: round; stroke-dasharray: 190 264"></circle></svg>
+<span style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 17px">۷۲٪</span>
+</div>
+<h2 style="font-size: 13px; font-weight: 600">هدف فروش ماه</h2>
+</section>
+<section class="card" style="padding: 14px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--ok)"></span><span style="font-weight: 600; font-size: 14px">CRM متصل</span></div>
+<p class="mut" style="font-size: 12px">آخرین همگام‌سازی ۲ دقیقه پیش</p>
+<a href="#" style="font-size: 13px; font-weight: 500; margin-top: auto; min-height: 32px; display: flex; align-items: center">جزئیات</a>
+</section>
+</div>
+
+<section class="card" style="overflow: hidden">
+<div class="ch"><h2>آخرین سفارش‌ها</h2><a class="va" href="#">مشاهده همه<svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></a></div>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 600; font-size: 14px">#۱۰۴۲۸ · سارا محمدی</div><div class="mut" style="font-size: 12.5px">۳٬۶۶۸٬۰۰۰ تومان · ۱۰ دقیقه پیش</div></div><span class="badge b-info">آماده‌سازی</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 600; font-size: 14px">#۱۰۴۲۷ · علی رضایی</div><div class="mut" style="font-size: 12.5px">۱٬۴۸۰٬۰۰۰ تومان · ۲۴ دقیقه پیش</div></div><span class="badge b-mut">در صف</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 600; font-size: 14px">#۱۰۴۲۶ · مریم کریمی</div><div class="mut" style="font-size: 12.5px">۵٬۲۳۰٬۰۰۰ تومان · ۴۱ دقیقه پیش</div></div><span class="badge b-info">تأیید شده</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 600; font-size: 14px">#۱۰۴۲۵ · حسین احمدی</div><div class="mut" style="font-size: 12.5px">۹۶۰٬۰۰۰ تومان · ۱ ساعت پیش</div></div><span class="badge b-warn">آماده ارسال</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 600; font-size: 14px">#۱۰۴۲۴ · نگار حسینی</div><div class="mut" style="font-size: 12.5px">۲٬۷۵۰٬۰۰۰ تومان · ۲ ساعت پیش</div></div><span class="badge b-info">تحویل پست</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 600; font-size: 14px">#۱۰۴۲۳ · رضا موسوی</div><div class="mut" style="font-size: 12.5px">۴۲۰٬۰۰۰ تومان · ۳ ساعت پیش</div></div><span class="badge b-ok">تحویل شده</span></a>
+</section>
+
+<section class="card" style="overflow: hidden">
+<div class="ch"><h2>تیکت‌های منتظر پاسخ</h2><span class="badge b-mut">۵</span><a class="va" href="#">مشاهده همه<svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></a></div>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">تأخیر در ارسال سفارش #۱۰۳۹۸</div><div class="mut" style="font-size: 12.5px">فاطمه نوری · ۵ ساعت</div></div><span class="badge b-bad">فوری</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">درخواست تعویض سایز</div><div class="mut" style="font-size: 12.5px">امیر صادقی · ۳ ساعت</div></div><span class="badge b-warn">متوسط</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">کد تخفیف اعمال نمی‌شود</div><div class="mut" style="font-size: 12.5px">زهرا قاسمی · ۲ ساعت</div></div><span class="badge b-mut">عادی</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">سؤال درباره گارانتی ساعت</div><div class="mut" style="font-size: 12.5px">محمد جعفری · ۴۵ دقیقه</div></div><span class="badge b-mut">عادی</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">درخواست مرجوعی کالا</div><div class="mut" style="font-size: 12.5px">لیلا رحیمی · ۲۰ دقیقه</div></div><span class="badge b-warn">متوسط</span></a>
+</section>
+
+<section class="card" style="overflow: hidden">
+<div class="ch"><h2>کالاهای رو به اتمام</h2><span class="badge b-mut">۵</span><a class="va" href="#">مشاهده همه<svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></a></div>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">ساعت هوشمند فیت‌لاین</div><div class="mut" style="font-size: 12px; direction: ltr; text-align: right; font-family: ui-monospace, monospace">SW-FTL-200</div></div><span class="badge b-warn">۳ عدد</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">هودی پنبه‌ای بیسیک <span class="mut" style="font-weight: 400">· مشکی، L</span></div><div class="mut" style="font-size: 12px; direction: ltr; text-align: right; font-family: ui-monospace, monospace">HD-BSC-014-BL</div></div><span class="badge b-warn">۶ عدد</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">کتانی رانینگ آرس <span class="mut" style="font-weight: 400">· سفید، ۴۴</span></div><div class="mut" style="font-size: 12px; direction: ltr; text-align: right; font-family: ui-monospace, monospace">ARS-RN-001-W44</div></div><span class="badge b-warn">۲ عدد</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">کوله‌پشتی شهری ۲۲ لیتری</div><div class="mut" style="font-size: 12px; direction: ltr; text-align: right; font-family: ui-monospace, monospace">BP-URB-022</div></div><span class="badge b-bad">ناموجود</span></a>
+<a class="row" href="#"><div style="flex: 1; min-width: 0; line-height: 1.5"><div style="font-weight: 500; font-size: 14px">قمقمه استیل ۷۵۰ میلی‌لیتر</div><div class="mut" style="font-size: 12px; direction: ltr; text-align: right; font-family: ui-monospace, monospace">BT-STL-750</div></div><span class="badge b-bad">ناموجود</span></a>
+</section>
+
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#5B5BD6&quot;,&quot;options&quot;:[&quot;#5B5BD6&quot;,&quot;#2563EB&quot;,&quot;#0E7490&quot;,&quot;#9333EA&quot;],&quot;section&quot;:&quot;تم&quot;},&quot;dark&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;section&quot;:&quot;تم&quot;},&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:2760}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      accent: this.props.accent ?? '#5B5BD6',
+      theme: (this.props.dark ?? false) ? 'th-dark' : 'th-light'
+    };
+  }
+}
+</script>
+
+
+</body></html>
