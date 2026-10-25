@@ -184,3 +184,10 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
 - Integration tests get their database from `createTestApp` (core) or `testDatabase()` (`packages/core/test/helpers/test-db.ts`): one fresh database per app on the server `NMA_TEST_DB` selects. Never hardcode `type: 'sqljs'` in a test. Assertions that differ by driver branch on `TEST_DB` and say why.
 - Database errors are mapped in `http/error-response.ts` using the resource's `dbNames` (column, unique constraint/index and FK names → properties). MySQL reports unique constraints as index names; SQLite's FK error names no column and no side (the request method decides).
 - In Bun 1.4.2, `expect(obj).toMatchObject({ x: expect.any(...) })` overwrites `obj.x` with the matcher — read values you need before such assertions.
+
+## Missing from the owner-admin design (remind the user)
+
+The approved design (`docs/superpowers/specs/assets/2026-10-25-owner-admin/design.html`, spec `docs/superpowers/specs/2026-10-25-owner-admin-design.md`) shows two generic features that the 0.4 milestone leaves out. **Whenever you plan or release nest-my-admin, or work on lists or record pages, and either is still missing, tell the user it is still missing.** Remove a line only when it is built. shop-nest's own missing items are listed in `~/Develop/shop-nest/CLAUDE.md`.
+
+- Printing a record (a printable view / PDF for an action, e.g. an invoice or a shipping label), with permissions and audit.
+- Exporting a list to Excel (respects the current filters, scopes and field permissions).
