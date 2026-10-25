@@ -24,10 +24,15 @@ describe('branding', () => {
       '--ring': '#0f766e',
       '--sidebar-primary': '#0f766e',
       '--sidebar-primary-foreground': 'oklch(0.985 0 0)',
-      '--radius': '0.25rem',
+      '--nma-radius-control': '0.25rem',
+      '--nma-radius-card': 'calc(0.25rem * 1.5)',
     });
     expect(brandingVariables({ primaryColor: '#fde047' })['--primary-foreground']).toBe('oklch(0.145 0 0)');
     expect(brandingVariables({ primaryColor: 'oklch(0.9 0.1 90)', primaryForeground: '#111' })['--primary-foreground']).toBe('#111');
     expect(brandingVariables({})).toEqual({});
+  });
+
+  test('the radius scales controls and cards together (8px : 12px by default)', () => {
+    expect(brandingVariables({ radius: '6px' })).toEqual({ '--nma-radius-control': '6px', '--nma-radius-card': 'calc(6px * 1.5)' });
   });
 });

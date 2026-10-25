@@ -1,4 +1,3 @@
-import '@fontsource-variable/geist';
 import '@fontsource-variable/vazirmatn';
 import './styles/globals.css';
 import { StrictMode } from 'react';

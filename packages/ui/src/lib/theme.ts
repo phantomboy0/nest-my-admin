@@ -85,7 +85,8 @@ export function brandingVariables(branding: BrandingConfig): Record<string, stri
       '--sidebar-primary-foreground': text,
     });
   }
-  if (branding.radius) vars['--radius'] = branding.radius;
+  // Controls (inputs, buttons) and cards keep the design's 8:12 ratio whatever radius the host picks.
+  if (branding.radius) Object.assign(vars, { '--nma-radius-control': branding.radius, '--nma-radius-card': `calc(${branding.radius} * 1.5)` });
   return vars;
 }
 
