@@ -1,0 +1,13 @@
+{
+  "dashboard-light": { "designId": "dashboard-light", "viewport": { "width": 1440, "height": 1640 }, "theme": "light", "route": "/" },
+  "dashboard-dark": { "designId": "dashboard-dark", "viewport": { "width": 1440, "height": 1640 }, "theme": "dark", "route": "/" },
+  "dashboard-phone": { "designId": "dashboard-phone", "viewport": { "width": 390, "height": 2760 }, "theme": "light", "route": "/" },
+  "sidebar-expanded": { "designId": "sidebar", "viewport": { "width": 1660, "height": 940 }, "theme": "light", "route": "/", "crop": { "x": 1300, "y": 0, "width": 360, "height": 940 } },
+  "sidebar-collapsed": { "designId": "sidebar", "viewport": { "width": 1660, "height": 940 }, "theme": "light", "route": "/", "crop": { "x": 1050, "y": 0, "width": 260, "height": 940 }, "setup": [{ "click": "[data-sidebar-toggle]" }, { "hover": "[data-nav-section]" }] },
+  "palette": { "designId": "sidebar", "viewport": { "width": 1660, "height": 940 }, "theme": "light", "route": "/", "crop": { "x": 540, "y": 0, "width": 620, "height": 940 }, "setup": [{ "press": "Meta+K" }] },
+  "phone-drawer": { "designId": "sidebar", "viewport": { "width": 1660, "height": 940 }, "theme": "light", "route": "/", "crop": { "x": 0, "y": 0, "width": 460, "height": 940 }, "setup": [{ "viewport": { "width": 390, "height": 844 } }, { "click": "[data-sidebar-toggle]" }] },
+  "products-desktop": { "designId": "products-desktop", "viewport": { "width": 1440, "height": 1120 }, "theme": "light", "route": "/product" },
+  "products-phone": { "designId": "products-phone", "viewport": { "width": 880, "height": 844 }, "theme": "light", "route": "/product", "setup": [{ "viewport": { "width": 390, "height": 844 } }] },
+  "product-edit": { "designId": "product-edit", "viewport": { "width": 1440, "height": 3300 }, "theme": "light", "route": "/product/1" },
+  "order-detail": { "designId": "order-detail", "viewport": { "width": 1440, "height": 1700 }, "theme": "light", "route": "/order/1" }
+}

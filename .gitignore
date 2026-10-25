@@ -11,3 +11,4 @@ var/
 packages/*/LICENSE
 packages/core/README.md
 packages/nest-my-admin/README.md
+/design-compare/
