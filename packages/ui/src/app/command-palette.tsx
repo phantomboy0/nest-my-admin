@@ -1,12 +1,15 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Search } from 'lucide-react';
+import { Moon, Plus, Search } from 'lucide-react';
 import { Dialog } from 'radix-ui';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { api } from '@/lib/api';
 import { matches, navigationItems, type PaletteItem } from '@/lib/palette';
+import { flipTheme } from '@/lib/theme';
+import { iconFor } from '@/lib/icons';
+import { navGroups } from '@/lib/menu';
 import { useMeta, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -51,23 +54,30 @@ export function CommandPalette() {
   const searching = term.length >= 2 && (meta.data?.groups.some((group) => group.resources.some((resource) => resource.searchable)) ?? false);
   const records = useQuery({ queryKey: ['search', term], queryFn: () => api.search(term), enabled: open && searching, staleTime: 10_000 });
 
-  const navigation = meta.data ? navigationItems(meta.data, query, (name) => t('palette.new', { name })) : [];
+  // A record's icon is its resource's, else its section's.
+  const iconOf = (resource: string) => {
+    const group = meta.data ? navGroups(meta.data).find((candidate) => candidate.resources.some((entry) => entry.name === resource)) : undefined;
+    return group?.resources.find((entry) => entry.name === resource)?.icon ?? group?.icon;
+  };
+  const navigation = meta.data ? navigationItems(meta.data, query, (name) => t('palette.new', { name }), [{ id: 'theme', label: t('palette.toggleTheme') }]) : [];
+  // The design's order: records, actions, then places to go.
   const items: PaletteItem[] = [
-    ...navigation.filter((item) => item.section === 'go'),
-    // The audit page (also the way to it in an admin without sign-in, which has no user menu).
-    ...(session.data?.audit.view && matches(t('audit.title'), query) ? [{ id: 'audit', section: 'go' as const, label: t('audit.title'), to: '/-/audit' }] : []),
-    ...navigation.filter((item) => item.section !== 'go'),
     ...(searching && query.trim() === term
       ? (records.data?.groups ?? []).flatMap((group) =>
           group.items.map((item) => ({
             id: `record:${group.resource}:${item._id}`,
             section: 'records' as const,
+            ...(iconOf(group.resource) ? { icon: iconOf(group.resource) } : {}),
             label: item._title,
             detail: group.label,
             to: `/${group.resource}/${encodeURIComponent(item._id)}`,
           })),
         )
       : []),
+    ...navigation.filter((item) => item.section === 'actions'),
+    ...navigation.filter((item) => item.section === 'go'),
+    // The audit page (also the way to it in an admin without sign-in, which has no user menu).
+    ...(session.data?.audit.view && matches(t('audit.title'), query) ? [{ id: 'audit', section: 'go' as const, label: t('audit.title'), to: '/-/audit' }] : []),
   ];
   const current = Math.min(active, Math.max(0, items.length - 1));
 
@@ -79,7 +89,8 @@ export function CommandPalette() {
   function go(item: PaletteItem | undefined) {
     if (!item) return;
     setOpen(false);
-    navigate(item.to);
+    if (item.to) navigate(item.to);
+    else if (item.id === 'theme') flipTheme();
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -94,9 +105,9 @@ export function CommandPalette() {
   }
 
   const sections: Array<[PaletteItem['section'], string]> = [
-    ['go', t('palette.goTo')],
-    ['create', t('palette.create')],
     ['records', t('palette.records')],
+    ['actions', t('palette.actions')],
+    ['go', t('palette.goTo')],
   ];
   const optionId = (index: number) => `${listId}-${index}`;
   const status = searching && (records.isFetching || query.trim() !== term) ? t('palette.searching') : items.length === 0 ? t('palette.noResults') : '';
@@ -157,12 +168,14 @@ export function CommandPalette() {
                         role="option"
                         aria-selected={index === current}
                         data-index={index}
-                        className={cn('flex h-10 cursor-pointer items-center justify-between gap-3 rounded-control px-2.5 text-[13.5px]', index === current && 'bg-muted')}
+                        className={cn('flex h-10 cursor-pointer items-center gap-3 rounded-control px-2.5 text-[13.5px]', index === current && 'bg-muted')}
                         onMouseMove={() => setActive(index)}
                         onClick={() => go(item)}
                       >
-                        <span className="truncate">{item.label}</span>
-                        {item.detail && <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>}
+                        <PaletteIcon item={item} />
+                        {/* Places read «Section › Item», as in the design; records keep their resource at the end. */}
+                        <span className="flex-1 truncate">{item.section === 'go' && item.detail ? `${item.detail} › ${item.label}` : item.label}</span>
+                        {item.section === 'records' && item.detail && <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>}
                       </li>
                     ))}
                   </ul>
@@ -182,4 +195,10 @@ export function CommandPalette() {
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+/** The design's leading icon: + for create, the moon for the theme, else the item's own (resource or section). */
+function PaletteIcon({ item }: { item: PaletteItem }) {
+  const Icon = item.id.startsWith('new:') ? Plus : item.id === 'theme' ? Moon : iconFor(item.icon, item.section === 'records' ? 'resource' : 'group');
+  return <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />;
 }

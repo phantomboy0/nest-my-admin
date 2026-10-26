@@ -4,10 +4,7 @@ Differences between the real admin and the approved design that are not fixed ye
 
 | Screen | What differs | Why | Task |
 |---|---|---|---|
-| sidebar-expanded | Sections come from Nest modules, not the owner's menu; no top-level «داشبورد»/«تنظیمات» links, no count pills, no «پیشرفته» section | menu content is Task 5 | 5 |
-| palette | Items have no icons; groups are "go to / create / records" instead of the design's records, actions (افزودن محصول، ساخت کد تخفیف، تغییر تم) and go-to with key hints | palette groups are Task 5 | 5 |
 | dashboard-light (top bar) | No notification bell | nest-my-admin has no notifications feature; the bell is left out (not in spec §8b yet) — ask at checkpoint A | 2b |
-| phone-drawer | Sections are expanded by default; the design shows them collapsed | collapsed-by-default comes with the menu | 5 |
 | products-desktop | Set filter chips have a small × to remove them; the design has none | removing one filter in one click (the chip row is the only place desktop shows active filters) — ask at checkpoint A | 2c |
 | products-desktop | Set chips stay in schema order; the design shows the set «دسته‌بندی» chip first | a chip that moves while set remounts and closes its popover mid-choice | 2c |
 | products-desktop | No tabs (همه/فعال/غیرفعال/ناموجود); no thumbnail, SKU line, sale price, stock badge, switch or ⋯ menu in rows; header subtitle is the count only | list tabs and computed columns | 6, 7 |
@@ -25,3 +22,5 @@ Differences between the real admin and the approved design that are not fixed ye
 | order-detail | «چاپ فاکتور»، «چاپ برچسب پستی», tracking-code field, refund button | printing, tracking code and gateway refund are out of scope (spec §8b) | — |
 | product-edit, order-detail | Save bar shows a subtitle of what changed in the design («قیمت فروش ویژه، ۲ تنوع»); ours says only «تغییرات ذخیره نشده» | the list of changed fields is not tracked per field label | 2d |
 | all fa screens | Persian digits and ٬ separators are now the fa default; existing fa screenshot baselines change (release note) | spec §4 | 3 |
+| palette | No key hints (G T, N) next to items; records show no status at the end; an empty query lists every place to go (the design shows a few) | keyboard shortcuts per item are not built | 5 |
+| sidebar-expanded | Menu content is the demo's (no مشتری‌ها/پشتیبانی); the support badge is filled primary in the design, ours are all muted | demo content; badge emphasis is not configurable | 5 |

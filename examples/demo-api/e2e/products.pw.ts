@@ -632,7 +632,7 @@ test('command palette: go to, create and find records with the keyboard (M2-4 Re
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowUp');
-  await expect(palette.getByRole('option', { name: /^Product/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(palette.getByRole('option', { name: 'Catalog › Product' })).toHaveAttribute('aria-selected', 'true'); // places read «Section › Item»
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/admin\/product$/);
 

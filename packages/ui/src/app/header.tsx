@@ -7,7 +7,8 @@ import { ThemeToggle } from '@/app/preferences';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { navStore, useNavState } from '@/lib/nav-state';
-import { useRecord } from '@/lib/queries';
+import { navGroups } from '@/lib/menu';
+import { useRecord, useSchema } from '@/lib/queries';
 
 interface Crumb {
   label: string;
@@ -23,6 +24,9 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
     .map((part) => decodeURIComponent(part));
   const recordId = first && first !== 'g' && first !== 'p' && first !== '-' && second && second !== 'new' ? second : undefined;
   const record = useRecord(first ?? '', recordId);
+  // A resource with no navigation entry (`nav: false`) is named by its own schema (already loaded by its page).
+  const resourceRoute = Boolean(first) && !['g', 'p', '-', 'account'].includes(first!);
+  const schema = useSchema(first ?? '', resourceRoute && meta !== undefined && !navGroups(meta).some((group) => group.resources.some((resource) => resource.name === first)));
   const crumbs: Crumb[] = [{ label: t('shell.home'), to: '/' }];
   if (first === 'account' && !second) return [...crumbs, { label: t('auth.account') }];
   if (first === '-' && (second === 'users' || second === 'groups' || second === 'roles' || second === 'debugger' || second === 'audit')) {
@@ -32,20 +36,26 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
     return crumbs;
   }
   if (!first || !meta) return crumbs;
+  const groups = navGroups(meta);
   if (first === 'g') {
-    const group = meta.groups.find((candidate) => candidate.key === second);
+    const group = groups.find((candidate) => candidate.key === second);
     if (group) crumbs.push({ label: group.label });
     return crumbs;
   }
   if (first === 'p') {
-    const group = meta.groups.find((candidate) => candidate.pages.some((page) => page.name === second));
+    const group = groups.find((candidate) => candidate.pages.some((page) => page.name === second));
     const page = group?.pages.find((candidate) => candidate.name === second);
     if (group && page) crumbs.push({ label: group.label, to: `/g/${group.key}` }, { label: page.label });
     return crumbs;
   }
-  const group = meta.groups.find((candidate) => candidate.resources.some((resource) => resource.name === first));
+  const group = groups.find((candidate) => candidate.resources.some((resource) => resource.name === first));
   const resource = group?.resources.find((candidate) => candidate.name === first);
-  if (!group || !resource) return crumbs;
+  if (!group || !resource) {
+    if (!schema.data) return crumbs;
+    crumbs.push({ label: schema.data.label, to: `/${first}` });
+    if (recordId) crumbs.push({ label: typeof record.data?._title === 'string' ? record.data._title : `#${recordId}` });
+    return crumbs;
+  }
   crumbs.push({ label: group.label, to: `/g/${group.key}` }, { label: resource.label, to: `/${resource.name}` });
   if (second === 'new') crumbs.push({ label: t('form.new', { name: resource.label }) });
   else if (recordId) crumbs.push({ label: typeof record.data?._title === 'string' ? record.data._title : `#${recordId}` });

@@ -10,6 +10,12 @@ import { SalesModule } from './sales/sales.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { StaffModule } from './staff/staff.module.js';
 
+/**
+ * `NMA_DEMO_PLAIN=1` starts the demo as a host that sets none of the owner-admin options (menu, …): the screenshot
+ * matrix keeps it so "a host that configures nothing new" stays pinned.
+ */
+const plain = process.env.NMA_DEMO_PLAIN === '1';
+
 @Module({
   imports: [
     // Async so DATABASE_URL is read at boot, not when this file is imported (tests set it per run).
@@ -22,6 +28,36 @@ import { StaffModule } from './staff/staff.module.js';
       branding: { primaryColor: '#0f766e' },
       // Money fields without a unit of their own (the invoice total) show this one.
       currency: { unit: { en: 'Toman', fa: 'تومان' } },
+      // The sidebar in the shop's words; employees (and anything added later) land in «Advanced».
+      ...(plain
+        ? {}
+        : {
+            menu: {
+              sections: [
+                {
+                  key: 'sales',
+                  label: { en: 'Sales', fa: 'فروش' },
+                  icon: 'shopping-cart',
+                  // Paid orders wait to be shipped.
+                  items: [{ resource: 'order', badge: { 'filter[status][eq]': 'paid' } }, { resource: 'invoice' }],
+                },
+                {
+                  key: 'products',
+                  label: { en: 'Products', fa: 'محصولات' },
+                  icon: 'package',
+                  items: [
+                    { resource: 'product', badge: { 'filter[stock][lte]': '5' } },
+                    { resource: 'category' },
+                    { resource: 'tag' },
+                    { resource: 'supplier' },
+                    { resource: 'stock-move' },
+                  ],
+                },
+                { key: 'content', label: { en: 'Content', fa: 'محتوا' }, icon: 'file-text', items: [{ resource: 'article' }, { href: 'https://example.com/', label: { en: 'Storefront', fa: 'فروشگاه' } }] },
+                { key: 'settings', label: { en: 'Settings', fa: 'تنظیمات' }, icon: 'settings', items: [{ page: 'shop' }] },
+              ],
+            },
+          }),
       // Sign in as admin / admin-demo-pass (or NMA_DEMO_PASSWORD) on a fresh database.
       // `editor` edits the catalog: products (drafts only, price read-only, no cost), categories and tags. They also
       // handle orders: they may ship them (`order.action.ship`, with `order.update`, which every action on a record

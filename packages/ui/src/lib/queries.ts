@@ -22,10 +22,13 @@ export const useMeta = () => {
   return useQuery({ queryKey: ['meta', locale], queryFn: api.meta });
 };
 
-export const useSchema = (resource: string) => {
+export const useSchema = (resource: string, enabled = true) => {
   const { locale } = useLocale();
-  return useQuery({ queryKey: ['schema', resource, locale], queryFn: () => api.schema(resource) });
+  return useQuery({ queryKey: ['schema', resource, locale], queryFn: () => api.schema(resource), enabled });
 };
+
+/** The menu's counts (spec §5.3): refreshed every minute and when the window gets focus; only with a menu. */
+export const useMenuBadges = (enabled: boolean) => useQuery({ queryKey: ['menu-badges'], queryFn: api.menuBadges, enabled, refetchInterval: 60_000, refetchOnWindowFocus: true });
 
 /** A settings page (`/api/pages/:name`): labels follow the language, so it is cached per locale too. */
 export const usePage = (name: string) => {

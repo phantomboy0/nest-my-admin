@@ -5,16 +5,17 @@ import { PageMessage } from '@/components/page-message';
 import { formatNumber, useLocale } from '@/i18n';
 import { api } from '@/lib/api';
 import { iconFor } from '@/lib/icons';
+import { navGroups } from '@/lib/menu';
 import { useMeta } from '@/lib/queries';
 
-/** A module landing page (spec §9.1): the group's resources with their record counts, and its settings pages. */
+/** A section's landing page (spec §9.1; a menu section, else a module group): its resources with their record counts, and its settings pages. */
 export function GroupPage() {
   const { t } = useLocale();
   const { group: key } = useParams();
   const meta = useMeta();
   if (meta.isPending) return <PageMessage>{t('common.loading')}</PageMessage>;
   if (meta.isError) return <PageMessage tone="error">{meta.error.message}</PageMessage>;
-  const group = meta.data.groups.find((candidate) => candidate.key === key);
+  const group = navGroups(meta.data).find((candidate) => candidate.key === key);
   if (!group) return <PageMessage>{t('common.pageNotFound')}</PageMessage>;
   return (
     <div className="flex flex-col gap-4">

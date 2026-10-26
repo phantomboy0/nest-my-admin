@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Languages, Monitor, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
-import { readTheme, saveTheme, type ThemeChoice } from '@/lib/theme';
+import { THEME_EVENT, flipTheme, readTheme, saveTheme, type ThemeChoice } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 const LANGUAGE_NAMES: Record<string, string> = { en: 'English', fa: 'فارسی' };
@@ -96,6 +96,12 @@ export function DisplayMenuItems() {
 export function ThemeToggle() {
   const { t } = useLocale();
   const [choice, setChoice] = useState<ThemeChoice>(readTheme);
+  // The palette can flip the theme too.
+  useEffect(() => {
+    const follow = () => setChoice(readTheme());
+    window.addEventListener(THEME_EVENT, follow);
+    return () => window.removeEventListener(THEME_EVENT, follow);
+  }, []);
   const dark = choice === 'dark' || (choice === 'system' && typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
   return (
     <Button
@@ -103,11 +109,7 @@ export function ThemeToggle() {
       size="icon"
       aria-label={t('shell.theme')}
       title={t('shell.theme')}
-      onClick={() => {
-        const next = dark ? 'light' : 'dark';
-        saveTheme(next);
-        setChoice(next);
-      }}
+      onClick={flipTheme}
     >
       {dark ? <Sun /> : <Moon />}
     </Button>

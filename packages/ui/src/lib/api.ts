@@ -7,6 +7,7 @@ import type {
   AuditResponse,
   BulkResult,
   ListResponse,
+  MenuBadges,
   MetaResponse,
   OptionsResponse,
   PageResponse,
@@ -93,6 +94,7 @@ export const api = {
     recoveryCodes: (password: string) => request<{ recoveryCodes: string[] }>('/account/2fa/recovery-codes', { method: 'POST', body: JSON.stringify({ password }) }),
   },
   meta: () => request<MetaResponse>('/meta'),
+  menuBadges: () => request<MenuBadges>('/menu/badges'),
   rbac: {
     catalog: () => request<RbacCatalog>('/rbac/catalog'),
     roles: () => request<{ items: RbacRole[] }>('/rbac/roles'),

@@ -29,6 +29,9 @@ export function applyTheme(choice: ThemeChoice): void {
   document.documentElement.style.colorScheme = theme;
 }
 
+/** Fired on `window` when the theme is saved, so every control showing it follows (the top bar, the palette). */
+export const THEME_EVENT = 'nma-theme';
+
 export function saveTheme(choice: ThemeChoice): void {
   try {
     localStorage.setItem(STORAGE_KEY, choice);
@@ -36,6 +39,12 @@ export function saveTheme(choice: ThemeChoice): void {
     // applied, not remembered
   }
   applyTheme(choice);
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(THEME_EVENT));
+}
+
+/** Light ↔ dark from what is shown now (a `system` choice becomes an explicit one). */
+export function flipTheme(): void {
+  saveTheme(resolveTheme(readTheme(), prefersDark()) === 'dark' ? 'light' : 'dark');
 }
 
 /** Follows the system setting while the choice is `system`. Returns the unsubscribe function. */
