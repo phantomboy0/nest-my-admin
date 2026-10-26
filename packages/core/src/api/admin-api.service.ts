@@ -57,7 +57,18 @@ export class AdminApiService {
     this.writes = new WriteRunner(options, this.logger, [filesParticipant(files), ...(audit.enabled ? [auditParticipant(audit)] : [])]);
     this.pages = new PageService({ pages, policy, options, files, writes: this.writes });
     this.actions = new ActionService({ policy, options, logger: this.logger, writes: this.writes, record: (entry, entity, ctx) => this.record(entry, entity, ctx) });
-    this.inlines = new InlineReader({ policy, serialize: (entry, entities, ctx) => this.fullRecords(entry, entities, ctx) });
+    this.inlines = new InlineReader({
+      policy,
+      serialize: (entry, entities, ctx) => this.fullRecords(entry, entities, ctx),
+      computed: async (inline, entities, records, ctx) => {
+        const child = inline.child;
+        const visible = policy.computedVisible(child, ctx);
+        const columns = inline.computed.filter((key) => visible.has(key)).map((key) => child.computed.get(key)!);
+        if (columns.length === 0) return;
+        const values = await this.computedValues(child, columns, entities, ctx);
+        for (const record of records) record._computed = values.get(String(record._id)) ?? {};
+      },
+    });
     this.inlineWriter = new InlineWriter({
       policy,
       view: (entry, ctx) => this.view(entry, ctx),
@@ -186,6 +197,14 @@ export class AdminApiService {
       }),
     );
     return Object.fromEntries(counts);
+  }
+
+  /** Computed columns of some rows of a resource, image cells as URLs. */
+  private async computedValues(entry: RegisteredResource, columns: CompiledComputed[], entities: object[], ctx: AdminContext): Promise<Map<string, Record<string, ComputedValue>>> {
+    const locale = ctx.locale ?? this.options.locale;
+    const values = await loadComputed(columns, entities, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (target, field) => this.registry.forEntity(target, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+    await this.imageUrls(entry, columns, values, ctx);
+    return values;
   }
 
   /** The menu's references are checked once every resource and settings page is registered. */
@@ -370,14 +389,10 @@ export class AdminApiService {
       }
     }
     if (Object.keys(aside).length > 0) record._aside = aside;
-    const keys = (form.header?.subtitle ?? []).flatMap((item) => ('computed' in item ? [item.computed] : []));
+    const summaries = (form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('summary' in node ? node.summary : []));
+    const keys = [...(form.header?.subtitle ?? []), ...summaries.map((row) => row.value)].flatMap((item) => ('computed' in item ? [item.computed] : []));
     const computed = keys.flatMap((key) => (entry.computed.has(key) ? [entry.computed.get(key)!] : []));
-    if (computed.length > 0) {
-      const locale = ctx.locale ?? this.options.locale;
-      const values = await loadComputed(computed, [entity], entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (target, field) => this.registry.forEntity(target, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
-      await this.imageUrls(entry, computed, values, ctx);
-      record._computed = values.get(String(record._id)) ?? {};
-    }
+    if (computed.length > 0) record._computed = (await this.computedValues(entry, [...new Set(computed)], [entity], ctx)).get(String(record._id)) ?? {};
   }
 
   /** Serializes entities with their relation values and paths (`fields`) loaded and their titles. */

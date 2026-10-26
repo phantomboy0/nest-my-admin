@@ -97,7 +97,15 @@ export class ProductAdmin extends AdminResourceBase<Product> {
       },
       { tab: { en: 'Catalog', fa: 'کاتالوگ' }, sections: [{ fields: ['categoryId', 'tags'] }] },
       // Pictures in order: the first is the list's thumbnail.
-      { section: { en: 'More pictures', fa: 'تصاویر بیشتر' }, inline: ProductMediaAdmin, display: 'table', order: 'sort', max: 12 },
+      // Cards in order; the first is the main picture (the configured demo marks it).
+      {
+        section: { en: 'More pictures', fa: 'تصاویر بیشتر' },
+        inline: ProductMediaAdmin,
+        display: 'cards',
+        order: 'sort',
+        max: 12,
+        ...(plain ? {} : { cards: { markFirst: { en: 'Main picture', fa: 'تصویر اصلی' } } }),
+      },
       // Saved with the product in one transaction; each spec is a card with the spec's own form layout.
       { section: { en: 'Specifications', fa: 'مشخصات فنی' }, inline: ProductSpecAdmin, display: 'cards', order: 'position', max: 30 },
     ],

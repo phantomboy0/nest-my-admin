@@ -34,3 +34,29 @@ test('an order opens as text with its aside cards, sends no write, and «Edit» 
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
   expect(writes).toEqual([]);
 });
+
+test('inline presentation: read-only lines with pictures and totals; picture cards mark the main one and warn about alt text (Task 10)', async ({ page }) => {
+  const res = await page.request.get('/admin/api/resources/order?search=SO-1001');
+  const order = (await res.json()).items[0];
+  await page.goto(`/admin/order/${encodeURIComponent(order._id)}`);
+  const lines = page.getByRole('region', { name: 'Lines' });
+  await expect(lines.getByRole('columnheader', { name: 'Picture' })).toBeVisible();
+  await expect(lines).toContainText('Desk lamp');
+  await expect(lines.getByRole('textbox')).toHaveCount(0); // read-only, even after «Edit»
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(lines.getByRole('textbox')).toHaveCount(0);
+  await expect(lines.getByRole('button', { name: /^Add/ })).toHaveCount(0);
+  const totals = page.getByRole('region', { name: 'Totals' });
+  await expect(totals).toContainText('Items');
+  await expect(totals).toContainText('2');
+  await expect(totals).toContainText('523.90');
+
+  const product = (await (await page.request.get('/admin/api/resources/product?search=Notebook')).json()).items[0];
+  await page.goto(`/admin/product/${encodeURIComponent(product._id)}`);
+  const pictures = page.getByRole('region', { name: 'More pictures' });
+  await pictures.getByRole('button', { name: /^Add/ }).click();
+  await expect(pictures.getByText('Main picture')).toBeVisible();
+  await expect(pictures.getByText(/No alt text/)).toBeVisible();
+  await pictures.getByRole('textbox', { name: 'Caption' }).fill('A notebook');
+  await expect(pictures.getByText(/No alt text/)).toHaveCount(0);
+});

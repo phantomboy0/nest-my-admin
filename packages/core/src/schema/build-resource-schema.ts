@@ -298,7 +298,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const writableUpdate = update.filter((name) => !readonlyNames.includes(name));
   const formReadonly = readonlyNames.filter((name) => update.includes(name) || byName.has(name));
   const layout = mainLayout(resource.form?.layout);
-  if (layout) checkLayout(layout, [...new Set([...create, ...update, ...formReadonly])], fail, { inlines: true });
+  if (layout) checkLayout(layout, [...new Set([...create, ...update, ...formReadonly])], fail, { inlines: true, summary: { fields: [...byName.keys()], computed: Object.keys(resource.list?.computed ?? {}) } });
   // Aside cards and the header read fields; relation cards are checked by the registry once every resource is known.
   const asideConfig = resource.form?.layout && !Array.isArray(resource.form.layout) ? resource.form.layout.aside : undefined;
   if (asideConfig !== undefined && !Array.isArray(asideConfig)) fail('form.layout.aside must be a list of cards');

@@ -28,3 +28,5 @@ Differences between the real admin and the approved design that are not fixed ye
 | products-phone | Cards have no SKU · category line (only SKU); the price unit sits after, as in the design, but the struck price is under it | the card shows the title's subline only | 6 |
 | order-detail | Aside holds the demo's Payment and «Handled by» cards (no customer, address, wallet); the header subtitle has no item count | the demo order has no customer/address entities | 9 |
 | order-detail | View-mode fields are a two-column label/value grid in a card; the design shows the order as the items table and totals | inline presentation and totals | 10 |
+| order-detail | Totals show items and the order total only (no subtotal, discount, shipping rows); line totals per row are not shown | the demo order has no discount/shipping fields | 10 |
+| product-edit | Picture cards are stacked cards with a caption; the design shows a grid of thumbnails with drag handles and an upload tile | a grid presentation for image inlines is not built | 10 |

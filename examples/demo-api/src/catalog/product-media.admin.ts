@@ -13,7 +13,7 @@ export class ProductMediaDto {
 export class ProductMediaAdmin extends AdminResourceBase<ProductMedia> {
   fields: FieldsConfig<ProductMedia> = {
     image: { widget: 'image', label: { en: 'Picture', fa: 'تصویر' }, file: { visibility: 'public', maxBytes: 2 * 1024 * 1024 } },
-    caption: { label: { en: 'Caption', fa: 'متن جایگزین' } },
+    caption: { label: { en: 'Caption', fa: 'متن جایگزین' }, warnIf: { empty: true, message: { en: 'No alt text: people using screen readers will not know what the picture shows.', fa: 'یک تصویر متن جایگزین ندارد.' } } },
     sort: { label: { en: 'Order', fa: 'ترتیب' } },
   };
   form: FormConfig = { create: ProductMediaDto, update: ProductMediaDto };

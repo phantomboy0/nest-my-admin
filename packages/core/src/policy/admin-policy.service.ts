@@ -2,7 +2,7 @@ import { visibleTabs } from '../crud/list-tabs.js';
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { Brackets, type EntityManager, type SelectQueryBuilder, type WhereExpressionBuilder } from 'typeorm';
 import { ADMIN_OPTIONS, ADMIN_RESOURCE_METADATA } from '../constants.js';
-import type { AdminRecord, ExplainRoleSource, FieldSchema, FormLayoutInline, FormLayoutNode, FormLayoutSection, PermissionExplanation, RecordPermissions, ResourceSchema } from '../contract.js';
+import type { AdminRecord, ExplainRoleSource, FieldSchema, FormLayoutInline, FormLayoutNode, FormLayoutSection, FormLayoutSummary, PermissionExplanation, RecordPermissions, ResourceSchema } from '../contract.js';
 import { recordIdOf } from '../crud/record-id.js';
 import type { RegisteredAction } from '../decorators/admin-action.js';
 import { getCanRules, getScopes, type RecordOperation, type ScopeCondition } from '../decorators/admin-scope.js';
@@ -346,7 +346,12 @@ export class AdminPolicy implements OnApplicationBootstrap {
    * reader then sorts by key too); a tab left without sections by that goes too.
    */
   private cutLayout(layout: FormLayoutNode[], visible: (name: string) => boolean, ctx: AdminContext): FormLayoutNode[] {
-    const cut = (node: FormLayoutSection | FormLayoutInline): FormLayoutSection | FormLayoutInline | undefined => {
+    const cut = (node: FormLayoutSection | FormLayoutInline | FormLayoutSummary): FormLayoutSection | FormLayoutInline | FormLayoutSummary | undefined => {
+      // A summary keeps the rows whose field or computed column the user may see (`visible` knows both).
+      if ('summary' in node) {
+        const rows = node.summary.filter((row) => visible('field' in row.value ? row.value.field : row.value.computed));
+        return rows.length > 0 ? { ...node, summary: rows } : undefined;
+      }
       if (!('inline' in node)) return { ...node, fields: node.fields.filter(visible) };
       const child = this.registry.find(node.inline);
       if (!child || !this.canSeeInline(child, node.link, ctx)) return undefined;
@@ -354,7 +359,13 @@ export class AdminPolicy implements OnApplicationBootstrap {
       const { order, ...rest } = node;
       // Rows sorted by a field the user cannot see would reveal its values: such an inline goes by key, unordered.
       const ordered = order !== undefined && RANK[levels.get(order) ?? 'hidden'] >= 1;
-      return { ...rest, ...(ordered ? { order } : {}), fields: node.fields.filter((name) => RANK[levels.get(name) ?? 'hidden'] >= 1) };
+      const computed = rest.computed && this.computedVisible(child, ctx, levels);
+      return {
+        ...rest,
+        ...(ordered ? { order } : {}),
+        fields: node.fields.filter((name) => RANK[levels.get(name) ?? 'hidden'] >= 1),
+        ...(rest.computed ? { computed: rest.computed.filter((key) => computed!.has(key)) } : {}),
+      };
     };
     const out: FormLayoutNode[] = [];
     for (const node of layout) {

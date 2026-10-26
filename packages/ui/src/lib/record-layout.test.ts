@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { FieldSchema, FieldType, ResourceSchema } from '@nest-my-admin/core/contract';
-import { asideValues, layoutModel } from './record-layout';
+import { asideValues, fieldWarnings, layoutModel, summaryRows } from './record-layout';
+import { setGlobalCurrency } from './money';
 import { readOnlySchema } from './view-as';
 
 const f = (name: string, type: FieldType, extra: Partial<FieldSchema> = {}): FieldSchema => ({ name, label: name, type, nullable: true, primary: false, readonly: false, persisted: true, ...extra });
@@ -47,5 +48,25 @@ describe('record layout', () => {
     expect(readOnly.form.aside).toEqual(schema.form.aside);
     expect(readOnly.form.mode).toBe('view');
     expect(layoutModel(readOnly, record, true).editable).toEqual([]);
+  });
+});
+
+describe('summaries and warnings', () => {
+  test('summary rows: labels with formatted values, money through its unit, computed columns from _computed', () => {
+    setGlobalCurrency({ unit: 'Toman', position: 'after' });
+    const money = { ...schema, fields: [...schema.fields, f('grand', 'decimal', { widget: 'money', scale: 0 })] } as ResourceSchema;
+    const node = { summary: [{ label: 'Total', value: { field: 'grand' } }, { label: 'Items', value: { computed: 'lines' } }, { label: 'Gone', value: { field: 'nope' } }] };
+    expect(summaryRows(node, money, { ...record, grand: '3668000' })).toEqual([
+      { label: 'Total', text: '3,668,000 Toman' },
+      { label: 'Items', text: '3' },
+    ]);
+    setGlobalCurrency(undefined);
+  });
+
+  test('a warnIf field warns while it is empty, and only then', () => {
+    const fields = [f('caption', 'string', { warnIf: { empty: true, message: 'No alt text' } }), f('sort', 'number')];
+    expect(fieldWarnings(fields, { caption: '', sort: '' })).toEqual({ caption: 'No alt text' });
+    expect(fieldWarnings(fields, { caption: '  ' })).toEqual({ caption: 'No alt text' });
+    expect(fieldWarnings(fields, { caption: 'A red shoe' })).toEqual({});
   });
 });

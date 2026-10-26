@@ -41,6 +41,8 @@ export interface AdminFieldOptions {
   showIf?: Record<string, ShowIfValue | ShowIfValue[]>;
   /** Shown on edit forms but never written by update. */
   readonly?: boolean;
+  /** A soft warning under the input while the field is empty (an image without alt text): it never stops a save. */
+  warnIf?: { empty: true; message: LocalizedText };
   /** The `slug` widget fills itself from this field until someone edits it. */
   slugFrom?: string;
   /** The unit shown with the `money` widget (display only): a code such as `USD`, or a unit and its position. Wins over the global `currency`. */

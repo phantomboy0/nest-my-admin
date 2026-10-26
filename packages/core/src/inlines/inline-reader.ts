@@ -11,6 +11,8 @@ export interface InlineReaderDeps {
   policy: AdminPolicy;
   /** Serializes the child's entities exactly as its own record endpoint does (fields cut, `_perm`, `_files`…). */
   serialize: (entry: RegisteredResource, entities: object[], ctx: AdminContext) => Promise<AdminRecord[]>;
+  /** Sets `_computed` on the rows for the inline's computed columns this user may see (one batch per inline). */
+  computed?: (inline: RegisteredInline, entities: object[], records: AdminRecord[], ctx: AdminContext) => Promise<void>;
 }
 
 /**
@@ -57,7 +59,14 @@ export class InlineReader {
     const truncated = found.hasMore === true || found.items.length > inline.max;
     const items = found.items.slice(0, inline.max);
     const total = truncated ? await this.children(inline, value, ctx).getCount() : items.length;
-    return { rows: await this.deps.serialize(child, items, ctx), total, truncated };
+    return { rows: await this.serialize(inline, items, ctx), total, truncated };
+  }
+
+  /** The child's records, with the inline's computed columns. */
+  private async serialize(inline: RegisteredInline, entities: object[], ctx: AdminContext): Promise<AdminRecord[]> {
+    const records = await this.deps.serialize(inline.child, entities, ctx);
+    if (inline.computed.length > 0 && entities.length > 0) await this.deps.computed?.(inline, entities, records, ctx);
+    return records;
   }
 
   /**
@@ -80,7 +89,7 @@ export class InlineReader {
     const more = found.hasMore === true || (found.total ?? 0) > found.items.length;
     const total = more || items.length > inline.max ? await this.children(inline, value, ctx).getCount() : items.length;
     const rows = items.slice(0, inline.max);
-    return { rows: await this.deps.serialize(child, rows, ctx), total, truncated: total > rows.length };
+    return { rows: await this.serialize(inline, rows, ctx), total, truncated: total > rows.length };
   }
 
   /** This parent's children as the user may view them: the child's `query()`, the user's view scopes, the link. */

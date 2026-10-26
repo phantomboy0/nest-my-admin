@@ -27,7 +27,9 @@ import { OrderLineAdmin } from './order-line.admin.js';
 /** Applies a decorator only in the configured demo (not with `NMA_DEMO_PLAIN=1`). */
 const onlyOwner = (decorator: MethodDecorator): MethodDecorator => (process.env.NMA_DEMO_PLAIN === '1' ? () => undefined : decorator);
 
-/** The order form's sections: the order, then its lines inline. */
+const plainDemo = process.env.NMA_DEMO_PLAIN === '1';
+
+/** The order form's sections: the order, then its lines inline (in the configured demo: read-only, with pictures, and totals). */
 const orderMain: LayoutConfig = [
   { section: { en: 'Order', fa: 'سفارش' }, fields: ['number', 'customer', 'total', 'tracking'], columns: 2 },
   // Saved with the order in one transaction; `position` is written 0, 1, 2… by drag and the arrows.
@@ -38,7 +40,19 @@ const orderMain: LayoutConfig = [
     fields: ['productId', 'description', 'quantity', 'unitPrice'],
     order: 'position',
     max: 50,
+    ...(plainDemo ? {} : { readonly: true, computed: ['thumb'] }),
   },
+  ...(plainDemo
+    ? []
+    : [
+        {
+          section: { en: 'Totals', fa: 'جمع' },
+          summary: [
+            { label: { en: 'Items', fa: 'اقلام' }, value: { computed: 'lineCount' } },
+            { label: { en: 'Total', fa: 'مبلغ نهایی' }, value: 'total' },
+          ],
+        },
+      ]),
 ];
 
 /** In the configured demo, beside the sections: payment and «Handled by» cards (spec §5.6). */
@@ -61,6 +75,7 @@ export class OrderAdmin extends AdminResourceBase<Order> {
     search: ['number', 'customer'],
     filters: ['status'],
     mobile: { title: 'number', subtitle: 'customer', badge: 'status', meta: ['total', 'tracking'] },
+    computed: { lineCount: { label: { en: 'items', fa: 'قلم کالا' }, kind: 'count', source: { aggregate: 'count', relation: 'lines' } } },
   };
   fields: FieldsConfig<Order> = {
     number: { label: { en: 'Number', fa: 'شماره' } },
@@ -88,7 +103,7 @@ export class OrderAdmin extends AdminResourceBase<Order> {
       ? {}
       : {
           mode: 'view' as const,
-          header: { badges: ['status'], subtitle: ['customer', 'createdAt'] },
+          header: { badges: ['status'], subtitle: ['customer', 'createdAt', { computed: 'lineCount' }] },
         }),
     layout: orderLayout,
   };

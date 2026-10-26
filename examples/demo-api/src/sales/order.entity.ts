@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { OrderLine } from './order-line.entity.js';
 import { Employee } from '../staff/employee.entity.js';
 
 export const ORDER_STATUSES = ['draft', 'paid', 'shipped', 'cancelled'] as const;
@@ -17,5 +18,6 @@ export class Order {
   /** Who handles the order (the order page's «Handled by» card links to them). */
   @Column({ type: 'int', nullable: true }) handledById: number | null;
   @ManyToOne(() => Employee, { nullable: true, onDelete: 'SET NULL' }) @JoinColumn({ name: 'handledById' }) handledBy: Employee | null;
+  @OneToMany(() => OrderLine, (line) => line.order) lines: OrderLine[];
   @CreateDateColumn() createdAt: Date;
 }

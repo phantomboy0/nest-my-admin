@@ -51,6 +51,8 @@ export interface FieldSchema {
   showIf?: Record<string, string | number | boolean | null | Array<string | number | boolean | null>>;
   /** The slug widget fills itself from this field until edited. */
   slugFrom?: string;
+  /** A soft warning shown under the input while it is empty; the save still goes through. */
+  warnIf?: { empty: true; message: string };
   /** The money widget's unit in the request's language, and where it goes (display only). */
   currency?: CurrencyDisplay;
   /** Set for `file` and `image` widgets: what may be uploaded to the field. */
@@ -123,14 +125,26 @@ export interface FormLayoutInline {
   max: number;
   /** The child's field that points at the parent (set by the server). */
   link: string;
+  /** Shown, never edited in this form (writes are refused). */
+  readonly?: true;
+  /** The child's computed columns shown in the table (`_computed` on each row), cut to what this user may see. */
+  computed?: string[];
+  /** A marker on the first card by `order` («Main picture»). */
+  markFirst?: string;
+}
+
+/** Label and value rows in a card (an order's totals): a field of the record, or one of its computed columns (`_computed`). */
+export interface FormLayoutSummary {
+  title?: string;
+  summary: Array<{ label: string; value: { field: string } | { computed: string } }>;
 }
 
 export interface FormLayoutTab {
   tab: string;
-  sections: Array<FormLayoutSection | FormLayoutInline>;
+  sections: Array<FormLayoutSection | FormLayoutInline | FormLayoutSummary>;
 }
 
-export type FormLayoutNode = FormLayoutSection | FormLayoutTab | FormLayoutInline;
+export type FormLayoutNode = FormLayoutSection | FormLayoutTab | FormLayoutInline | FormLayoutSummary;
 
 /** One inline of a record (`_inlines[child]` on `GET /resources/:parent/:id`). */
 export interface InlineRows {

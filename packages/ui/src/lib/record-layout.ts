@@ -1,4 +1,4 @@
-import type { AdminRecord, AsideCardSchema, ComputedValue, FieldSchema, FormLayoutNode, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, AsideCardSchema, ComputedValue, FieldSchema, FormLayoutNode, FormLayoutSummary, ResourceSchema } from '@nest-my-admin/core/contract';
 import { cellModel } from '@/lib/computed-cells';
 import { formatCell } from '@/lib/format';
 
@@ -7,7 +7,7 @@ export function layoutFields(schema: ResourceSchema): string[] {
   const layout = schema.form.layout;
   if (!layout) return [...new Set([...schema.form.update, ...schema.form.readonly])];
   const sections = layout.flatMap((node: FormLayoutNode) => ('tab' in node ? node.sections : [node]));
-  return sections.flatMap((node) => ('fields' in node ? node.fields : []));
+  return sections.flatMap((node) => ('fields' in node && !('inline' in node) ? node.fields : []));
 }
 
 /**
@@ -44,4 +44,33 @@ export function layoutModel(schema: ResourceSchema, record: AdminRecord | undefi
 export function asideValues(card: AsideCardSchema, index: number, record: AdminRecord | undefined): AdminRecord | undefined {
   if (!card.relation) return record;
   return (record?._aside as Record<string, AdminRecord> | undefined)?.[String(index)];
+}
+
+/** A summary card's rows (an order's totals): each label with its value formatted, rows without a value left out. */
+export function summaryRows(node: Pick<FormLayoutSummary, 'summary'>, schema: ResourceSchema, record: AdminRecord | undefined): Array<{ label: string; text: string }> {
+  const computed = (record?._computed ?? {}) as Record<string, ComputedValue>;
+  return node.summary.flatMap((row) => {
+    if ('field' in row.value) {
+      const field = schema.fields.find((candidate) => candidate.name === (row.value as { field: string }).field);
+      const value = record?.[row.value.field];
+      return field && value !== undefined && value !== null ? [{ label: row.label, text: formatCell(value, field) }] : [];
+    }
+    const column = schema.list.computed?.[row.value.computed];
+    const cell = computed[row.value.computed];
+    if (!column || !cell) return [];
+    const model = cellModel(column, cell);
+    const text = model.unit ? (model.unitPosition === 'before' ? `${model.unit} ${model.text}` : `${model.text} ${model.unit}`) : model.text;
+    return text ? [{ label: row.label, text }] : [];
+  });
+}
+
+/** Soft warnings (`warnIf`) of the fields whose value is empty: shown under the input, never blocking a save. */
+export function fieldWarnings(fields: FieldSchema[], values: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const field of fields) {
+    if (!field.warnIf || !(field.name in values)) continue;
+    const value = values[field.name];
+    if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) out[field.name] = field.warnIf.message;
+  }
+  return out;
 }

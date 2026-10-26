@@ -1,4 +1,4 @@
-import type { FieldSchema, FieldType, FormLayoutInline, FormLayoutNode, FormLayoutSection } from '../contract.js';
+import type { FieldSchema, FieldType, FormLayoutInline, FormLayoutNode, FormLayoutSection, FormLayoutSummary } from '../contract.js';
 import { BADGE_COLORS, WIDGETS, getAdminFieldOptions, type AdminFieldOptions, type WidgetName } from '../decorators/admin-field.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import { checkCurrency } from './currency.js';
@@ -48,15 +48,31 @@ export interface LayoutInlineConfig {
   min?: number;
   /** Most rows a save may leave and the form edits (default 100, at most 500). */
   max?: number;
+  /** Shown, never edited here (a write to it is refused with 422): an order's lines once it is placed. */
+  readonly?: boolean;
+  /** Computed columns of the child (`list.computed` keys) shown in the table, before its fields (a line's product thumbnail). */
+  computed?: string[];
+  /** Cards: a marker on the first card in `order` (the product's «main picture»). */
+  cards?: { markFirst?: LocalizedText };
+}
+
+/** Label and value rows in a card (an order's totals): fields of the record, or its computed columns (`list.computed`). */
+export interface LayoutSummaryConfig {
+  section?: LocalizedText;
+  summary: Array<{ label: LocalizedText; value: string | { computed: string } }>;
 }
 
 export interface LayoutTabConfig {
   tab: LocalizedText;
-  sections: Array<LayoutSectionConfig | LayoutInlineConfig>;
+  sections: Array<LayoutSectionConfig | LayoutInlineConfig | LayoutSummaryConfig>;
 }
-export type LayoutConfig = Array<LayoutSectionConfig | LayoutTabConfig | LayoutInlineConfig>;
+export type LayoutConfig = Array<LayoutSectionConfig | LayoutTabConfig | LayoutInlineConfig | LayoutSummaryConfig>;
 
-export function isInlineConfig(node: LayoutSectionConfig | LayoutTabConfig | LayoutInlineConfig): node is LayoutInlineConfig {
+export function isSummaryConfig(node: object): node is LayoutSummaryConfig {
+  return 'summary' in node;
+}
+
+export function isInlineConfig(node: LayoutSectionConfig | LayoutTabConfig | LayoutInlineConfig | LayoutSummaryConfig): node is LayoutInlineConfig {
   return 'inline' in node;
 }
 
@@ -153,6 +169,7 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
         fail((error as Error).message.replace(/^nest-my-admin: /, ''));
       }
     }
+    if (options.warnIf !== undefined && (options.warnIf.empty !== true || options.warnIf.message === undefined)) fail(`fields.${name}.warnIf: { empty: true, message } is the one warning there is`);
     if (options.sensitive !== undefined && typeof options.sensitive !== 'boolean') fail(`fields.${name}.sensitive: must be true or false`);
     for (const color of Object.values(options.colors ?? {})) {
       if (!BADGE_COLORS.includes(color)) fail(`fields.${name}: unknown badge colour "${color}" (use ${BADGE_COLORS.join(', ')})`);
@@ -208,6 +225,7 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
   if (options.colors) out.colors = { ...options.colors };
   if (options.showIf) out.showIf = { ...options.showIf };
   if (options.slugFrom !== undefined) out.slugFrom = options.slugFrom;
+  if (options.warnIf !== undefined) out.warnIf = { empty: true, message: text(options.warnIf.message) };
   if (options.currency !== undefined) {
     out.currency = typeof options.currency === 'string' ? { unit: options.currency, position: 'after' } : { unit: text(options.currency.unit), position: options.currency.position ?? 'after' };
   }
@@ -227,10 +245,26 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
  * Every layout name is a form field, listed once. Inline nodes (only where `allow.inlines`: a resource's form) are
  * checked for their shape here; the registry resolves them against the child once every resource is known.
  */
-export function checkLayout(layout: LayoutConfig, formNames: string[], fail: (message: string) => never, allow: { inlines?: boolean } = {}): void {
+export function checkLayout(
+  layout: LayoutConfig,
+  formNames: string[],
+  fail: (message: string) => never,
+  /** `inlines` and summaries belong in a resource's form; a summary reads these fields and computed columns. */
+  allow: { inlines?: boolean; summary?: { fields: string[]; computed: string[] } } = {},
+): void {
   const seen = new Set<string>();
   const nodes = layout.flatMap((node) => ('tab' in node ? node.sections : [node]));
   for (const node of nodes) {
+    if (isSummaryConfig(node)) {
+      if (!allow.summary) fail('form.layout: a summary belongs in the form of a resource');
+      if (!Array.isArray(node.summary) || node.summary.length === 0) fail('form.layout: a summary lists label and value rows');
+      for (const row of node.summary) {
+        if (typeof row.value === 'string') {
+          if (!allow.summary!.fields.includes(row.value)) fail(`form.layout summary: unknown field "${row.value}"${didYouMean(row.value, allow.summary!.fields)}`);
+        } else if (!allow.summary!.computed.includes(row.value?.computed)) fail(`form.layout summary: "${String(row.value?.computed)}" is not a list.computed column`);
+      }
+      continue;
+    }
     if (isInlineConfig(node)) {
       if (!allow.inlines) fail('form.layout: inlines belong in the form of a resource');
       checkInlineShape(node, fail);
@@ -258,6 +292,8 @@ function checkInlineShape(node: LayoutInlineConfig, fail: (message: string) => n
   if (node.min !== undefined && (!Number.isInteger(node.min) || node.min < 0 || node.min > max)) fail(`${where}: min: must be an integer from 0 to max (${max})`);
   if (node.link !== undefined && !isFieldName(node.link)) fail(`${where}: link: must be a field name`);
   if (node.order !== undefined && !isFieldName(node.order)) fail(`${where}: order: must be a field name`);
+  if (node.computed !== undefined && (!Array.isArray(node.computed) || node.display !== 'table')) fail(`${where}: computed: a list of the child's list.computed keys, for a table`);
+  if (node.cards?.markFirst !== undefined && (node.display === 'table' || node.order === undefined)) fail(`${where}: cards.markFirst marks the first card by \`order\`: it needs cards and an order field`);
   if (node.fields !== undefined) {
     if (!Array.isArray(node.fields) || node.fields.length === 0) fail(`${where}: fields: must list at least one field`);
     const listed = new Set<string>();
@@ -279,9 +315,15 @@ export function localizeLayout(
   defaultLocale: string,
   inline?: (node: LayoutInlineConfig, label: string | undefined) => FormLayoutInline | undefined,
 ): FormLayoutNode[] {
-  const section = (node: LayoutSectionConfig | LayoutInlineConfig): FormLayoutSection | FormLayoutInline | undefined => {
+  const section = (node: LayoutSectionConfig | LayoutInlineConfig | LayoutSummaryConfig): FormLayoutSection | FormLayoutInline | FormLayoutSummary | undefined => {
     const title = node.section !== undefined ? resolveText(node.section, locale, defaultLocale) : undefined;
     if (isInlineConfig(node)) return inline?.(node, title);
+    if (isSummaryConfig(node)) {
+      return {
+        ...(title !== undefined ? { title } : {}),
+        summary: node.summary.map((row) => ({ label: resolveText(row.label, locale, defaultLocale), value: typeof row.value === 'string' ? { field: row.value } : { computed: row.value.computed } })),
+      };
+    }
     return { ...(title !== undefined ? { title } : {}), fields: [...node.fields], columns: node.columns ?? 1 };
   };
   const out: FormLayoutNode[] = [];

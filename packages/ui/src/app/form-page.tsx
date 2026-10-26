@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ChevronRight, Copy, ExternalLink, Lock, Pencil, Trash2 } from 'lucide-react';
+import { ChevronRight, Copy, ExternalLink, Lock, Pencil, Trash2, TriangleAlert } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { AdminRecord, FieldSchema, FormLayoutInline, InlineChanges, InlineRows, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, FieldSchema, FormLayoutInline, FormLayoutSummary, InlineChanges, InlineRows, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
 import { AsideCard } from '@/app/aside-card';
 import { FieldInput, RichText } from '@/app/field-input';
 import { RecordActions } from '@/app/action-button';
@@ -14,6 +14,7 @@ import { ObjectInput } from '@/app/object-input';
 import { DisplayValue, ValueBadge } from '@/app/widgets/badge';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { ApiError, api, describeError } from '@/lib/api';
 import { shownErrors } from '@/lib/form-errors';
 import { useLocale, useT } from '@/i18n';
@@ -22,7 +23,7 @@ import { hasInlineErrors, inlineErrorsOf, inlinePayload, inlineRowsOf, type Inli
 import { dependencyValues, toFormValues, toPayload, withoutImages, type FormValue, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { asideValues, layoutModel } from '@/lib/record-layout';
+import { asideValues, fieldWarnings, layoutModel, summaryRows } from '@/lib/record-layout';
 import { isShown } from '@/lib/show-if';
 import { slugify } from '@/lib/slug';
 import { validatePayload } from '@/lib/validate';
@@ -312,7 +313,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
         child={child}
         rows={rows[inline.inline] ?? []}
         onChange={(next) => setRows((previous) => ({ ...previous, [inline.inline]: next }))}
-        readOnly={!canUpdate || viewing || truncated !== undefined}
+        readOnly={!canUpdate || viewing || inline.readonly === true || truncated !== undefined}
         errors={inlineErrors[inline.inline]}
         parent={schema.name}
         parentValues={dependencies}
@@ -322,7 +323,43 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
     );
   }
 
+  function renderSummary(node: FormLayoutSummary): ReactNode | null {
+    const lines = summaryRows(node, schema, record);
+    if (lines.length === 0) return null;
+    return (
+      <Card title={node.title} bodyClassName={node.title ? undefined : 'p-5'}>
+        <dl className="flex flex-col gap-2 text-[13px]">
+          {lines.map((line, index) => (
+            // The last row is the total: bold, above a line.
+            <div key={line.label} className={cn('flex items-baseline justify-between gap-3', index === lines.length - 1 && lines.length > 1 && 'border-t pt-2.5 text-sm font-bold')}>
+              <dt className={cn(index === lines.length - 1 && lines.length > 1 ? '' : 'text-muted-foreground')}>{line.label}</dt>
+              <dd>{line.text}</dd>
+            </div>
+          ))}
+        </dl>
+      </Card>
+    );
+  }
+
+  const warnings = fieldWarnings(fields, values);
+
   function renderField(name: string): ReactNode | null {
+    const input = renderInput(name);
+    // A soft warning (`warnIf`) under the input; the save still goes through.
+    return input && warnings[name] ? (
+      <div className="flex flex-col gap-1">
+        {input}
+        <p className="flex items-center gap-1 text-xs text-warn">
+          <TriangleAlert className="size-3.5" aria-hidden />
+          {warnings[name]}
+        </p>
+      </div>
+    ) : (
+      input
+    );
+  }
+
+  function renderInput(name: string): ReactNode | null {
     const field = allFields.find((candidate) => candidate.name === name);
     if (!field || !isShown(field, values)) return null;
     if (locked.has(name)) return <ReadOnlyField resource={schema.name} field={field} record={record} plain={viewing} />;
@@ -460,6 +497,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
           errors={{ ...fieldErrors, ...Object.fromEntries(Object.entries(inlineErrors).filter(([, found]) => hasInlineErrors({ found })).map(([child]) => [`_inlines.${child}`, ['']])) }}
           render={renderField}
           renderInline={renderInline}
+          renderSummary={renderSummary}
         />
         {!viewing && (
         <SaveBar dirty={dirty}>
