@@ -55,6 +55,8 @@ export const en = {
   'list.about': 'about {count}',
   'list.page': 'Page {page}',
   'list.pageOf': 'Page {page} of {pages}',
+  'list.range': 'Showing {from} to {to} of {total}',
+  'list.rowsPerPage': 'Rows per page',
   'list.previousPage': 'Previous page',
   'list.nextPage': 'Next page',
   'list.columns': 'Columns',

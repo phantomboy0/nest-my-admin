@@ -17,6 +17,7 @@ interface ActionButtonProps {
   /** The record's title, when it runs on one record the page knows (the confirmation names it). */
   subject?: string;
   size?: 'default' | 'sm';
+  className?: string;
   /** The button cannot be used now; `describedBy` is the id of the text that says why. */
   blocked?: boolean;
   describedBy?: string;
@@ -29,7 +30,7 @@ interface ActionButtonProps {
  * is destructive or runs on several records, and runs on the click otherwise. The server's message is shown as a toast (a default one without a message), and
  * lists, counts and records of the resource reload.
  */
-export function ActionButton({ resource, action, ids, subject, size = 'default', blocked = false, describedBy, onDone }: ActionButtonProps) {
+export function ActionButton({ resource, action, ids, subject, size = 'default', className, blocked = false, describedBy, onDone }: ActionButtonProps) {
   const t = useT();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -58,6 +59,7 @@ export function ActionButton({ resource, action, ids, subject, size = 'default',
         type="button"
         size={size}
         variant={action.variant === 'destructive' ? 'destructive' : 'outline'}
+        className={className}
         disabled={blocked || run.isPending}
         aria-describedby={describedBy}
         data-action={action.name}

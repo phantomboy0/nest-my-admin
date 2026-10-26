@@ -62,3 +62,37 @@ export function paging(data: Pick<ListResponse, 'total' | 'estimated' | 'hasMore
     hasNext: page < pages,
   };
 }
+
+/** "Showing 26 to 50 of 1,234" for an exact total; an estimate keeps "about 12,000"; '' when the list is not counted or empty. */
+export function rangeText(data: Pick<ListResponse, 'total' | 'estimated' | 'pageSize'> | undefined, page: number, shown: number): string {
+  if (!data || data.total === null || data.total === 0) return '';
+  if (data.estimated) return tr('list.about', { count: formatNumber(data.total) });
+  const from = (page - 1) * data.pageSize + 1;
+  return tr('list.range', { from: formatNumber(from), to: formatNumber(from + Math.max(shown, 1) - 1), total: formatNumber(data.total) });
+}
+
+/** The page sizes the footer offers: the usual ones plus the resource's default (the server allows up to 100). */
+export function pageSizeOptions(defaultSize: number): number[] {
+  return [...new Set([10, 20, 50, 100, defaultSize])].filter((size) => size <= 100).sort((a, b) => a - b);
+}
+
+/** How many fields have a filter set (a range is one); the search is not counted. */
+export function activeFilterCount(params: URLSearchParams): number {
+  const fields = new Set<string>();
+  for (const [key, value] of params) {
+    const match = /^filter\[([^\][]+)\]/.exec(key);
+    if (match && value !== '') fields.add(match[1]!);
+  }
+  return fields.size;
+}
+
+/** The changes that put the filters, search and sort of `now` back to `snapshot` (a drawer's Cancel). */
+export function restoreFilters(now: URLSearchParams, snapshot: URLSearchParams): ParamChanges {
+  const tracked = (key: string) => key === 'search' || key === 'sort' || key.startsWith('filter[');
+  const changes: ParamChanges = {};
+  for (const key of new Set([...now.keys(), ...snapshot.keys()])) {
+    if (!tracked(key) || now.get(key) === snapshot.get(key)) continue;
+    changes[key] = snapshot.get(key);
+  }
+  return Object.fromEntries(Object.entries(changes).sort(([a], [b]) => a.localeCompare(b)));
+}

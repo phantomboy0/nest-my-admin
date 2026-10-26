@@ -1,18 +1,18 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
-import { Check, ChevronDown, SlidersHorizontal, X } from 'lucide-react';
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { ArrowDownUp, Check, ChevronDown, CirclePlus, ListFilter, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Checkbox, Dialog, Popover } from 'radix-ui';
 import type { FieldSchema, FilterOperator, ResourceSchema } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RelationInput } from '@/app/relation-input';
-import { useLocale, useT } from '@/i18n';
+import { formatNumber, useLocale, useT } from '@/i18n';
 import { filterChips, type FilterChip } from '@/lib/filter-chips';
 import { DateInput } from '@/app/date-input';
 import { toLatinNumber } from '@/lib/digits';
 import { toDatetimeLocal } from '@/lib/form-values';
 import { useRelationRefs } from '@/lib/queries';
-import { clearFilters, filterKey, hasActiveFilters, type ParamChanges } from '@/lib/list-state';
+import { activeFilterCount, clearFilters, filterKey, hasActiveFilters, restoreFilters, type ParamChanges } from '@/lib/list-state';
 import { useIsMobile } from '@/lib/use-media';
 import { cn } from '@/lib/utils';
 import { enumLabel } from '@/lib/widgets';
@@ -21,16 +21,19 @@ interface FilterBarProps {
   schema: ResourceSchema;
   params: URLSearchParams;
   onChange: (changes: ParamChanges) => void;
+  /** Desktop: controls at the end of the filter row (the column menu). */
+  trailing?: ReactNode;
 }
 
 export const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
 const RANGE_TYPES = new Set(['number', 'decimal', 'bigint', 'date', 'datetime']);
 
-export function FilterBar({ schema, params, onChange }: FilterBarProps) {
+export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps) {
   const t = useT();
   const mobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  const [snapshot, setSnapshot] = useState<URLSearchParams>();
   const urlSearch = params.get('search') ?? '';
   const [search, setSearch] = useState(urlSearch);
   useEffect(() => {
@@ -43,69 +46,116 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
   const searchable = schema.list.search.length > 0;
   // Phones sort in the drawer (there are no column headers).
   const drawer = mobile && (filters.length > 0 || schema.list.sortable.length > 0);
-  if (filters.length === 0 && !searchable && !drawer) return null;
+  if (filters.length === 0 && !searchable && !drawer && !trailing) return null;
   const searchLabels = schema.list.search.map((name) => schema.fields.find((field) => field.name === name)?.label ?? name);
 
+  if (!mobile) {
+    const chips = new Map(filterChips(schema, params).map((chip) => [chip.key, chip]));
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {searchable && (
+          <SearchBox label={t('filters.search')} placeholder={t('filters.searchIn', { fields: searchLabels.join(', ') })} value={search} onChange={setSearch} onSubmit={() => onChange({ search: search.trim() || null })} />
+        )}
+        {/* One list in schema order: a chip that moved when set would remount and close its popover mid-choice. */}
+        {filters.length > 0 && (
+          <ul aria-label={t('filters.filters')} className="contents">
+            {filters.map(({ field, operators }) => (
+              <li key={field.name} className="contents">
+                <FilterChipButton resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} chip={chips.get(`filter:${field.name}`)} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {hasActiveFilters(params) && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChange(clearFilters(params))}>
+            {t('filters.clear')}
+            <X className="size-3.5" />
+          </Button>
+        )}
+        {trailing && <div className="ms-auto flex items-center gap-2">{trailing}</div>}
+      </div>
+    );
+  }
+
+  const count = activeFilterCount(params);
+  const sortLabel = sortChoiceLabel(schema, params, t);
+  const openDrawer = () => {
+    setSnapshot(new URLSearchParams(params));
+    setOpen(true);
+  };
   return (
-    <div className="flex flex-col gap-3 rounded-lg border p-3">
+    <div className="flex flex-col gap-2.5">
       <div className="flex gap-2">
         {searchable && (
-          <form
-            role="search"
-            className="flex flex-1 gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onChange({ search: search.trim() || null });
-            }}
-          >
-            <Input aria-label={t('filters.search')} placeholder={t('filters.searchIn', { fields: searchLabels.join(', ') })} value={search} onChange={(event) => setSearch(event.target.value)} />
-            <Button type="submit" variant="outline">
-              {t('filters.search')}
-            </Button>
-          </form>
+          <SearchBox
+            className="flex-1"
+            label={t('filters.search')}
+            placeholder={t('filters.searchIn', { fields: searchLabels.join(', ') })}
+            value={search}
+            onChange={setSearch}
+            onSubmit={() => onChange({ search: search.trim() || null })}
+          />
         )}
         {drawer && (
-          <Button type="button" variant="outline" aria-haspopup="dialog" onClick={() => setOpen(true)}>
+          <Button type="button" variant="outline" aria-haspopup="dialog" onClick={openDrawer}>
             <SlidersHorizontal />
             {t('filters.filters')}
+            {count > 0 && (
+              // Hidden from screen readers: the active filters are listed under the bar.
+              <span aria-hidden className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs text-primary-foreground">
+                {formatNumber(count)}
+              </span>
+            )}
           </Button>
         )}
       </div>
-      {!mobile && filters.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {filters.map(({ field, operators }) => (
-            <FilterControl key={field.name} resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} />
-          ))}
+      {(hasActiveFilters(params) || (drawer && sortLabel)) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {hasActiveFilters(params) && <FilterChips schema={schema} params={params} onChange={onChange} />}
+          {drawer && sortLabel && (
+            <button type="button" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-input bg-card px-3 text-[13px]" aria-haspopup="dialog" onClick={openDrawer}>
+              <ArrowDownUp className="size-3.5 text-muted-foreground" aria-hidden />
+              {sortLabel}
+            </button>
+          )}
         </div>
       )}
       {drawer && (
         <Dialog.Root open={open} onOpenChange={setOpen}>
           <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
+            <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
             <Dialog.Content
               aria-describedby={undefined}
-              className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-2xl border-t bg-background shadow-xl outline-none"
+              className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-[18px] bg-card shadow-xl outline-none"
             >
-              <div className="flex items-center justify-between border-b px-4 py-3">
-                <Dialog.Title className="text-base font-semibold">{t('filters.filtersAndSort')}</Dialog.Title>
-                <Dialog.Close asChild>
-                  <Button variant="ghost" size="icon-sm" aria-label={t('list.close')}>
-                    <X />
-                  </Button>
-                </Dialog.Close>
+              <div className="flex justify-center pt-2" aria-hidden>
+                <span className="h-1.5 w-10 rounded-full bg-input" />
               </div>
-              <div className="flex flex-col gap-4 overflow-y-auto p-4">
-                {schema.list.sortable.length > 0 && <SortSelect schema={schema} params={params} onChange={onChange} />}
-                {filters.map(({ field, operators }) => (
-                  <FilterControl key={field.name} resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} />
-                ))}
-              </div>
-              <div className="flex gap-2 border-t p-4">
+              <div className="flex items-center gap-2 ps-4 pe-2 pt-1.5 pb-2">
+                <Dialog.Title className="flex-1 text-[17px] font-bold">{t('filters.filtersAndSort')}</Dialog.Title>
                 {hasActiveFilters(params) && (
-                  <Button type="button" variant="outline" onClick={() => onChange(clearFilters(params))}>
+                  <Button type="button" variant="ghost" className="text-primary" onClick={() => onChange(clearFilters(params))}>
                     {t('filters.clear')}
                   </Button>
                 )}
+              </div>
+              <div className="flex flex-col gap-5 overflow-y-auto px-4 py-1">
+                {filters.map(({ field, operators }) => (
+                  <FilterControl key={field.name} resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} touch />
+                ))}
+                {schema.list.sortable.length > 0 && <SortSelect schema={schema} params={params} onChange={onChange} />}
+              </div>
+              <div className="flex gap-2.5 border-t px-4 pt-3 pb-5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (snapshot) onChange(restoreFilters(params, snapshot));
+                    setOpen(false);
+                  }}
+                >
+                  {t('common.cancel')}
+                </Button>
                 <Dialog.Close asChild>
                   <Button className="flex-1">{t('filters.showResults')}</Button>
                 </Dialog.Close>
@@ -114,16 +164,18 @@ export function FilterBar({ schema, params, onChange }: FilterBarProps) {
           </Dialog.Portal>
         </Dialog.Root>
       )}
-      {hasActiveFilters(params) && (
-        <div className="flex flex-wrap items-center gap-2">
-          <FilterChips schema={schema} params={params} onChange={onChange} />
-          <Button type="button" variant="ghost" size="sm" onClick={() => onChange(clearFilters(params))}>
-            {t('filters.clear')}
-          </Button>
-        </div>
-      )}
     </div>
   );
+}
+
+/** The current sort as the phone's sort chip names it ('' when the list has no sortable field). */
+function sortChoiceLabel(schema: ResourceSchema, params: URLSearchParams, t: ReturnType<typeof useT>): string {
+  if (schema.list.sortable.length === 0) return '';
+  const { field: defaultField, direction } = schema.list.defaultSort;
+  const current = params.get('sort') ?? (direction === 'desc' ? `-${defaultField}` : defaultField);
+  const name = current.replace(/^-/, '');
+  const label = schema.fields.find((field) => field.name === name)?.label ?? name;
+  return t(current.startsWith('-') ? 'filters.descending' : 'filters.ascending', { name: label });
 }
 
 /** Sort on phones: one choice per sortable field and direction (the URL's `sort`, like the column headers). */
@@ -150,6 +202,10 @@ function SortSelect({ schema, params, onChange }: FilterBarProps) {
 }
 
 interface FilterControlProps {
+  /** Inside a chip's popover: enum choices are listed in place, not behind another popover. */
+  inline?: boolean;
+  /** In the phone drawer: enum choices as pills, short single choices as a segmented control. */
+  touch?: boolean;
   resource: string;
   field: FieldSchema;
   operators: FilterOperator[];
@@ -189,7 +245,7 @@ function NullFilter({ field, params, onChange }: Pick<FilterControlProps, 'field
 }
 
 /** Pick any number of enum values (`in`). */
-function MultiSelectFilter({ id, field, params, onChange }: { id: string } & Pick<FilterControlProps, 'field' | 'params' | 'onChange'>) {
+function MultiSelectFilter({ id, inline, field, params, onChange }: { id: string } & Pick<FilterControlProps, 'inline' | 'field' | 'params' | 'onChange'>) {
   const t = useT();
   const key = filterKey(field.name, 'in');
   const selected = (params.get(key) ?? '').split(',').filter(Boolean);
@@ -197,6 +253,7 @@ function MultiSelectFilter({ id, field, params, onChange }: { id: string } & Pic
     const next = selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value];
     onChange({ [key]: next.length > 0 ? next.join(',') : null });
   };
+  if (inline) return <EnumChoices field={field} selected={selected} onToggle={toggle} />;
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor={id}>{field.label}</Label>
@@ -209,24 +266,7 @@ function MultiSelectFilter({ id, field, params, onChange }: { id: string } & Pic
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content align="start" sideOffset={4} className="z-50 min-w-48 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
-            <ul aria-label={field.label}>
-              {(field.enumValues ?? []).map((value) => (
-                <li key={value}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
-                    <Checkbox.Root
-                      checked={selected.includes(value)}
-                      onCheckedChange={() => toggle(value)}
-                      className="flex size-4 items-center justify-center rounded border border-input data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
-                    >
-                      <Checkbox.Indicator>
-                        <Check className="size-3" />
-                      </Checkbox.Indicator>
-                    </Checkbox.Root>
-                    {enumLabel(field, value)}
-                  </label>
-                </li>
-              ))}
-            </ul>
+            <EnumChoices field={field} selected={selected} onToggle={toggle} />
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
@@ -234,11 +274,35 @@ function MultiSelectFilter({ id, field, params, onChange }: { id: string } & Pic
   );
 }
 
-function MainFilterControl({ resource, field, operators, params, onChange }: FilterControlProps) {
+function EnumChoices({ field, selected, onToggle }: { field: FieldSchema; selected: string[]; onToggle: (value: string) => void }) {
+  return (
+    <ul aria-label={field.label}>
+      {(field.enumValues ?? []).map((value) => (
+        <li key={value}>
+          <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
+            <Checkbox.Root
+              checked={selected.includes(value)}
+              onCheckedChange={() => onToggle(value)}
+              className="flex size-4 items-center justify-center rounded border border-input data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+            >
+              <Checkbox.Indicator>
+                <Check className="size-3" />
+              </Checkbox.Indicator>
+            </Checkbox.Root>
+            {enumLabel(field, value)}
+          </label>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function MainFilterControl({ inline, touch, resource, field, operators, params, onChange }: FilterControlProps) {
   const { t, calendar } = useLocale();
   const id = `filter-${field.name}`;
 
-  if (field.type === 'enum' && operators.includes('in')) return <MultiSelectFilter id={id} field={field} params={params} onChange={onChange} />;
+  if (touch && field.type === 'enum' && operators.includes('in')) return <EnumPills field={field} params={params} onChange={onChange} />;
+  if (field.type === 'enum' && operators.includes('in')) return <MultiSelectFilter id={id} inline={inline} field={field} params={params} onChange={onChange} />;
 
   if (field.type === 'relation') {
     const operator: FilterOperator = field.relation?.kind === 'to-many' ? 'in' : 'eq';
@@ -250,6 +314,7 @@ function MainFilterControl({ resource, field, operators, params, onChange }: Fil
     const key = filterKey(field.name, 'eq');
     const options: Array<[string, string]> =
       field.type === 'boolean' ? [['true', t('common.yes')], ['false', t('common.no')]] : (field.enumValues ?? []).map((value) => [value, enumLabel(field, value)]);
+    if (touch && options.length <= 3) return <Segmented label={field.label} options={[['', t('common.all')], ...options]} value={params.get(key) ?? ''} onChange={(value) => onChange({ [key]: value || null })} />;
     return (
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={id}>{field.label}</Label>
@@ -339,18 +404,18 @@ function FilterChips({ schema, params, onChange }: FilterBarProps) {
   const t = useT();
   const chips = filterChips(schema, params);
   return (
-    <ul aria-label={t('filters.active')} className="flex flex-wrap gap-1.5">
+    <ul aria-label={t('filters.active')} className="flex flex-wrap gap-2">
       {chips.map((chip) => (
-        <li key={chip.key} className="inline-flex items-center gap-1 rounded-full border bg-muted/50 py-0.5 ps-2.5 pe-1 text-xs">
+        <li key={chip.key} className="inline-flex h-9 items-center gap-1 rounded-full border border-primary bg-primary-soft ps-3 pe-1.5 text-[13px] font-semibold text-primary">
           <span className="font-medium">{chip.label}:</span>
           {chip.ref ? <RefTitles resource={schema.name} chip={chip} /> : <span>{chip.value}</span>}
           <button
             type="button"
-            className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded-full p-1 hover:bg-primary-soft"
             aria-label={t('filters.removeChip', { label: chip.label })}
             onClick={() => onChange(Object.fromEntries(chip.remove.map((key) => [key, null])))}
           >
-            <X className="size-3" />
+            <X className="size-3.5" />
           </button>
         </li>
       ))}
@@ -431,5 +496,134 @@ function CommitInput({ id, value, type = 'text', inputMode, onCommit }: CommitIn
         }
       }}
     />
+  );
+}
+
+interface SearchBoxProps {
+  label: string;
+  placeholder: string;
+  value: string;
+  className?: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+}
+
+/** The list search: applied on Enter. */
+function SearchBox({ label, placeholder, value, className, onChange, onSubmit }: SearchBoxProps) {
+  return (
+    <form
+      role="search"
+      className={cn('relative w-[300px] max-w-full', className)}
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+      <Input aria-label={label} placeholder={placeholder} value={value} className="ps-8" onChange={(event) => onChange(event.target.value)} />
+    </form>
+  );
+}
+
+/** One filter on the desktop row: a dashed chip that opens the field's control; when set, solid with its value. */
+function FilterChipButton({ chip, ...props }: FilterControlProps & { chip?: FilterChip }) {
+  const t = useT();
+  const { field, onChange } = props;
+  const remove = chip && (() => onChange(Object.fromEntries(chip.remove.map((key) => [key, null]))));
+  return (
+    <Popover.Root>
+      <span className={cn('inline-flex h-8 items-center rounded-lg border border-dashed border-input', chip && 'border-solid bg-card')}>
+        <Popover.Trigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-full items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            {chip ? <ListFilter className="size-3.5 text-muted-foreground" aria-hidden /> : <CirclePlus className="size-3.5 text-muted-foreground" aria-hidden />}
+            {field.label}
+            {chip && (
+              <>
+                <span className="sr-only">:</span>
+                <span className="h-4 w-px bg-border" aria-hidden />
+                <span className="max-w-48 truncate rounded-[5px] bg-muted px-1.5 text-xs font-medium">
+                  {chip.ref ? <RefTitles resource={props.resource} chip={chip} /> : chip.value}
+                </span>
+              </>
+            )}
+          </button>
+        </Popover.Trigger>
+        {remove && (
+          <button type="button" className="-ms-1 me-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('filters.removeChip', { label: field.label })} onClick={remove}>
+            <X className="size-3.5" />
+          </button>
+        )}
+      </span>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={6}
+          // A focused relation input opens its options and shows its value as a placeholder: let the user focus it.
+          onOpenAutoFocus={field.type === 'relation' ? (event) => event.preventDefault() : undefined}
+          className="z-50 flex w-72 flex-col gap-3 rounded-[10px] border bg-popover p-3 text-popover-foreground shadow-lg outline-none">
+          <FilterControl {...props} inline />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+const pillClass =
+  'inline-flex h-9 items-center gap-1.5 rounded-full border border-input bg-card px-3 text-[13px] outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=checked]:border-primary data-[state=checked]:bg-primary-soft data-[state=checked]:font-semibold data-[state=checked]:text-primary';
+
+/** Phone drawer: an enum's `in` filter as toggle pills. */
+function EnumPills({ field, params, onChange }: Pick<FilterControlProps, 'field' | 'params' | 'onChange'>) {
+  const key = filterKey(field.name, 'in');
+  const selected = (params.get(key) ?? '').split(',').filter(Boolean);
+  const toggle = (value: string) => {
+    const next = selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value];
+    onChange({ [key]: next.length > 0 ? next.join(',') : null });
+  };
+  return (
+    <div className="flex flex-col gap-2.5">
+      <span className="text-sm font-medium" aria-hidden>
+        {field.label}
+      </span>
+      <ul aria-label={field.label} className="flex flex-wrap gap-2">
+        {(field.enumValues ?? []).map((value) => (
+          <li key={value}>
+            <Checkbox.Root checked={selected.includes(value)} onCheckedChange={() => toggle(value)} className={pillClass}>
+              <Checkbox.Indicator>
+                <Check className="size-3.5" />
+              </Checkbox.Indicator>
+              {enumLabel(field, value)}
+            </Checkbox.Root>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Phone drawer: one choice out of a few, as a segmented control. */
+function Segmented({ label, options, value, onChange }: { label: string; options: Array<[string, string]>; value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <span className="text-sm font-medium" aria-hidden>
+        {label}
+      </span>
+      <div role="radiogroup" aria-label={label} className="grid auto-cols-fr grid-flow-col gap-0.5 rounded-[10px] bg-muted p-[3px]">
+        {options.map(([option, text]) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={value === option}
+            className={cn('h-9 rounded-lg text-[13px] text-muted-foreground', value === option && 'bg-card font-semibold text-foreground shadow-sm')}
+            onClick={() => onChange(option)}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

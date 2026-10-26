@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ListChecks, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ListChecks, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import type { AdminRecord, BulkResult, FieldSchema } from '@nest-my-admin/core/contract';
 import { ActionButton } from '@/app/action-button';
 import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
@@ -13,7 +13,7 @@ import { DisplayValue } from '@/app/widgets/badge';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useT } from '@/i18n';
+import { formatNumber, useT } from '@/i18n';
 import { bulkActions, resourceActions, selectionResult } from '@/lib/actions';
 import { api, describeError } from '@/lib/api';
 import { useColumnPrefs, visibleColumns } from '@/lib/column-prefs';
@@ -22,7 +22,7 @@ import { useIsMobile } from '@/lib/use-media';
 import { cn } from '@/lib/utils';
 import { isRef } from '@/lib/form-values';
 import { encodeRecordId } from '@/lib/record-id';
-import { hasActiveFilters, listQueryFromUrl, paging, withChanges, type ParamChanges } from '@/lib/list-state';
+import { hasActiveFilters, listQueryFromUrl, pageSizeOptions, paging, rangeText, withChanges, type ParamChanges } from '@/lib/list-state';
 import { useList, useSchema } from '@/lib/queries';
 
 export function ListPage() {
@@ -122,43 +122,107 @@ export function ListPage() {
     updateParams({ sort: ascending ? `-${field}` : field });
   }
 
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">{s.label}</h1>
-        <div className="ms-auto" />
-        <ColumnMenu schema={s} prefs={prefs} />
-        {s.softDelete && can.delete && (
-          <Button variant={trash ? 'secondary' : 'outline'} aria-pressed={trash} onClick={() => updateParams({ trashed: trash ? null : 'only' })}>
-            <Trash2 />
-            {t('list.trash')}
-          </Button>
-        )}
-        {mobile && selectable && (
+  // On phones the bar floats over the cards, dark (the design's phone list).
+  const onDark = 'border-transparent bg-transparent text-inherit hover:bg-background/15';
+  const selectionBar = selectable && selected.size > 0 && (
+        <div role="region" aria-label={t('list.selected', { count: selected.size })} className={cn(
+            'flex flex-wrap items-center gap-2 text-sm',
+            mobile
+              ? 'fixed inset-x-3 bottom-4 z-30 rounded-[14px] bg-foreground py-1.5 ps-2 pe-1.5 text-background shadow-[0_12px_32px_rgba(0,0,0,.25)]'
+              : 'border-b bg-primary-soft px-3.5 py-2',
+          )}>
+          <span className={cn('font-semibold', mobile ? 'flex-1 text-sm' : 'pe-1.5 text-primary')}>{t('list.selected', { count: selected.size })}</span>
+          {selectedActions.map((action) => (
+            <ActionButton
+              key={action.name}
+              resource={s.name}
+              action={action}
+              ids={[...selected]}
+              size="sm"
+              className={mobile ? onDark : undefined}
+              onDone={(outcome, ids) => {
+                const result = selectionResult(outcome, ids);
+                setSelected(new Set());
+                bulkDelete.reset();
+                setBulkOutcome({ title: t('action.bulkDone', { action: action.label, count: result.ok.length }), result });
+              }}
+            />
+          ))}
+          {!can.delete ? null : confirmingBulk ? (
+            <Button variant="destructive" size="sm" disabled={bulkDelete.isPending} onClick={() => bulkDelete.mutate([...selected])}>
+              {t('list.confirmDeleteSelected', { count: selected.size })}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size={mobile ? 'icon-sm' : 'sm'}
+              className={mobile ? onDark : 'text-destructive'}
+              aria-label={mobile ? t('list.deleteSelected') : undefined}
+              onClick={() => setConfirmingBulk(true)}
+            >
+              <Trash2 />
+              {!mobile && t('list.deleteSelected')}
+            </Button>
+          )}
           <Button
-            variant={selectMode ? 'secondary' : 'outline'}
-            aria-pressed={selectMode}
-            onClick={() => {
-              setSelectMode(!selectMode);
-              setSelected(new Set());
-            }}
+            variant="ghost"
+            size={mobile ? 'icon-sm' : 'sm'}
+            className={mobile ? cn(onDark, '-order-1') : 'ms-auto'}
+            aria-label={mobile ? t('list.clearSelection') : undefined}
+            onClick={() => setSelected(new Set())}
           >
-            <ListChecks />
-            {t(selectMode ? 'list.done' : 'list.select')}
+            {mobile ? <X /> : t('list.clearSelection')}
           </Button>
-        )}
-        {!trash && resourceActions(s).map((action) => <ActionButton key={action.name} resource={s.name} action={action} onDone={() => undefined} />)}
-        {s.creatable && !trash && (
-          <Button asChild>
-            <Link to={`/${s.name}/new`}>
-              <Plus />
-              {t('list.new')}
-            </Link>
-          </Button>
-        )}
+        </div>
+  );
+
+  return (
+    <div className={cn('flex flex-col gap-4', mobile && selected.size > 0 && 'pb-16')}>
+      <div className={cn('flex flex-wrap gap-3', mobile ? 'items-center gap-2' : 'items-end')}>
+        <div className={cn('flex gap-0.5', mobile ? 'items-baseline gap-1.5' : 'flex-col')}>
+          <h1 className={mobile ? 'text-base font-semibold' : 'text-[22px] font-bold'}>{s.label}</h1>
+          {list.data && list.data.total !== null && <p className="text-[13px] text-muted-foreground">{paging(list.data, page).summary}</p>}
+        </div>
+        <div className="ms-auto flex flex-wrap items-center gap-2">
+          {s.softDelete && can.delete && (
+            <Button
+              variant={trash ? 'secondary' : 'outline'}
+              size={mobile ? 'icon' : 'default'}
+              aria-pressed={trash}
+              aria-label={mobile ? t('list.trash') : undefined}
+              onClick={() => updateParams({ trashed: trash ? null : 'only' })}
+            >
+              <Trash2 />
+              {!mobile && t('list.trash')}
+            </Button>
+          )}
+          {mobile && selectable && (
+            <Button
+              variant={selectMode ? 'secondary' : 'outline'}
+              size="icon"
+              aria-pressed={selectMode}
+              aria-label={t(selectMode ? 'list.done' : 'list.select')}
+              onClick={() => {
+                setSelectMode(!selectMode);
+                setSelected(new Set());
+              }}
+            >
+              <ListChecks />
+            </Button>
+          )}
+          {!trash && resourceActions(s).map((action) => <ActionButton key={action.name} resource={s.name} action={action} onDone={() => undefined} />)}
+          {s.creatable && !trash && (
+            <Button asChild size={mobile ? 'icon' : 'default'} className={cn(mobile && 'size-10')}>
+              <Link to={`/${s.name}/new`} aria-label={mobile ? t('list.new') : undefined}>
+                <Plus />
+                {!mobile && t('list.new')}
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
-      <FilterBar schema={s} params={searchParams} onChange={updateParams} />
+      <FilterBar schema={s} params={searchParams} onChange={updateParams} trailing={<ColumnMenu schema={s} prefs={prefs} />} />
 
       {list.isError && (
         <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -173,39 +237,7 @@ export function ListPage() {
       {restore.isError && <PageMessage tone="error">{describeError(restore.error)}</PageMessage>}
       {trash && <p className="text-sm text-muted-foreground">{t('list.trashNote')}</p>}
 
-      {selectable && selected.size > 0 && (
-        <div role="region" aria-label={t('list.selected', { count: selected.size })} className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-          <span className="font-medium">{t('list.selected', { count: selected.size })}</span>
-          {selectedActions.map((action) => (
-            <ActionButton
-              key={action.name}
-              resource={s.name}
-              action={action}
-              ids={[...selected]}
-              size="sm"
-              onDone={(outcome, ids) => {
-                const result = selectionResult(outcome, ids);
-                setSelected(new Set());
-                bulkDelete.reset();
-                setBulkOutcome({ title: t('action.bulkDone', { action: action.label, count: result.ok.length }), result });
-              }}
-            />
-          ))}
-          {!can.delete ? null : confirmingBulk ? (
-            <Button variant="destructive" size="sm" disabled={bulkDelete.isPending} onClick={() => bulkDelete.mutate([...selected])}>
-              {t('list.confirmDeleteSelected', { count: selected.size })}
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => setConfirmingBulk(true)}>
-              <Trash2 />
-              {t('list.deleteSelected')}
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-            {t('list.clearSelection')}
-          </Button>
-        </div>
-      )}
+      {mobile && selectionBar}
       {bulkOutcome && <BulkSummary title={bulkOutcome.title} result={bulkOutcome.result} items={items} />}
       {bulkDelete.isError && <PageMessage tone="error">{describeError(bulkDelete.error)}</PageMessage>}
 
@@ -235,7 +267,9 @@ export function ListPage() {
         />
       ) : (
         <>
-          <div className="overflow-x-auto rounded-lg border">
+          <section className="overflow-hidden rounded-card border bg-card shadow-card">
+          {selectionBar}
+          <div className="overflow-x-auto">
             <Table className={cn(prefs.density === 'compact' && '[&_td]:py-1 [&_th]:h-8')}>
               <TableHeader>
                 <TableRow>
@@ -287,6 +321,7 @@ export function ListPage() {
                 {items.map((item) => (
                   <TableRow
                     key={String(item._id)}
+                    data-state={selected.has(String(item._id)) ? 'selected' : undefined}
                     className={trash ? undefined : 'cursor-pointer focus-visible:bg-muted/50 focus-visible:outline-none'}
                     tabIndex={trash ? undefined : 0}
                     onClick={trash ? undefined : () => setQuickView(item)}
@@ -320,7 +355,7 @@ export function ListPage() {
                     {columns.map((column, index) => (
                       <TableCell key={column.name}>
                         {index === 0 && !trash ? (
-                          <Link to={recordPath(item)} className="font-medium hover:underline" onClick={(event) => event.stopPropagation()}>
+                          <Link to={recordPath(item)} className="font-semibold hover:underline" onClick={(event) => event.stopPropagation()}>
                             {formatCell(item[column.name], column)}
                           </Link>
                         ) : !trash && s.list.editable.includes(column.name) && !(Array.isArray(item._readonly) && item._readonly.includes(column.name)) && (item._perm as { update?: boolean } | undefined)?.update !== false ? (
@@ -357,22 +392,35 @@ export function ListPage() {
               </TableBody>
             </Table>
           </div>
-
-
-          <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-            <span>{pager.summary}</span>
-            <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3 border-t px-3.5 py-2.5 text-[13px] text-muted-foreground">
+            <span>{rangeText(list.data, keyset ? 1 : page, items.length) || pager.summary}</span>
+            <div className="ms-auto flex items-center gap-2">
+              {!keyset && (
+                <label className="flex items-center gap-2">
+                  {t('list.rowsPerPage')}
+                  <select
+                    className="h-8 rounded-lg border border-input bg-card px-2 text-[12.5px] text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                    value={list.data?.pageSize ?? s.list.pageSize}
+                    onChange={(event) => updateParams({ pageSize: Number(event.target.value) === s.list.pageSize ? null : event.target.value })}
+                  >
+                    {pageSizeOptions(s.list.pageSize).map((size) => (
+                      <option key={size} value={size}>
+                        {formatNumber(size)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <span>{pager.label}</span>
               <Button variant="outline" size="icon-sm" aria-label={t('list.previousPage')} disabled={!hasPrevious} onClick={previousPage}>
                 <ChevronLeft className="rtl:rotate-180" />
               </Button>
-              <span>
-                {pager.label}
-              </span>
               <Button variant="outline" size="icon-sm" aria-label={t('list.nextPage')} disabled={!pager.hasNext} onClick={nextPage}>
                 <ChevronRight className="rtl:rotate-180" />
               </Button>
             </div>
           </div>
+          </section>
         </>
       )}
       <QuickView schema={s} item={quickView} onClose={() => setQuickView(undefined)} />

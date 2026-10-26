@@ -1,5 +1,5 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
-import { ArrowDown, ArrowUp, Check, Columns3 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, ChevronDown, Columns3 } from 'lucide-react';
 import { Checkbox, Popover } from 'radix-ui';
 import type { ResourceSchema } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
@@ -16,13 +16,14 @@ export function ColumnMenu({ schema, prefs }: { schema: ResourceSchema; prefs: C
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <Button variant="outline" className="hidden md:inline-flex">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex">
           <Columns3 />
           {t('list.columns')}
+          <ChevronDown className="text-muted-foreground" />
         </Button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content align="end" sideOffset={4} className="z-50 flex w-72 flex-col gap-3 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md">
+        <Popover.Content align="end" sideOffset={4} className="z-50 flex w-72 flex-col gap-3 rounded-[10px] border bg-popover p-3 text-popover-foreground shadow-lg">
           <ul aria-label={t('list.columns')} className="flex flex-col gap-0.5">
             {all.map((name, index) => {
               const shown = !prefs.hidden.includes(name);

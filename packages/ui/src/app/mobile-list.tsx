@@ -74,10 +74,10 @@ export function MobileList({ schema, query, columns, trash, selectMode, selected
 
   return (
     <div className="flex flex-col gap-2">
-      <ul aria-label={schema.label} aria-busy={list.isFetching} className="flex flex-col gap-2">
+      <ul aria-label={schema.label} aria-busy={list.isFetching} className="flex flex-col gap-2.5">
         {list.isPending &&
           Array.from({ length: 4 }, (_, index) => (
-            <li key={`skeleton-${index}`} aria-hidden className="h-20 animate-pulse rounded-lg border bg-muted/40" />
+            <li key={`skeleton-${index}`} aria-hidden className="h-20 animate-pulse rounded-card border bg-muted/40" />
           ))}
         {items.map((item) => {
           const id = String(item._id);
@@ -85,17 +85,17 @@ export function MobileList({ schema, query, columns, trash, selectMode, selected
           return (
             <li key={id}>
               {trash ? (
-                <div className="flex items-start justify-between gap-2 rounded-lg border p-3">
+                <div className="flex items-start justify-between gap-2 rounded-card border bg-card p-3 shadow-card">
                   {card}
                   {restore(item)}
                 </div>
               ) : selectMode ? (
-                <label className={cn('flex cursor-pointer items-start gap-3 rounded-lg border p-3', selected.has(id) && 'border-primary bg-primary/5')}>
-                  <input type="checkbox" className="mt-1 size-4 accent-primary" checked={selected.has(id)} onChange={() => toggle(id)} aria-label={t('list.selectRow', { name: String(item._title ?? id) })} />
+                <label className={cn('flex cursor-pointer items-start gap-3 rounded-card border bg-card p-3 shadow-card', selected.has(id) && 'border-primary bg-primary-soft')}>
+                  <input type="checkbox" className="mt-0.5 size-4 accent-primary" checked={selected.has(id)} onChange={() => toggle(id)} aria-label={t('list.selectRow', { name: String(item._title ?? id) })} />
                   {card}
                 </label>
               ) : (
-                <Link to={`/${schema.name}/${encodeURIComponent(id)}`} className="block rounded-lg border p-3 active:bg-muted">
+                <Link to={`/${schema.name}/${encodeURIComponent(id)}`} className="block rounded-card border bg-card p-3 shadow-card active:bg-muted">
                   {card}
                 </Link>
               )}
@@ -133,7 +133,7 @@ function MobileCard({ schema, item, columns }: { schema: ResourceSchema; item: A
   if (!config) {
     return (
       <div className="min-w-0 flex-1">
-        <div className="font-medium">{title}</div>
+        <div className="text-[14.5px] font-semibold">{title}</div>
         <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-sm">
           {columns
             .filter((column) => formatCell(item[column.name], column) !== item._title) // the title is shown above
@@ -157,7 +157,7 @@ function MobileCard({ schema, item, columns }: { schema: ResourceSchema; item: A
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
       <div className="flex items-start justify-between gap-2">
-        <span className="min-w-0 truncate font-medium">{titleField ? formatCell(item[titleField.name], titleField) : title}</span>
+        <span className="min-w-0 truncate text-[14.5px] font-semibold">{titleField ? formatCell(item[titleField.name], titleField) : title}</span>
         {badgeField && item[badgeField.name] !== null && item[badgeField.name] !== undefined && <ValueBadge value={item[badgeField.name]} field={badgeField} className="shrink-0" />}
       </div>
       {subtitleField && <span className="truncate text-sm text-muted-foreground">{formatCell(item[subtitleField.name], subtitleField)}</span>}

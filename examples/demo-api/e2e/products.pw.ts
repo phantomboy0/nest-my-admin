@@ -1,4 +1,4 @@
-import { openAccountMenu } from './shell';
+import { openAccountMenu } from './shell.js';
 import { expect, test, type Page } from '@playwright/test';
 import { totpCode } from '@nest-my-admin/auth';
 
@@ -78,19 +78,23 @@ test('deep link refresh works and errors are shown where they belong', async ({ 
 
 test('filters and search narrow the list', async ({ page, isMobile }) => {
   await page.goto('/admin/product');
+  // Desktop: each filter is a chip opening its control; phones: the drawer.
   if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
-  await page.getByLabel('Status', { exact: true }).click();
+  else await page.getByRole('list', { name: 'Filters' }).getByRole('button', { name: 'Status', exact: true }).click();
   await page.getByRole('checkbox', { name: 'draft' }).click();
-  await page.keyboard.press('Escape');
   if (isMobile) await page.getByRole('button', { name: 'Show results' }).click();
+  else await page.keyboard.press('Escape');
   await expect(page).toHaveURL(/filter%5Bstatus%5D%5Bin%5D=draft/);
-  await expect(page.getByRole('list', { name: 'Active filters' })).toContainText('Status:Draft');
+  // Desktop shows the values on the filter chips; phones list the active filters under the bar.
+  await expect(page.getByRole('list', { name: isMobile ? 'Active filters' : 'Filters' })).toContainText('Status:Draft');
   await expect(page.getByText('DEMO-3', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 
+  if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click(); // phones clear in the drawer
   await page.getByRole('button', { name: 'Clear filters' }).click();
+  if (isMobile) await page.getByRole('button', { name: 'Show results' }).click();
   await page.getByLabel('Search', { exact: true }).fill('notebook');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByLabel('Search', { exact: true }).press('Enter');
   await expect(page.getByText('DEMO-2', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });
@@ -165,6 +169,7 @@ test('picks a category and tags, filters by category, and refuses to delete a ca
   if (!isMobile) await expect(row).toContainText('Bestseller, Eco'); // phone cards show list.mobile's fields
 
   if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  else await page.getByRole('list', { name: 'Filters' }).getByRole('button', { name: 'Category', exact: true }).click();
   await page.getByRole('combobox', { name: 'Category' }).fill('furn');
   await page.getByRole('option', { name: 'Furniture' }).click();
   await expect(page).toHaveURL(/filter%5BcategoryId%5D%5Beq%5D=\d+/);
@@ -173,6 +178,7 @@ test('picks a category and tags, filters by category, and refuses to delete a ca
 
   await page.reload(); // the filter's title is looked up from the id in the URL
   if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  else await page.getByRole('list', { name: 'Filters' }).getByRole('button', { name: /^Category/ }).click();
   await expect(page.getByRole('combobox', { name: 'Category' })).toHaveValue('Furniture');
 
   await page.goto('/admin/category');
@@ -345,7 +351,7 @@ test('bulk delete reports what it could not delete', async ({ page, isMobile }, 
     await expect(page).toHaveURL(/\/admin\/product$/);
   }
   await page.getByLabel('Search', { exact: true }).fill('Bulk');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByLabel('Search', { exact: true }).press('Enter');
   await page.getByRole('checkbox', { name: 'Select all on this page' }).check();
   await expect(page.getByRole('region', { name: '3 selected' })).toBeVisible();
   await page.getByRole('button', { name: 'Delete selected' }).click();
@@ -408,7 +414,7 @@ test('hidden columns survive a reload; a chip removes one filter (Review Focus 3
   await expect(page.getByRole('columnheader', { name: /^Sku/ })).toHaveCount(1);
 
   await page.goto('/admin/product?search=lamp&filter%5Bstatus%5D%5Bin%5D=draft');
-  const chips = page.getByRole('list', { name: 'Active filters' });
+  const chips = page.getByRole('list', { name: 'Filters' });
   await chips.getByRole('button', { name: 'Remove filter Status' }).click();
   await expect(page).toHaveURL(/search=lamp/);
   await expect(page).not.toHaveURL(/status/);
@@ -567,12 +573,13 @@ test('Jalali dates: typed in any digits, picked from the calendar, and used in f
 
   await page.goto('/admin/product');
   if (isMobile) await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  else await page.getByRole('list', { name: 'Filters' }).getByRole('button', { name: 'Released on', exact: true }).click();
   const from = page.getByLabel('From', { exact: true }).and(page.locator('#filter-releasedOn-gte'));
   await from.fill('1403/02/01');
   await from.press('Enter');
   if (isMobile) await page.getByRole('button', { name: 'Show results' }).click();
   await expect(page).toHaveURL(/filter%5BreleasedOn%5D%5Bgte%5D=2024-04-20/);
-  await expect(page.getByRole('list', { name: 'Active filters' })).toContainText('1403');
+  await expect(page.getByRole('list', { name: isMobile ? 'Active filters' : 'Filters' })).toContainText('1403');
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });
 

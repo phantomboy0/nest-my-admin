@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { clearFilters, filterKey, hasActiveFilters, listQueryFromUrl, paging, withChanges } from './list-state';
+import { activeFilterCount, restoreFilters, clearFilters, filterKey, hasActiveFilters, listQueryFromUrl, pageSizeOptions, paging, rangeText, withChanges } from './list-state';
 
 describe('list state', () => {
   test('listQueryFromUrl keeps list params only, drops empties and sorts keys', () => {
@@ -36,4 +36,34 @@ describe('paging', () => {
     expect(paging({ total: null, hasMore: true, pageSize: 25 }, 3)).toEqual({ summary: '', label: 'Page 3', hasNext: true });
     expect(paging({ total: null, hasMore: false, pageSize: 25 }, 3).hasNext).toBe(false);
   });
+});
+
+describe('footer', () => {
+  test('rangeText names the rows on screen when the total is exact', () => {
+    expect(rangeText({ total: 1234, pageSize: 25 }, 2, 25)).toBe('Showing 26 to 50 of 1,234');
+    expect(rangeText({ total: 30, pageSize: 25 }, 2, 5)).toBe('Showing 26 to 30 of 30');
+    expect(rangeText({ total: 0, pageSize: 25 }, 1, 0)).toBe('');
+    expect(rangeText({ total: 12000, estimated: true, pageSize: 25 }, 1, 25)).toBe('about 12,000');
+    expect(rangeText({ total: null, pageSize: 25 }, 1, 25)).toBe('');
+    expect(rangeText(undefined, 1, 0)).toBe('');
+  });
+
+  test('pageSizeOptions adds the default to the usual sizes, up to the server maximum', () => {
+    expect(pageSizeOptions(25)).toEqual([10, 20, 25, 50, 100]);
+    expect(pageSizeOptions(20)).toEqual([10, 20, 50, 100]);
+    expect(pageSizeOptions(8)).toEqual([8, 10, 20, 50, 100]);
+  });
+});
+
+test('activeFilterCount counts filtered fields, not conditions or the search', () => {
+  const params = new URLSearchParams('search=x&filter[price][gte]=1&filter[price][lte]=9&filter[status][in]=a,b&filter[tag][eq]=&page=2');
+  expect(activeFilterCount(params)).toBe(2);
+  expect(activeFilterCount(new URLSearchParams('search=x'))).toBe(0);
+});
+
+test('restoreFilters undoes filter, search and sort changes back to a snapshot', () => {
+  const before = new URLSearchParams('sort=-price&filter[status][in]=draft&pageSize=50');
+  const now = new URLSearchParams('sort=name&filter[status][in]=draft,active&filter[price][gte]=3&search=x&pageSize=50');
+  expect(restoreFilters(now, before)).toEqual({ 'filter[price][gte]': null, 'filter[status][in]': 'draft', search: null, sort: '-price' });
+  expect(restoreFilters(before, before)).toEqual({});
 });

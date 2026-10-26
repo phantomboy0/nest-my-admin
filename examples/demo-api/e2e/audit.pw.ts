@@ -1,4 +1,4 @@
-import { openAccountMenu } from './shell';
+import { openAccountMenu } from './shell.js';
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
 /** The session's CSRF token as a header, for writes through `page.request` (it shares the signed-in cookie). */

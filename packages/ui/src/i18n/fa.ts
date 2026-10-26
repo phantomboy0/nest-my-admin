@@ -57,6 +57,8 @@ export const fa: Messages = {
   'list.about': 'حدود {count}',
   'list.page': 'صفحه {page}',
   'list.pageOf': 'صفحه {page} از {pages}',
+  'list.range': 'نمایش {from} تا {to} از {total}',
+  'list.rowsPerPage': 'ردیف در صفحه',
   'list.previousPage': 'صفحه قبل',
   'list.nextPage': 'صفحه بعد',
   'list.columns': 'ستون‌ها',
