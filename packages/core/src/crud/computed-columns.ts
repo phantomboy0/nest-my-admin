@@ -169,7 +169,9 @@ export async function loadComputed(
           ? fieldFor(source.relation.inverseEntityMetadata.target as Function, source.field!)
           : undefined;
     if (!field) return raw;
-    return new Map([...raw].map(([id, value]) => [id, serializeValue(value, field)]));
+    // Drivers answer SUM/MIN/MAX of an integer as text (Postgres bigint): a number field stays a number.
+    const typed = (value: unknown) => (field.type === 'number' && typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value)) ? Number(value) : value);
+    return new Map([...raw].map(([id, value]) => [id, serializeValue(typed(value), field)]));
   };
   const readRaw = async (source: CompiledSource): Promise<Map<string, unknown>> => {
     const byRow = new Map<string, unknown>();
@@ -268,7 +270,8 @@ export function addComputedSort(qb: SelectQueryBuilder<ObjectLiteral>, compiled:
   const child = source.relation.inverseEntityMetadata;
   const childPk = child.primaryColumns[0]!.propertyName;
   const sub = childQuery(child.target as Function, 'nma_s', ctx).andWhere(`nma_s.${source.relation.inverseRelation!.propertyName} = ${qb.alias}.${metadata.primaryColumns[0]!.propertyName}`);
-  if (source.type === 'aggregate') sub.select(`${source.fn.toUpperCase()}(nma_s.${source.field ?? childPk})`);
+  // A sum over no rows is 0, not NULL: drivers place NULLs differently when sorting (first in Postgres descending).
+  if (source.type === 'aggregate') sub.select(source.fn === 'sum' ? `COALESCE(SUM(nma_s.${source.field}), 0)` : `${source.fn.toUpperCase()}(nma_s.${source.field ?? childPk})`);
   else sub.select(`nma_s.${source.field}`).orderBy(`nma_s.${source.by}`, 'ASC').addOrderBy(`nma_s.${childPk}`, 'ASC').limit(1);
   qb.addSelect(`(${sub.getQuery()})`, 'nma_sort').setParameters({ ...qb.getParameters(), ...sub.getParameters() });
   return 'nma_sort';
