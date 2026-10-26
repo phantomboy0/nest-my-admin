@@ -4,7 +4,7 @@ import { encodeCursor } from '../crud/cursor.js';
 import { applyListParams } from '../crud/list-query-builder.js';
 import { toRelationReferences } from '../crud/relation-writes.js';
 import { toFileKeys } from '../files/admin-file.js';
-import type { FilterOperator, SortDirection } from '../contract.js';
+import type { FilterOperator, SortDirection, Tone } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
@@ -70,8 +70,8 @@ export interface ListConfig<T> {
    * tables; it sorts only by non-nullable columns, and counts nothing unless `count` says so.
    */
   pagination?: 'offset' | 'keyset';
-  /** Default: every column except json and text, and every to-one relation. */
-  columns?: FieldPath<T>[];
+  /** Default: every column except json and text, and every to-one relation. May name `computed` columns. */
+  columns?: Array<FieldPath<T> | (string & {})>;
   /** `'name'` for ascending, `'-createdAt'` for descending. Defaults to `-<primary key>`. */
   sort?: FieldPath<T> | `-${FieldPath<T>}`;
   pageSize?: number;
@@ -88,7 +88,42 @@ export interface ListConfig<T> {
    * Cards on phones (spec §9.3): the title (default: the record title), a subtitle, a badge and a line of meta fields.
    * Fields or paths, like `columns`; without it a card shows the title, then the columns.
    */
-  mobile?: { title?: FieldPath<T>; subtitle?: FieldPath<T>; badge?: FieldPath<T>; meta?: FieldPath<T>[] };
+  mobile?: { title?: FieldPath<T> | (string & {}); subtitle?: FieldPath<T> | (string & {}); badge?: FieldPath<T> | (string & {}); meta?: Array<FieldPath<T> | (string & {})> };
+  /**
+   * Columns computed for each page of the list (spec §5.4): an image, a title with a subline, money with a previous
+   * price, a status badge, a count or an on/off toggle, from a field or path, an aggregate or first row of a one-to-many
+   * relation, an enum toggle, or your own batch function. Name them in `columns` (and `mobile`). A column is cut for a
+   * viewer who cannot see a field or relation it reads; aggregates and first rows count only the rows the viewer sees.
+   */
+  computed?: Record<string, ComputedColumn<T>>;
+}
+
+/** Where a computed column's value comes from. */
+export type ComputedSource<T = any> =
+  /** A field or a to-one path (`category.name`). */
+  | FieldPath<T>
+  | (string & {})
+  /** Over a one-to-many relation's rows (the viewer's rows only): `count` needs no field. */
+  | { aggregate: 'min' | 'max' | 'sum' | 'count'; relation: string; field?: string }
+  /** A field of the relation's first row by `by` (the first SKU, the first image). */
+  | { first: string; field: string; by: string }
+  /** An enum field shown as a switch: `on` is checked, a click writes `on` or `off` (a normal PATCH). */
+  | { toggle: string; on: string; off: string }
+  /** Your own values, called once per page with its rows: `{ [rowId]: value }`. `fields` are the fields it reads. */
+  | { compute: (rows: T[], ctx: AdminContext) => Promise<Record<string, unknown>>; fields: string[] };
+
+export interface ComputedColumn<T = any> {
+  label: LocalizedText;
+  kind: 'image' | 'title' | 'money' | 'badge' | 'count' | 'toggle';
+  source: ComputedSource<T>;
+  /** `title`: the muted line under it (a SKU). */
+  subline?: ComputedSource<T>;
+  /** `money`: the earlier price, struck through. */
+  previous?: ComputedSource<T>;
+  /** `badge`: the value's label and tone; receives the row too. */
+  map?: (value: unknown, row: T) => { label: LocalizedText; tone: Tone };
+  /** `aggregate` and `first` sources only. */
+  sortable?: boolean;
 }
 
 export interface FormConfig {
@@ -134,6 +169,19 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return this.#scoper ? this.#scoper(restricted, ctx) : restricted;
   }
 
+  #computedSort?: (qb: SelectQueryBuilder<any>, field: string, ctx: AdminContext | undefined) => string | undefined;
+
+
+  /** @internal Called once by the registry: sorts by a sortable computed column (`list.computed`). */
+  attachComputedSort(sorter: (qb: SelectQueryBuilder<any>, field: string, ctx: AdminContext | undefined) => string | undefined): void {
+    this.#computedSort = sorter;
+  }
+
+  /** @internal A query of this resource's rows as `ctx`'s user may read them (`query()` and scopes): computed columns of other resources aggregate over it. */
+  readQuery(alias: string, ctx: AdminContext | undefined): SelectQueryBuilder<T> {
+    return this.restrict((ctx ? this.repositoryFor(ctx) : this.repository).createQueryBuilder(alias), ctx);
+  }
+
   /** @internal Called once by the registry during bootstrap. */
   attachRepository(repository: Repository<T>): void {
     this.#repository = repository;
@@ -163,8 +211,10 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    */
   protected buildListQuery(params: ListParams, ctx?: AdminContext, alias = 'entity'): SelectQueryBuilder<T> {
     const repository = ctx ? this.repositoryFor(ctx) : this.repository;
-    const qb = this.restrict(repository.createQueryBuilder(alias), ctx ?? AdminContext.current());
-    return applyListParams(qb, params, repository.metadata);
+    const context = ctx ?? AdminContext.current();
+    const qb = this.restrict(repository.createQueryBuilder(alias), context);
+    const sorter = this.#computedSort;
+    return applyListParams(qb, params, repository.metadata, sorter && ((query, field) => sorter(query, field, context)));
   }
 
   /**

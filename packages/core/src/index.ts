@@ -12,6 +12,8 @@ export {
   type FindManyResult,
   type CountMode,
   type FormConfig,
+  type ComputedColumn,
+  type ComputedSource,
   type ListConfig,
   type ListParams,
   type RecordId,

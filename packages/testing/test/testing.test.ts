@@ -65,6 +65,16 @@ class ProjectAdmin extends AdminResourceBase<Project> {
 @AdminResource(Project, { name: 'leaky-project', title: (project: Project) => `${project.name} (${project.secret})` })
 class LeakyProjectAdmin extends AdminResourceBase<Project> {}
 
+/** A computed column that reads a hidden field but declares only `name`: the crawler must catch it in `_computed`. */
+@Injectable()
+@AdminResource(Project, { name: 'computed-project', title: 'name' })
+class ComputedProjectAdmin extends AdminResourceBase<Project> {
+  list: ListConfig<Project> = {
+    columns: ['name', 'shout'],
+    computed: { shout: { label: 'Shout', kind: 'count', source: { compute: async (rows: Project[]) => Object.fromEntries(rows.map((row) => [String(row.id), `${row.name}:${row.secret}`])), fields: ['name'] } } },
+  };
+}
+
 @Injectable()
 @AdminResource(Task, { title: 'name' })
 class TaskAdmin extends AdminResourceBase<Task> {
@@ -142,7 +152,7 @@ class ShopPage implements AdminSettingsSource<ShopDto> {
   }
 }
 
-@Module({ providers: [ProjectAdmin, LeakyProjectAdmin, TaskAdmin, LeakyTaskAdmin, CodedTaskAdmin, BoardAdmin, ParcelAdmin, ShopPage] })
+@Module({ providers: [ProjectAdmin, LeakyProjectAdmin, ComputedProjectAdmin, TaskAdmin, LeakyTaskAdmin, CodedTaskAdmin, BoardAdmin, ParcelAdmin, ShopPage] })
 class AppModule {}
 
 let db: TestDatabase;
@@ -161,6 +171,7 @@ beforeAll(async () => {
           { name: 'member', permissions: ['project.view', 'project.create', 'project.update', 'task.view'], fields: { project: { secret: 'hidden' } }, scopes: { project: { view: 'own', update: 'own' } } },
           { name: 'nosy', permissions: ['project.view', 'leaky-task.view'], scopes: { project: { view: 'own' } } },
           { name: 'leaky', permissions: ['leaky-project.view'], fields: { 'leaky-project': { secret: 'hidden' } } },
+          { name: 'computer', permissions: ['computed-project.view'], fields: { 'computed-project': { secret: 'hidden' } } },
           { name: 'editor', permissions: ['parcel.view', 'parcel.update', 'parcel.action.ship', 'page.shop', 'page.shop.update'] },
           { name: 'viewer', permissions: ['parcel.view', 'page.shop'] },
           { name: 'coder', permissions: ['coded-task.view', 'board.view'], fields: { 'coded-task': { code: 'hidden' } } },
@@ -381,6 +392,12 @@ describe(`@nest-my-admin/testing (${TEST_DB})`, () => {
     } finally {
       leaky.mockRestore();
     }
+  });
+
+  test('expectNoLeaks reads computed cells (`_computed`)', async () => {
+    const error = await admin.expectNoLeaks('computed-project', { as: { id: 'u1', roles: ['computer'] } }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AdminLeakError);
+    expect((error as AdminLeakError).report.leaks.some((leak) => leak.kind === 'hidden-value' && leak.field === 'secret' && leak.where.includes('._computed.shout.value'))).toBe(true);
   });
 
   test('expectNoLeaks reads the rows a parent lists inline (`_inlines`)', async () => {

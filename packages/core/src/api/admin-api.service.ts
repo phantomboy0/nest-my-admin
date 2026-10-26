@@ -11,6 +11,7 @@ import { toActionSchema } from '../decorators/admin-action.js';
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
 import { buildMenu, checkMenu } from './menu.js';
+import { loadComputed } from '../crud/computed-columns.js';
 import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { likePattern } from '../crud/list-query-builder.js';
 import { parseId } from '../crud/list-query.js';
@@ -189,7 +190,9 @@ export class AdminApiService {
     const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, locale, this.options.locale);
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
     const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
-    const localized = { ...entry.schema, label: text(entry.label), related, fields, form, actions };
+    const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label) }]));
+    const list = computed ? { ...entry.schema.list, computed } : entry.schema.list;
+    const localized = { ...entry.schema, label: text(entry.label), related, fields, form, actions, list };
     const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
     // The child schema of every inline left in the layout (the policy removed those the user may not view).
     const children = (schema.form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('inline' in node ? [node.inline] : []));
@@ -217,8 +220,16 @@ export class AdminApiService {
     const mobile = schema.list.mobile;
     const shown = new Set([...schema.list.columns, ...(mobile ? [mobile.title, mobile.subtitle, mobile.badge, ...mobile.meta] : [])]);
     const loaded = schema.fields.filter((field) => isLoadedField(field) && shown.has(field.name));
+    const records = await this.records(entry, items, loaded, ctx);
+    // Computed columns the viewer sees (the schema kept only those) and the page shows: one batch for the page.
+    const computed = [...entry.computed.values()].filter((column) => schema.list.computed?.[column.key] && shown.has(column.key));
+    if (computed.length > 0) {
+      const locale = ctx.locale ?? this.options.locale;
+      const values = await loadComputed(computed, items, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (entity, field) => this.registry.forEntity(entity, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+      for (const record of records) record._computed = values.get(String(record._id)) ?? {};
+    }
     return {
-      items: await this.records(entry, items, loaded, ctx),
+      items: records,
       total: total ?? null,
       ...(estimated ? { estimated: true } : {}),
       ...(hasMore !== undefined ? { hasMore } : {}),

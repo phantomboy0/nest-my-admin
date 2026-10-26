@@ -152,7 +152,10 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       .filter((field) => field.type !== 'json' && field.type !== 'text' && field.type !== 'object' && field.relation?.kind !== 'to-many')
       .map((field) => field.name);
   if (columns.length === 0) fail('list.columns must name at least one column');
-  for (const column of columns) lookup('list.columns', column);
+  const computedConfig = resource.list?.computed ?? {};
+  const isComputed = (name: string) => Object.hasOwn(computedConfig, name);
+  for (const key of Object.keys(computedConfig)) if (byName.has(key)) fail(`list.computed.${key}: the name is a field's; give the column another name`);
+  for (const column of columns) if (!isComputed(column)) lookup('list.columns', column);
 
   const rawSort: string = resource.list?.sort ?? `-${primaryKeys[0]}`;
   const direction: SortDirection = rawSort.startsWith('-') ? 'desc' : 'asc';
@@ -177,8 +180,8 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       }
     : undefined;
   if (mobile) {
-    for (const key of ['title', 'subtitle', 'badge'] as const) if (mobile[key]) lookup(`list.mobile.${key}`, mobile[key]);
-    for (const name of mobile.meta) lookup('list.mobile.meta', name);
+    for (const key of ['title', 'subtitle', 'badge'] as const) if (mobile[key] && !isComputed(mobile[key])) lookup(`list.mobile.${key}`, mobile[key]);
+    for (const name of mobile.meta) if (!isComputed(name)) lookup('list.mobile.meta', name);
   }
   for (const [setting, names] of [['list.columns', columns], ['list.filters', resource.list?.filters ?? []], ['list.search', resource.list?.search ?? []], ['list.editable', editable]] as const) {
     const repeated = names.find((name, index) => names.indexOf(name) !== index);
@@ -216,7 +219,11 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   if (pagination === 'keyset') {
     if (!keysetSortable(sortField)) fail(`list.sort: keyset lists sort by a non-nullable column, not "${sortField}"`);
     sortable = sortable.filter(keysetSortable);
+    const sortedComputed = Object.keys(computedConfig).find((key) => computedConfig[key]!.sortable);
+    if (sortedComputed) fail(`list.computed.${sortedComputed}: keyset lists cannot sort by a computed column`);
   }
+  // Aggregates and first rows sort through a subquery (checkComputed allows `sortable` on those only).
+  sortable = [...sortable, ...Object.keys(computedConfig).filter((key) => computedConfig[key]!.sortable)];
 
   const entityConstraints = (name: string, field = byName.get(name), column = columnByName.get(name)): FieldConstraints => {
     if (!field) return {};
@@ -324,6 +331,25 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       search,
       editable,
       ...(mobile ? { mobile } : {}),
+      ...(Object.keys(computedConfig).length > 0
+        ? {
+            computed: Object.fromEntries(
+              Object.entries(computedConfig).map(([key, column]) => {
+                const source = column.source as { toggle?: string; on?: string; off?: string };
+                return [
+                  key,
+                  {
+                    // The first language given; AdminApiService localizes per request.
+                    label: typeof column.label === 'string' ? column.label : (Object.values(column.label)[0] ?? key),
+                    kind: column.kind,
+                    sortable: column.sortable === true,
+                    ...(typeof source === 'object' && source.toggle ? { toggle: { field: source.toggle, on: source.on!, off: source.off! } } : {}),
+                  },
+                ];
+              }),
+            ),
+          }
+        : {}),
     },
     form: {
       create,

@@ -184,6 +184,31 @@ export class AdminPolicy implements OnApplicationBootstrap {
     return levels;
   }
 
+  /**
+   * The computed columns (`list.computed`) this user may see (spec §5.4, Review Focus 2): every field, path and child
+   * entity a column reads must be visible to them; a child with a resource needs its view permission and fields.
+   */
+  computedVisible(entry: RegisteredResource, ctx: AdminContext, levels = this.levels(entry, ctx)): Set<string> {
+    const perms = this.permissionsOf(ctx);
+    const shown = (name: string): boolean => {
+      if (name.includes('.')) return this.pathLevel(entry, name, levels, ctx) !== 'hidden';
+      const relationField = [...entry.relations.entries()].find(([, relation]) => relation.propertyName === name)?.[0];
+      return (levels.get(relationField ?? name) ?? 'hidden') !== 'hidden';
+    };
+    const visible = new Set<string>();
+    for (const [key, column] of entry.computed) {
+      const children = column.deps.children.every(({ entity, fields }) => {
+        const child = this.registry.forEntity(entity, entry.dataSource);
+        if (!child) return true;
+        if (!perms.canOn(child.schema.name, 'view')) return false;
+        const childLevels = this.levels(child, ctx);
+        return fields.every((field) => (childLevels.get(field) ?? 'hidden') !== 'hidden');
+      });
+      if (children && column.deps.own.every(shown)) visible.add(key);
+    }
+    return visible;
+  }
+
   /** A path (`category.name`) is shown only when its relation field is, and the user may see the column where it lives. */
   private pathLevel(entry: RegisteredResource, path: string, levels: Map<string, FieldLevel>, ctx: AdminContext): FieldLevel {
     const [head, ...rest] = path.split('.');
@@ -205,7 +230,8 @@ export class AdminPolicy implements OnApplicationBootstrap {
   view(entry: RegisteredResource, schema: ResourceSchema, ctx: AdminContext): ResourceView {
     const perms = this.permissionsOf(ctx);
     const levels = this.levels(entry, ctx);
-    const visible = (name: string) => RANK[levels.get(name) ?? 'hidden'] >= 1;
+    const computed = this.computedVisible(entry, ctx, levels);
+    const visible = (name: string) => (entry.computed.has(name) ? computed.has(name) : RANK[levels.get(name) ?? 'hidden'] >= 1);
     const editable = (name: string) => (levels.get(name) ?? 'hidden') === 'edit';
     const r = schema.name;
     const permissions = {
@@ -241,6 +267,16 @@ export class AdminPolicy implements OnApplicationBootstrap {
         filters: schema.list.filters.filter((filter) => visible(filter.field)),
         search: keep(schema.list.search, visible),
         editable: permissions.update ? keep(schema.list.editable, editable) : [],
+        ...(schema.list.computed
+          ? {
+              computed: Object.fromEntries(
+                Object.entries(schema.list.computed)
+                  .filter(([key]) => computed.has(key))
+                  // A toggle writes its field: only for whoever may edit it.
+                  .map(([key, column]) => [key, column.toggle && !(permissions.update && editable(column.toggle.field)) ? { ...column, toggle: undefined } : column]),
+              ),
+            }
+          : {}),
         ...(mobile
           ? {
               mobile: {

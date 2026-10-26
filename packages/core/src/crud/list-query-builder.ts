@@ -97,7 +97,13 @@ function applyFilter<T extends ObjectLiteral>(qb: SelectQueryBuilder<T>, column:
  * Applies filters, search, sort (with the primary key as tie-breaker, so pages never overlap) and paging.
  * Field names come from the resource schema's allow-lists (parseListQuery); values are always bound parameters.
  */
-export function applyListParams<T extends ObjectLiteral>(qb: SelectQueryBuilder<T>, params: ListParams, metadata: EntityMetadata): SelectQueryBuilder<T> {
+export function applyListParams<T extends ObjectLiteral>(
+  qb: SelectQueryBuilder<T>,
+  params: ListParams,
+  metadata: EntityMetadata,
+  /** A sortable computed column (`list.computed`): adds its subquery and returns what to order by, else undefined. */
+  computedSort?: (qb: SelectQueryBuilder<T>, field: string) => string | undefined,
+): SelectQueryBuilder<T> {
   const alias = qb.alias;
   const deleted = metadata.deleteDateColumn;
   if (params.trashed && deleted) {
@@ -115,7 +121,8 @@ export function applyListParams<T extends ObjectLiteral>(qb: SelectQueryBuilder<
     // Every clause binds the same parameters (same term), so one set serves them all.
     qb.andWhere(`(${clauses.map((clause) => clause.sql).join(' OR ')})`, clauses[0]?.params ?? {});
   }
-  const sort = targetOf(qb, metadata, params.sort.field) as { column: string; joinAlias?: string };
+  const computed = computedSort?.(qb, params.sort.field);
+  const sort = computed !== undefined ? { column: computed } : (targetOf(qb, metadata, params.sort.field) as { column: string; joinAlias?: string });
   // With joins, skip/take paginates with a DISTINCT query that can only order by selected columns.
   if (sort.joinAlias && !qb.expressionMap.selects.some(({ selection }) => selection === sort.column || selection === sort.joinAlias)) {
     qb.addSelect(sort.column);

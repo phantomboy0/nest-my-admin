@@ -418,6 +418,8 @@ export interface ResourceSchema {
     editable: string[];
     /** Phone cards: fields (or paths) for the title, subtitle, badge and meta line. Without it, the title and the columns. */
     mobile?: { title?: string; subtitle?: string; badge?: string; meta: string[] };
+    /** Computed columns (`list.computed`) this viewer may see, by key; their values are each record's `_computed`. */
+    computed?: Record<string, ComputedColumnSchema>;
   };
   /** False for the root of a single-table inheritance, or when the user may not create. */
   creatable: boolean;
@@ -471,6 +473,8 @@ export interface ResourceSchema {
  * resources with such fields add `_files`: field name → `AdminFileRef` (`AdminFileRef[]` with `file.many`) for every
  * field that holds a file. `GET /resources/:resource/:id` of a resource with inlines adds `_inlines`: child resource
  * name → `InlineRows`, for each inline the user may see; so do the answers of its POST and PATCH, read after the save.
+ * List pages of a resource with `list.computed` add `_computed`: column key → `ComputedValue`, for the computed columns
+ * the user may see and the page shows.
  */
 export type AdminRecord = Record<string, unknown>;
 
@@ -814,6 +818,27 @@ export type LocalizedLabel = string | Record<string, string>;
 
 /** A status colour of the design (badges, computed cells, stat changes). */
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'primary';
+
+/** A computed list column (spec §5.4). */
+export interface ComputedColumnSchema {
+  label: string;
+  kind: 'image' | 'title' | 'money' | 'badge' | 'count' | 'toggle';
+  sortable: boolean;
+  /** `toggle`: the enum field a click writes (PATCH `{ [field]: on | off }`), when the viewer may edit it. */
+  toggle?: { field: string; on: string; off: string };
+}
+
+/**
+ * A computed cell's value (`AdminRecord._computed[key]`): `value` is the main one (an image is a file key, a toggle
+ * a boolean), `subline` and `previous` go with `title` and `money`, `label` and `tone` with `badge`.
+ */
+export interface ComputedValue {
+  value: unknown;
+  subline?: unknown;
+  previous?: unknown;
+  label?: string;
+  tone?: Tone;
+}
 
 /** A money unit as shown: `۳٬۲۵۰٬۰۰۰ تومان` (after) or `$12.50` (before). */
 export interface CurrencyDisplay {

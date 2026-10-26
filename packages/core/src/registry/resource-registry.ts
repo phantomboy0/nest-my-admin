@@ -23,6 +23,8 @@ import { humanize, kebabCase } from '../schema/humanize.js';
 import { dbNamesFor, type DbNames } from './db-names.js';
 import { hookWarnings } from './hook-warnings.js';
 import { resolveInlines, type RegisteredInline } from '../inlines/inline-config.js';
+import { addComputedSort, checkComputed, type ChildQuery, type CompiledComputed } from '../crud/computed-columns.js';
+import type { ComputedColumn } from '../resource/admin-resource-base.js';
 
 export interface RegisteredResource {
   schema: ResourceSchema;
@@ -49,6 +51,8 @@ export interface RegisteredResource {
   actions: ReadonlyMap<string, RegisteredAction>;
   /** Where the resource stands among the resources of its group (`@AdminResource({ order })`, default 100). */
   order: number;
+  /** `list.computed`, checked and compiled at boot (spec §5.4). */
+  computed: Map<string, CompiledComputed>;
   /** Listed in navigation (sidebar, home, group pages, palette, global search): `nav`, else false for inline children. */
   nav: boolean;
   /** The `nav` option as set, before the inline-child default is applied. */
@@ -129,6 +133,14 @@ export class ResourceRegistry implements OnModuleInit {
     this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
     resolveInlines(this.list());
+    // Sortable computed columns order by a subquery over the rows the viewer may read.
+    for (const entry of this.list()) {
+      if (![...entry.computed.values()].some((column) => column.column.sortable)) continue;
+      entry.resource.attachComputedSort((qb, field, ctx) => {
+        const column = entry.computed.get(field);
+        return column?.column.sortable ? addComputedSort(qb, column, entry.metadata, ctx, this.childQuery) : undefined;
+      });
+    }
     // Inline children are edited on their parent's page: out of navigation unless they ask to stay.
     for (const child of this.list().flatMap((entry) => entry.inlines.map((inline) => inline.child))) {
       if (child.navOption === undefined) child.nav = false;
@@ -139,6 +151,16 @@ export class ResourceRegistry implements OnModuleInit {
       throw new Error(`${parent.className}: form.layout has inlines, which are saved with their parent in one transaction; the admin's transactions are off (\`transactions: false\`)`);
     }
   }
+
+  /** A child entity's rows as `ctx`'s user may read them: through its resource (query() and scopes) when it has one. */
+  readonly childQuery: ChildQuery = (entity, alias, ctx) => {
+    const child = this.list().find((entry) => entry.entity === entity);
+    if (child) return child.resource.readQuery(alias, ctx);
+    const owner = this.list().find((entry) => entry.dataSource.hasMetadata(entity));
+    const manager = ctx?.manager ?? owner?.dataSource.manager;
+    if (!manager) throw new Error(`nest-my-admin: no DataSource holds ${entity.name}`);
+    return manager.getRepository(entity).createQueryBuilder(alias);
+  };
 
   get(name: string): RegisteredResource {
     const entry = this.resources.get(name);
@@ -253,6 +275,9 @@ export class ResourceRegistry implements OnModuleInit {
       throw new Error(`${className}: ${message}`);
     });
     const schema = buildResourceSchema({ definition, resource, metadata, moduleGroup, className });
+    const computed = checkComputed(resource.list?.computed as Record<string, ComputedColumn> | undefined, metadata, (name) => schema.fields.find((field) => field.name === name)?.enumValues, (message) => {
+      throw new Error(`${className}: ${message}`);
+    });
     const actions = resolveActions(resource.constructor, BASE_MEMBERS, (message) => {
       throw new Error(`${className}: ${message}`);
     });
@@ -307,6 +332,7 @@ export class ResourceRegistry implements OnModuleInit {
       ),
       actions,
       order,
+      computed,
       nav: definition.nav ?? true,
       ...(definition.nav !== undefined ? { navOption: definition.nav } : {}),
       inlines: [],
