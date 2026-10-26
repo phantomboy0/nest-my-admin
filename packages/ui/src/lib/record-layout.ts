@@ -16,7 +16,7 @@ export function layoutFields(schema: ResourceSchema): string[] {
  */
 export function layoutModel(schema: ResourceSchema, record: AdminRecord | undefined, editing: boolean): {
   editable: string[];
-  header: { badges: FieldSchema[]; subtitle: string[] };
+  header: { badges: FieldSchema[]; subtitle: string[]; stepper?: FieldSchema };
   aside: AsideCardSchema[];
 } {
   const viewing = schema.form.mode === 'view' && record !== undefined && !editing;
@@ -26,6 +26,9 @@ export function layoutModel(schema: ResourceSchema, record: AdminRecord | undefi
   const field = (name: string) => schema.fields.find((candidate) => candidate.name === name);
   const present = (candidate: FieldSchema | undefined): candidate is FieldSchema => candidate !== undefined && record?.[candidate.name] !== undefined && record?.[candidate.name] !== null;
   const badges = (header?.badges ? header.badges.map(field) : schema.fields.filter((candidate) => candidate.widget === 'badge')).filter(present);
+  // A stepper whose value is not a step (cancelled) says so in the header instead.
+  const stepper = header?.stepper ? field(header.stepper) : undefined;
+  if (stepper && present(stepper) && stepper.steps?.exclude.includes(String(record![stepper.name])) && !badges.includes(stepper)) badges.push(stepper);
   const computed = (record?._computed ?? {}) as Record<string, ComputedValue>;
   const subtitle = (header?.subtitle ?? []).flatMap((item) => {
     if ('field' in item) {
@@ -37,7 +40,7 @@ export function layoutModel(schema: ResourceSchema, record: AdminRecord | undefi
     const model = cellModel(column, computed[item.computed]);
     return model.text ? [column.kind === 'count' ? `${model.text} ${column.label}` : model.text] : [];
   });
-  return { editable, header: { badges, subtitle }, aside: schema.form.aside ?? [] };
+  return { editable, header: { badges, subtitle, ...(stepper ? { stepper } : {}) }, aside: schema.form.aside ?? [] };
 }
 
 /** A card's rows: the record's own fields, or a relation card's from `_aside` (absent when the user may not see it). */

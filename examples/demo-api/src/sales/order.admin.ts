@@ -15,6 +15,7 @@ import { In } from 'typeorm';
 import { CreateOrderDto, ShipOrderDto, StaleDraftsDto, UpdateOrderDto } from './order.dto.js';
 import { Order } from './order.entity.js';
 import { OrderLineAdmin } from './order-line.admin.js';
+import { OrderStatusLogAdmin } from './order-status-log.admin.js';
 
 /**
  * Orders move through their statuses with actions, never through the form: Mark paid, Ship (asks for the tracking
@@ -94,6 +95,20 @@ export class OrderAdmin extends AdminResourceBase<Order> {
     },
     tracking: { label: { en: 'Tracking code', fa: 'کد رهگیری' }, readonly: true },
     handledById: { label: { en: 'Handled by', fa: 'مسئول' } },
+    fulfillment: {
+      label: { en: 'Fulfillment', fa: 'وضعیت ارسال' },
+      enumLabels: {
+        queued: { en: 'Queued', fa: 'در صف' },
+        confirmed: { en: 'Confirmed', fa: 'تأیید' },
+        preparing: { en: 'Preparing', fa: 'آماده‌سازی' },
+        ready: { en: 'Ready to ship', fa: 'آماده ارسال' },
+        posted: { en: 'Posted', fa: 'تحویل پست' },
+        delivered: { en: 'Delivered', fa: 'تحویل شده' },
+        cancelled: { en: 'Cancelled', fa: 'لغو شده' },
+      },
+      // The configured demo shows it as the order's steps, with the times from the status log.
+      ...(plainDemo ? {} : { widget: 'stepper' as const, exclude: ['cancelled'], history: { inline: OrderStatusLogAdmin, value: 'value', at: 'at', where: { field: 'fulfillment' } } }),
+    },
   };
   form: FormConfig = {
     create: CreateOrderDto,
@@ -103,7 +118,7 @@ export class OrderAdmin extends AdminResourceBase<Order> {
       ? {}
       : {
           mode: 'view' as const,
-          header: { badges: ['status'], subtitle: ['customer', 'createdAt', { computed: 'lineCount' }] },
+          header: { badges: ['status'], subtitle: ['customer', 'createdAt', { computed: 'lineCount' }], stepper: 'fulfillment' },
         }),
     layout: orderLayout,
   };

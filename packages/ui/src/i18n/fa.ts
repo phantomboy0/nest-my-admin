@@ -402,6 +402,7 @@ export const fa: Messages = {
   'form.new': '{name} جدید',
   'form.back': 'بازگشت',
   'form.edit': 'ویرایش',
+  'stepper.since': 'از {time}',
   'form.viewProfile': 'مشاهده پروفایل',
   'form.viewOnly': 'می‌توانید این رکورد را ببینید اما نمی‌توانید آن را تغییر دهید.',
   'form.save': 'ذخیره',

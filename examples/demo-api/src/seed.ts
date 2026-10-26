@@ -10,6 +10,7 @@ import { StockMove } from './catalog/stock-move.entity.js';
 import { Tag } from './catalog/tag.entity.js';
 import { Article } from './content/article.entity.js';
 import { Order } from './sales/order.entity.js';
+import { OrderStatusLog } from './sales/order-status-log.entity.js';
 import { OrderLine } from './sales/order-line.entity.js';
 import { ShopSetting } from './settings/shop-setting.entity.js';
 import { Employee } from './staff/employee.entity.js';
@@ -58,8 +59,8 @@ export async function seedSales(app: INestApplication): Promise<void> {
   const orders = app.get<Repository<Order>>(getRepositoryToken(Order));
   if ((await orders.count()) > 0) return;
   await orders.save([
-    { number: 'SO-1001', customer: 'Ada Lovelace', total: '523.90', status: 'shipped', tracking: 'TRK-448120' },
-    { number: 'SO-1002', customer: 'Grace Hopper', total: '24.90', status: 'paid' },
+    { number: 'SO-1001', customer: 'Ada Lovelace', total: '523.90', status: 'shipped', tracking: 'TRK-448120', fulfillment: 'preparing' },
+    { number: 'SO-1002', customer: 'Grace Hopper', total: '24.90', status: 'paid', fulfillment: 'confirmed' },
     { number: 'SO-1003', customer: 'مریم میرزاخانی', total: '7.00', status: 'paid' },
     { number: 'SO-1004', customer: 'Alan Turing', total: '499.00', status: 'draft' },
     { number: 'SO-1005', customer: 'Katherine Johnson', total: '1299.00', status: 'cancelled' },
@@ -68,6 +69,14 @@ export async function seedSales(app: INestApplication): Promise<void> {
   await app.get<Repository<OrderLine>>(getRepositoryToken(OrderLine)).save([
     { orderId: first.id, description: 'Desk lamp', quantity: 2, unitPrice: '24.95', position: 0 },
     { orderId: first.id, description: 'Standing desk', quantity: 1, unitPrice: '474.00', position: 1 },
+  ]);
+  // When SO-1001 reached each step (the order page's stepper).
+  const today = new Date();
+  const at = (hour: number, minute: number) => new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, minute);
+  await app.get<Repository<OrderStatusLog>>(getRepositoryToken(OrderStatusLog)).save([
+    { orderId: first.id, field: 'fulfillment', value: 'queued', at: at(10, 42) },
+    { orderId: first.id, field: 'fulfillment', value: 'confirmed', at: at(10, 50) },
+    { orderId: first.id, field: 'fulfillment', value: 'preparing', at: at(11, 20) },
   ]);
 }
 

@@ -4,6 +4,8 @@ export type Widget = NonNullable<FieldSchema['widget']>;
 
 /** The widget a field is edited with: the one configured, else one that fits its type and format. */
 export function widgetOf(field: FieldSchema, constraints?: FieldConstraints): Widget {
+  // A stepper is how the record page shows the field; a form edits it as a select.
+  if (field.widget === 'stepper') return 'select';
   if (field.widget) return field.widget;
   switch (field.type) {
     case 'boolean':

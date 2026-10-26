@@ -60,3 +60,16 @@ test('inline presentation: read-only lines with pictures and totals; picture car
   await pictures.getByRole('textbox', { name: 'Caption' }).fill('A notebook');
   await expect(pictures.getByText(/No alt text/)).toHaveCount(0);
 });
+
+test('the order’s steps: done with times, the current one «since», the rest ahead (Task 11)', async ({ page }) => {
+  const res = await page.request.get('/admin/api/resources/order?search=SO-1001');
+  const order = (await res.json()).items[0];
+  await page.goto(`/admin/order/${encodeURIComponent(order._id)}`);
+  const steps = page.getByRole('region', { name: 'Fulfillment' }).getByRole('listitem');
+  await expect(steps).toHaveCount(6);
+  await expect(steps.nth(0)).toContainText('Queued');
+  await expect(steps.nth(0)).toContainText('10:42');
+  await expect(steps.nth(2)).toHaveAttribute('aria-current', 'step');
+  await expect(steps.nth(2)).toContainText('since 11:20');
+  await expect(steps.nth(3)).toContainText('—');
+});

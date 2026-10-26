@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, FormLayoutInline, FormLayoutSummary, InlineChanges, InlineRows, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
 import { AsideCard } from '@/app/aside-card';
+import { Stepper } from '@/app/stepper';
 import { FieldInput, RichText } from '@/app/field-input';
 import { RecordActions } from '@/app/action-button';
 import { LeaveBar, SaveBar, SaveKey, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
@@ -489,6 +490,9 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
         className={tab === 'details' ? 'contents' : 'hidden'}
         {...(hasHistory ? { role: 'tabpanel', id: 'record-panel-details', 'aria-labelledby': 'record-tab-details' } : {})}
       >
+        {mode === 'edit' && record && model.header.stepper && (
+          <Stepper field={model.header.stepper} value={record[model.header.stepper.name]} reached={record._steps as Record<string, string | null> | undefined} />
+        )}
         <div className={cn(model.aside.length > 0 ? 'grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]' : 'contents')}>
         <div className={cn(model.aside.length > 0 ? 'flex min-w-0 flex-col gap-5' : 'contents')}>
         <FormLayout

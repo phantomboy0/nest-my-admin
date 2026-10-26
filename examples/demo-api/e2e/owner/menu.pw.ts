@@ -17,7 +17,7 @@ test('home cards and section pages follow the menu (Task 5)', async ({ page }) =
   await expect(page.getByRole('main').getByRole('link')).toHaveText([/^Order/, /^Invoice/]);
   // Order lines are edited on their order: no card, no section.
   await page.goto('/admin/g/advanced');
-  await expect(page.getByRole('main').getByRole('link')).toHaveText([/^Employee/]);
+  await expect(page.getByRole('main').getByRole('link')).toHaveText([/^Order status log/, /^Employee/]);
 });
 
 test('the sidebar opens the section you are in, shows badges, and a one-item section is a link', async ({ page }) => {

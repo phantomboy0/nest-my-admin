@@ -52,6 +52,8 @@ export interface RegisteredResource {
   actions: ReadonlyMap<string, RegisteredAction>;
   /** Where the resource stands among the resources of its group (`@AdminResource({ order })`, default 100). */
   order: number;
+  /** Stepper fields with a history child: where their «reached at» times come from (spec §5.7). */
+  steppers: Map<string, { child: RegisteredResource; link: string; value: string; at: string; where: Record<string, string> }>;
   /** `list.computed`, checked and compiled at boot (spec §5.4). */
   computed: Map<string, CompiledComputed>;
   /** Listed in navigation (sidebar, home, group pages, palette, global search): `nav`, else false for inline children. */
@@ -134,6 +136,23 @@ export class ResourceRegistry implements OnModuleInit {
     this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
     resolveInlines(this.list());
+    // Stepper histories: the child resource that logs the field's changes, linked to this resource.
+    for (const entry of this.list()) {
+      for (const [field, options] of entry.fieldConfig) {
+        if (options.widget !== 'stepper' || !options.history) continue;
+        const where = `${entry.className}: fields.${field}.history`;
+        const child = this.list().find((candidate) => candidate.resource.constructor === options.history!.inline);
+        if (!child) throw new Error(`${where}: inline is not a registered admin resource`);
+        const link = [...child.relations].find(([, relation]) => relation.inverseEntityMetadata.target === entry.entity)?.[1].propertyName;
+        if (!link) throw new Error(`${where}: ${child.schema.name} has no relation to ${entry.schema.name}`);
+        const { value, at } = options.history;
+        const whereFields = options.history.where ?? {};
+        for (const name of [value, at, ...Object.keys(whereFields)]) {
+          if (!child.schema.fields.some((candidate) => candidate.name === name)) throw new Error(`${where}: unknown field "${name}" on ${child.schema.name}`);
+        }
+        entry.steppers.set(field, { child, link, value, at, where: whereFields });
+      }
+    }
     // Relation aside cards: the target resource and its fields, now that every resource is known.
     for (const entry of this.list()) {
       for (const [index, card] of (entry.schema.form.aside ?? []).entries()) {
@@ -351,6 +370,7 @@ export class ResourceRegistry implements OnModuleInit {
       actions,
       order,
       computed,
+      steppers: new Map(),
       nav: definition.nav ?? true,
       ...(definition.nav !== undefined ? { navOption: definition.nav } : {}),
       inlines: [],

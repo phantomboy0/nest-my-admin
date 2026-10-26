@@ -42,7 +42,7 @@ export interface FieldSchema {
   help?: string;
   placeholder?: string;
   /** The widget chosen in the field config; the UI infers one from the type when absent. */
-  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url' | 'file' | 'image' | 'richtext';
+  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url' | 'file' | 'image' | 'richtext' | 'stepper';
   /** Display labels of enum values (values sent stay the raw ones). */
   enumLabels?: Record<string, string>;
   /** Badge colour per value. */
@@ -51,6 +51,11 @@ export interface FieldSchema {
   showIf?: Record<string, string | number | boolean | null | Array<string | number | boolean | null>>;
   /** The slug widget fills itself from this field until edited. */
   slugFrom?: string;
+  /**
+   * `stepper` widget: the steps in order, the values that are not steps (shown as a badge), and whether records carry
+   * `_steps` (when each step was reached, from the history child).
+   */
+  steps?: { values: string[]; exclude: string[]; history: boolean };
   /** A soft warning shown under the input while it is empty; the save still goes through. */
   warnIf?: { empty: true; message: string };
   /** The money widget's unit in the request's language, and where it goes (display only). */

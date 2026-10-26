@@ -108,6 +108,7 @@ const WIDGET_TYPES: Record<WidgetName, readonly FieldType[]> = {
   file: ['string', 'text', 'json'],
   image: ['string', 'text', 'json'],
   richtext: ['string', 'text'],
+  stepper: ['enum'],
 };
 
 /** Default for `files.maxBytes`: 10 MiB. */
@@ -169,6 +170,13 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
         fail((error as Error).message.replace(/^nest-my-admin: /, ''));
       }
     }
+    if (options.widget === 'stepper') {
+      const values = field!.enumValues ?? [];
+      for (const [key, list] of [['steps', options.steps], ['exclude', options.exclude]] as const) {
+        for (const value of list ?? []) if (!values.includes(value)) fail(`fields.${name}.${key}: "${value}" is not one of ${values.join(', ')}`);
+      }
+      if (options.history !== undefined && (typeof options.history.inline !== 'function' || !options.history.value || !options.history.at)) fail(`fields.${name}.history: { inline: ChildAdmin, value, at, where? }`);
+    } else if (options.steps !== undefined || options.exclude !== undefined || options.history !== undefined) fail(`fields.${name}: steps, exclude and history go with the stepper widget`);
     if (options.warnIf !== undefined && (options.warnIf.empty !== true || options.warnIf.message === undefined)) fail(`fields.${name}.warnIf: { empty: true, message } is the one warning there is`);
     if (options.sensitive !== undefined && typeof options.sensitive !== 'boolean') fail(`fields.${name}.sensitive: must be true or false`);
     for (const color of Object.values(options.colors ?? {})) {
@@ -226,6 +234,10 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
   if (options.showIf) out.showIf = { ...options.showIf };
   if (options.slugFrom !== undefined) out.slugFrom = options.slugFrom;
   if (options.warnIf !== undefined) out.warnIf = { empty: true, message: text(options.warnIf.message) };
+  if (options.widget === 'stepper') {
+    const exclude = options.exclude ?? [];
+    out.steps = { values: (options.steps ?? field.enumValues ?? []).filter((value) => !exclude.includes(value)), exclude: [...exclude], history: options.history !== undefined };
+  }
   if (options.currency !== undefined) {
     out.currency = typeof options.currency === 'string' ? { unit: options.currency, position: 'after' } : { unit: text(options.currency.unit), position: options.currency.position ?? 'after' };
   }

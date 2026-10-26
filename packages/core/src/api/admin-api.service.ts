@@ -389,6 +389,20 @@ export class AdminApiService {
       }
     }
     if (Object.keys(aside).length > 0) record._aside = aside;
+    // Stepper fields: when each step was last reached, from the history child (its read path: query() and scopes),
+    // only when this user may see its value and time fields.
+    for (const field of this.view(entry, ctx).schema.fields) {
+      const history = field.steps?.history ? entry.steppers.get(field.name) : undefined;
+      if (!history) continue;
+      const { child } = history;
+      const levels = this.policy.levels(child, ctx);
+      if (!this.policy.permissionsOf(ctx).canOn(child.schema.name, 'view') || [history.value, history.at].some((name) => (levels.get(name) ?? 'hidden') === 'hidden')) continue;
+      const qb = child.resource.readQuery('nma_h', ctx).select(`nma_h.${history.value}`, 'v').addSelect(`MAX(nma_h.${history.at})`, 't');
+      qb.andWhere(`nma_h.${history.link} = :nmaParent`, { nmaParent: recordIdValue(entity, entry.schema.primaryKeys[0]!) });
+      Object.entries(history.where).forEach(([name, value], index) => qb.andWhere(`nma_h.${name} = :nmaWhere${index}`, { [`nmaWhere${index}`]: value }));
+      const rows = await qb.groupBy(`nma_h.${history.value}`).getRawMany<{ v: string; t: unknown }>();
+      record._steps = { ...((record._steps as object | undefined) ?? {}), ...Object.fromEntries(rows.map((row) => [row.v, isoTime(row.t)])) };
+    }
     const summaries = (form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('summary' in node ? node.summary : []));
     const keys = [...(form.header?.subtitle ?? []), ...summaries.map((row) => row.value)].flatMap((item) => ('computed' in item ? [item.computed] : []));
     const computed = keys.flatMap((key) => (entry.computed.has(key) ? [entry.computed.get(key)!] : []));
@@ -879,4 +893,18 @@ function parseValues(raw: string | null): Record<string, unknown> {
     throw new AdminValidationError({ values: ['must be a JSON object of at most 4096 characters'] });
   }
   return parsed as Record<string, unknown>;
+}
+
+/** The record's (single) key value. */
+function recordIdValue(entity: object, key: string): unknown {
+  return (entity as Record<string, unknown>)[key];
+}
+
+/** A time from MAX() as an ISO string: drivers answer a Date, or (SQLite) text in UTC without a zone. */
+function isoTime(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value);
+  const date = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(text) ? text : `${text.replace(' ', 'T')}Z`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }

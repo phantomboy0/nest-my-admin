@@ -400,6 +400,7 @@ export const en = {
   'form.new': 'New {name}',
   'form.back': 'Back',
   'form.edit': 'Edit',
+  'stepper.since': 'since {time}',
   'form.viewProfile': 'View',
   'form.viewOnly': 'You can view this record but not change it.',
   'form.save': 'Save',
