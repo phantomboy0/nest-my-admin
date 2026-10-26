@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDate, formatNumberText, isRtl, useLocale } from '@/i18n';
 import { toLatinDigits } from '@/lib/digits';
-import { addDays, addJalaliMonths, formatJalali, fromJalali, jalaliMonthLength, parseJalali, toJalali, todayIso } from '@/lib/jalali';
+import { calendarSystem, type CalendarSystem } from '@/lib/calendar-system';
+import { addDays, todayIso } from '@/lib/jalali';
 import { cn } from '@/lib/utils';
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -31,45 +32,17 @@ interface DateInputProps {
 }
 
 /**
- * A date in the chosen calendar: the browser's date input for Gregorian; for Jalali a text input (`1403/01/15`, any
- * digits) next to a calendar with day, month and year views. The value is always an ISO date.
+ * A date in the chosen calendar: a text input (`1403/01/15` or `2026-10-26`, any digits) next to the admin's own calendar
+ * with day, month and year views, the same for Jalali and Gregorian. The value is always an ISO date.
  */
 export function DateInput(props: DateInputProps) {
   const { calendar } = useLocale();
-  if (calendar === 'persian') return <JalaliInput {...props} />;
-  const { id, value, onChange, live, className, label: _label, ...rest } = props;
-  return <GregorianInput id={id} value={value} onChange={onChange} live={live} className={className} {...rest} />;
+  return <CalendarInput {...props} system={calendarSystem(calendar)} />;
 }
 
-function GregorianInput({ id, value, onChange, live, className, ...rest }: Omit<DateInputProps, 'label'>) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  return (
-    <Input
-      id={id}
-      type="date"
-      className={className}
-      value={live ? value : draft}
-      onChange={(event) => (live ? onChange(event.target.value) : setDraft(event.target.value))}
-      {...rest}
-      onBlur={() => {
-        if (!live && draft !== value) onChange(draft);
-        rest.onBlur?.();
-      }}
-      onKeyDown={(event) => {
-        if (!live && event.key === 'Enter') {
-          event.preventDefault();
-          if (draft !== value) onChange(draft);
-        }
-        rest.onKeyDown?.(event);
-      }}
-    />
-  );
-}
-
-function JalaliInput({ id, value, onChange, label, live, className, ...rest }: DateInputProps) {
+function CalendarInput({ id, value, onChange, label, live, className, system, ...rest }: DateInputProps & { system: CalendarSystem }) {
   const { t, digits } = useLocale();
-  const shown = (iso: string) => (ISO.test(iso) ? formatNumberText(formatJalali(iso)) : iso);
+  const shown = (iso: string) => (ISO.test(iso) ? formatNumberText(system.format(iso)) : iso);
   const [text, setText] = useState(() => shown(value));
   const [open, setOpen] = useState(false);
   const reported = useRef(value);
@@ -79,7 +52,7 @@ function JalaliInput({ id, value, onChange, label, live, className, ...rest }: D
       reported.current = value;
       setText(shown(value));
     }
-  }, [value, digits]);
+  }, [value, digits, system]);
 
   function report(next: string) {
     reported.current = next;
@@ -89,7 +62,7 @@ function JalaliInput({ id, value, onChange, label, live, className, ...rest }: D
   function commitText() {
     const trimmed = text.trim();
     if (trimmed === '') return value !== '' && report('');
-    const iso = parseJalali(trimmed);
+    const iso = system.parse(trimmed);
     if (iso) {
       setText(shown(iso));
       if (iso !== value) report(iso);
@@ -115,7 +88,7 @@ function JalaliInput({ id, value, onChange, label, live, className, ...rest }: D
           setText(event.target.value);
           if (!live) return;
           const trimmed = event.target.value.trim();
-          const iso = trimmed === '' ? '' : parseJalali(trimmed);
+          const iso = trimmed === '' ? '' : system.parse(trimmed);
           report(iso ?? toLatinDigits(trimmed));
         }}
         onBlur={() => {
@@ -138,7 +111,7 @@ function JalaliInput({ id, value, onChange, label, live, className, ...rest }: D
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content align="end" sideOffset={4} className="z-50 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md" aria-label={t('date.calendar', { name: label })}>
-            <JalaliCalendar value={ISO.test(value) ? value : undefined} onPick={pick} onClear={() => pick('')} />
+            <CalendarGrid system={system} value={ISO.test(value) ? value : undefined} onPick={pick} onClear={() => pick('')} />
           </Popover.Content>
         </Popover.Portal>
       </Popover.Root>
@@ -148,15 +121,15 @@ function JalaliInput({ id, value, onChange, label, live, className, ...rest }: D
 
 type View = 'days' | 'months' | 'years';
 
-/** Jalali month grid (weeks start on Saturday), drilling up to months and years. */
-function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (iso: string) => void; onClear: () => void }) {
+/** A month grid in the chosen calendar (Jalali weeks start on Saturday, Gregorian on Monday), drilling up to months and years. */
+function CalendarGrid({ system, value, onPick, onClear }: { system: CalendarSystem; value?: string; onPick: (iso: string) => void; onClear: () => void }) {
   const { t, locale } = useLocale();
   const today = todayIso();
   const [focused, setFocused] = useState(value ?? today);
   const [view, setView] = useState<View>('days');
   const grid = useRef<HTMLDivElement>(null);
   const moved = useRef(false);
-  const { jy, jm } = toJalali(focused);
+  const { year: jy, month: jm } = system.parts(focused);
   const rtl = isRtl(locale);
 
   // After a keyboard move, focus follows the day.
@@ -166,23 +139,22 @@ function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (i
     grid.current?.querySelector<HTMLButtonElement>(`[data-iso="${focused}"]`)?.focus();
   }, [focused]);
 
-  const monthName = (month: number) => new Intl.DateTimeFormat(`${locale}-u-ca-persian`, { month: 'long', timeZone: 'UTC' }).format(Date.parse(`${fromJalali(1403, month, 1)}T00:00:00Z`));
+  const monthName = (month: number) => new Intl.DateTimeFormat(`${locale}-u-ca-${system.intl}`, { month: 'long', timeZone: 'UTC' }).format(Date.parse(`${system.fromParts(jy, month, 1)}T00:00:00Z`));
   const number = (n: number) => formatNumberText(String(n));
-  // 1403/01/04 was a Saturday.
-  const weekdays = Array.from({ length: 7 }, (_, i) =>
-    new Intl.DateTimeFormat(locale, { weekday: 'narrow', timeZone: 'UTC' }).format(Date.parse(`${addDays(fromJalali(1403, 1, 4), i)}T00:00:00Z`)),
-  );
-  const first = fromJalali(jy, jm, 1);
-  const offset = (new Date(`${first}T00:00:00Z`).getUTCDay() + 1) % 7; // Saturday = 0
-  const days = jalaliMonthLength(jy, jm);
+  // 2024-01-07 was a Sunday: the week from the calendar's first weekday.
+  const weekStart = addDays('2024-01-07', system.weekStart);
+  const weekdays = Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(locale, { weekday: 'narrow', timeZone: 'UTC' }).format(Date.parse(`${addDays(weekStart, i)}T00:00:00Z`)));
+  const first = system.fromParts(jy, jm, 1);
+  const offset = (new Date(`${first}T00:00:00Z`).getUTCDay() - system.weekStart + 7) % 7;
+  const days = system.monthLength(jy, jm);
   const cells: Array<string | null> = [...Array.from({ length: offset }, () => null), ...Array.from({ length: days }, (_, i) => addDays(first, i))];
 
   function onGridKey(event: KeyboardEvent) {
     const steps: Record<string, number> = { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1, ArrowDown: 7, ArrowUp: -7 };
     let next: string | undefined;
     if (event.key in steps) next = addDays(focused, steps[event.key]!);
-    else if (event.key === 'PageDown') next = addJalaliMonths(focused, event.shiftKey ? 12 : 1);
-    else if (event.key === 'PageUp') next = addJalaliMonths(focused, event.shiftKey ? -12 : -1);
+    else if (event.key === 'PageDown') next = system.addMonths(focused, event.shiftKey ? 12 : 1);
+    else if (event.key === 'PageUp') next = system.addMonths(focused, event.shiftKey ? -12 : -1);
     if (!next) return;
     event.preventDefault();
     moved.current = true;
@@ -212,7 +184,7 @@ function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (i
     const start = jy - (jy % 12);
     body = (
       <>
-        {header(`${number(start)}–${number(start + 11)}`, undefined, (direction) => setFocused(addJalaliMonths(focused, direction * 144)), '')}
+        {header(`${number(start)}–${number(start + 11)}`, undefined, (direction) => setFocused(system.addMonths(focused, direction * 144)), '')}
         <div className="grid grid-cols-3 gap-1">
           {Array.from({ length: 12 }, (_, i) => start + i).map((year) => (
             <Button
@@ -221,7 +193,7 @@ function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (i
               variant={year === jy ? 'secondary' : 'ghost'}
               size="sm"
               onClick={() => {
-                setFocused(fromJalali(year, jm, Math.min(toJalali(focused).jd, jalaliMonthLength(year, jm))));
+                setFocused(system.fromParts(year, jm, Math.min(system.parts(focused).day, system.monthLength(year, jm))));
                 setView('months');
               }}
             >
@@ -234,7 +206,7 @@ function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (i
   } else if (view === 'months') {
     body = (
       <>
-        {header(number(jy), () => setView('years'), (direction) => setFocused(addJalaliMonths(focused, direction * 12)), t('date.chooseYear'))}
+        {header(number(jy), () => setView('years'), (direction) => setFocused(system.addMonths(focused, direction * 12)), t('date.chooseYear'))}
         <div className="grid grid-cols-3 gap-1">
           {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
             <Button
@@ -243,7 +215,7 @@ function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (i
               variant={month === jm ? 'secondary' : 'ghost'}
               size="sm"
               onClick={() => {
-                setFocused(fromJalali(jy, month, Math.min(toJalali(focused).jd, jalaliMonthLength(jy, month))));
+                setFocused(system.fromParts(jy, month, Math.min(system.parts(focused).day, system.monthLength(jy, month))));
                 setView('days');
               }}
             >
@@ -256,7 +228,7 @@ function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (i
   } else {
     body = (
       <>
-        {header(`${monthName(jm)} ${number(jy)}`, () => setView('months'), (direction) => setFocused(addJalaliMonths(focused, direction)), t('date.chooseMonth'))}
+        {header(`${monthName(jm)} ${number(jy)}`, () => setView('months'), (direction) => setFocused(system.addMonths(focused, direction)), t('date.chooseMonth'))}
         <div ref={grid} role="grid" aria-label={`${monthName(jm)} ${number(jy)}`} onKeyDown={onGridKey} className="grid grid-cols-7 gap-0.5 text-center">
           <div role="row" className="contents">
             {weekdays.map((day, i) => (
@@ -283,7 +255,7 @@ function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (i
                         iso === value && 'bg-primary text-primary-foreground hover:bg-primary/90',
                       )}
                     >
-                      {number(toJalali(iso).jd)}
+                      {number(system.parts(iso).day)}
                     </button>
                   </div>
                 ) : (
@@ -312,12 +284,9 @@ function JalaliCalendar({ value, onPick, onClear }: { value?: string; onPick: (i
   );
 }
 
-/** A datetime (`YYYY-MM-DDTHH:mm`, local) as a date in the chosen calendar plus a time. */
+/** A datetime (`YYYY-MM-DDTHH:mm`, local) as a date in the chosen calendar (the admin's own picker) plus a time. */
 export function DateTimeInput({ id, value, onChange, label, ...aria }: { id: string; value: string; onChange: (value: string) => void; label: string; 'aria-invalid'?: true; 'aria-describedby'?: string }) {
-  const { t, calendar } = useLocale();
-  if (calendar !== 'persian') {
-    return <Input id={id} type="datetime-local" value={value} onChange={(event) => onChange(event.target.value)} {...aria} />;
-  }
+  const { t } = useLocale();
   const [date = '', time = ''] = value.split('T');
   const combine = (nextDate: string, nextTime: string) => onChange(nextDate === '' ? '' : `${nextDate}T${nextTime || '00:00'}`);
   return (

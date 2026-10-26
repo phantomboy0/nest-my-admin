@@ -467,13 +467,13 @@ test('money is grouped, the slug follows the name, and showIf hides a field that
   await page.getByLabel('Price').blur();
   await expect(page.getByLabel('Price')).toHaveValue('1,234.50');
 
-  await expect(page.getByLabel('Released on')).toHaveCount(0);
+  await expect(page.getByLabel('Released on', { exact: true })).toHaveCount(0);
   await page.getByLabel('Status').selectOption('active');
-  await page.getByLabel('Released on').fill('2024-05-01');
+  await page.getByLabel('Released on', { exact: true }).fill('2024-05-01');
   await page.getByLabel('Status').selectOption('draft');
-  await expect(page.getByLabel('Released on')).toHaveCount(0);
+  await expect(page.getByLabel('Released on', { exact: true })).toHaveCount(0);
   await page.getByLabel('Status').selectOption('active');
-  await expect(page.getByLabel('Released on')).toHaveValue('2024-05-01'); // back with its value
+  await expect(page.getByLabel('Released on', { exact: true })).toHaveValue('2024-05-01'); // back with its value
   await page.getByLabel('Status').selectOption('draft');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
@@ -984,4 +984,16 @@ test.describe('two-factor sign-in (M3-4 Review Focus 3)', () => {
     await expect(section.getByRole('status')).toHaveText('Two-factor sign-in is off.');
     await expect(section).toContainText('Off');
   });
+});
+
+test('Gregorian dates use the admin’s own calendar too (weeks from Monday)', async ({ page }) => {
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Status').selectOption('active');
+  await page.getByLabel('Released on', { exact: true }).fill('2024-05-01');
+  await page.getByRole('button', { name: 'Choose Released on from a calendar' }).click();
+  const calendar = page.getByRole('dialog', { name: 'Released on calendar' });
+  await expect(calendar.getByRole('grid', { name: 'May 2024' })).toBeVisible();
+  await expect(calendar.getByRole('columnheader').first()).toHaveText('M');
+  await calendar.getByRole('button', { name: /May 15, 2024/ }).click();
+  await expect(page.getByLabel('Released on', { exact: true })).toHaveValue('2024-05-15');
 });

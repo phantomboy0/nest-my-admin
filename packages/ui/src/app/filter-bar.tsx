@@ -332,8 +332,8 @@ function MainFilterControl({ inline, touch, resource, field, operators, params, 
     );
   }
 
-  if ((field.type === 'date' || (field.type === 'datetime' && calendar === 'persian')) && operators.includes('gte') && operators.includes('lte')) {
-    // Dates, and Jalali datetimes as whole local days: from the start of the first day to the end of the last (spec §12).
+  if ((field.type === 'date' || field.type === 'datetime') && operators.includes('gte') && operators.includes('lte')) {
+    // Dates, and datetimes as whole local days (the same picker in both calendars): from the start of the first day to the end of the last (spec §12).
     const toUrl = (operator: 'gte' | 'lte', value: string) =>
       field.type === 'date' || !value ? value : new Date(`${value}T${operator === 'gte' ? '00:00:00.000' : '23:59:59.999'}`).toISOString();
     const fromUrl = (value: string | null) => (value && field.type === 'datetime' ? toDatetimeLocal(value).slice(0, 10) : (value ?? ''));
