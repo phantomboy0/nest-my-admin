@@ -18,6 +18,7 @@ import {
 } from '../errors.js';
 import { AuditReader } from '../audit/audit-reader.js';
 import { addAuditRoutes } from '../audit/audit-routes.js';
+import { addMenuRoutes } from '../api/menu-routes.js';
 import { AdminAudit, clientOf } from '../audit/audit.service.js';
 import type { AuditMeta } from '../audit/entities.js';
 import type { AdminAuthAdapter, AdminPrincipal } from '../auth/auth-adapter.js';
@@ -246,6 +247,7 @@ export class AdminHttpServer implements OnModuleInit {
     addFileRoutes(this.router, { files: this.files });
     addPageRoutes(this.router, { api: this.api });
     addAuditRoutes(this.router, { reader: auditReader });
+    addMenuRoutes(this.router, { api: this.api });
     addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry, audit: this.audit });
   }
 

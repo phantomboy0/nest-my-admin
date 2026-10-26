@@ -11,13 +11,14 @@ import {
   type AuditEntry,
   type AuditResponse,
   type ListResponse,
+  type MenuBadges,
   type MetaResponse,
   type OptionsResponse,
   type PageResponse,
   type ResourceSchema,
   type SearchResponse,
 } from '@nest-my-admin/core';
-import { AdminApiService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, ResourceRegistry, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
+import { ADMIN_OPTIONS, AdminApiService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, ResourceRegistry, createAdminContext, runInAdminContext, type ResolvedAdminOptions } from '@nest-my-admin/core/internal';
 
 /** Who a test acts as. With `roles`, exactly these roles (code or stored); without, the admin resolves them as for a request. */
 export interface TestUser extends Partial<Omit<AdminUser, 'id'>> {
@@ -71,6 +72,17 @@ export class AdminClient {
 
   meta(): Promise<MetaResponse> {
     return this.run((api, ctx) => api.meta(ctx.locale, ctx));
+  }
+  /** The menu's counts (`GET /api/menu/badges`). */
+  badges(): Promise<MenuBadges> {
+    return this.run((api, ctx) => api.badges(ctx));
+  }
+  /** The menu badges on a resource: their key and filters (from the `menu` option). */
+  badgeQueries(resource: string): Array<{ key: string; params: Record<string, string> }> {
+    const options = this.app.get<ResolvedAdminOptions>(ADMIN_OPTIONS, { strict: false });
+    return (options.menu?.sections ?? []).flatMap((section) =>
+      section.items.flatMap((item) => ('resource' in item && item.resource === resource && item.badge ? [{ key: `${section.key}.${resource}`, params: item.badge }] : [])),
+    );
   }
   /** Every resource the user may view, those without a navigation entry (`nav: false`) included. */
   async resources(): Promise<string[]> {
@@ -138,7 +150,7 @@ export class AdminClient {
 
 /** One thing a user saw that they should not have. */
 export interface Leak {
-  kind: 'hidden-value' | 'out-of-scope-record' | 'unreachable-resource';
+  kind: 'hidden-value' | 'out-of-scope-record' | 'unreachable-resource' | 'badge-count';
   resource: string;
   /** The record it belongs to (`_id`), when there is one. */
   record?: string;
@@ -248,6 +260,8 @@ export class AdminTesting {
       for (const [label, probe] of probes) {
         if (!(await answersNotFound(() => call(probe)))) leaks.push({ kind: 'unreachable-resource', resource, where: label });
       }
+      const counted = await call(() => user.badges());
+      for (const { key } of user.badgeQueries(resource)) if (key in counted) leaks.push({ kind: 'unreachable-resource', resource, where: `menu badge ${key}` });
       return report([], all.length);
     }
 
@@ -318,6 +332,14 @@ export class AdminTesting {
 
     scan('meta', meta, false);
     scan(`schema ${resource}`, schema, false);
+    // A menu badge counts no more than the user's own list with the same filters shows.
+    const counted = await call(() => user.badges());
+    for (const { key, params } of user.badgeQueries(resource)) {
+      const badge = counted[key];
+      if (!badge || badge.estimate) continue;
+      const listed = await call(() => user.list(resource, new URLSearchParams({ ...params, pageSize: '1' })));
+      if (listed.total !== null && badge.count > listed.total) leaks.push({ kind: 'badge-count', resource, where: `menu badge ${key}`, value: `${badge.count} > ${listed.total}` });
+    }
     scan(`list ${resource}`, seen, true);
     for (const record of seen) scan(`get ${resource} ${idOf(record)}`, await call(() => user.get(resource, idOf(record))), true);
     for (const record of outside) {

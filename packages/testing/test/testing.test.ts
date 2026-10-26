@@ -166,6 +166,8 @@ beforeAll(async () => {
           { name: 'coder', permissions: ['coded-task.view', 'board.view'], fields: { 'coded-task': { code: 'hidden' } } },
         ],
         resolveRoles: (user) => (user.attrs?.roles as string[] | undefined) ?? [],
+        // A badge counting every project but nobody's: the crawl compares it with the user's own list.
+        menu: { sections: [{ key: 'work', label: 'Work', icon: 'box', items: [{ resource: 'project', badge: { 'filter[ownerId][ne]': 'nobody' } }] }] },
       }),
       AppModule,
     ],
@@ -360,6 +362,25 @@ describe(`@nest-my-admin/testing (${TEST_DB})`, () => {
     const { leaks } = (error as AdminLeakError).report;
     expect(leaks.some((leak) => leak.kind === 'hidden-value' && leak.field === 'secret' && leak.value === 'TOPSECRET-1' && leak.where.startsWith('list leaky-project'))).toBe(true);
     expect((error as Error).message).toContain('hidden field "secret" of leaky-project');
+  });
+
+  test('expectNoLeaks compares menu badges with the user’s own list', async () => {
+    const member = { as: { id: 'u1', roles: ['member'] } };
+    expect((await admin.expectNoLeaks('project', member)).leaks).toEqual([]);
+    expect(await admin.as(member.as).badges()).toEqual({ 'work.project': { count: 1, estimate: false } });
+    // A badge counting outside the user's scope would be caught.
+    const api = admin.app.get(AdminApiService, { strict: false });
+    const leaky = spyOn(api, 'badges').mockImplementation(async () => ({ 'work.project': { count: 2, estimate: false } }));
+    try {
+      const error = await admin.expectNoLeaks('project', member).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(AdminLeakError);
+      expect((error as AdminLeakError).report.leaks).toContainEqual({ kind: 'badge-count', resource: 'project', where: 'menu badge work.project', value: '2 > 1' });
+      // And so would one shown to a user who cannot reach the resource.
+      const outsider = await admin.expectNoLeaks('project', { as: { id: 'u9', roles: ['viewer'] } }).catch((caught: unknown) => caught);
+      expect((outsider as AdminLeakError).report.leaks).toContainEqual({ kind: 'unreachable-resource', resource: 'project', where: 'menu badge work.project' });
+    } finally {
+      leaky.mockRestore();
+    }
   });
 
   test('expectNoLeaks reads the rows a parent lists inline (`_inlines`)', async () => {

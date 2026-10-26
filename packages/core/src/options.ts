@@ -25,6 +25,26 @@ export interface AdminBranding {
   radius?: string;
 }
 
+/** One menu entry: a resource (with an optional count badge: `filter[...]` list parameters), a settings page, or a link. */
+export type AdminMenuItem =
+  | { resource: string; badge?: Record<string, string> }
+  | { page: string }
+  | { href: string; label: LocalizedText };
+
+export interface AdminMenuSection {
+  /** Unique; also the URL of the section's page (`/g/<key>`) and the badge key prefix. */
+  key: string;
+  label: LocalizedText;
+  icon: string;
+  items: AdminMenuItem[];
+}
+
+export interface AdminMenuOptions {
+  sections: AdminMenuSection[];
+  /** The last section holding everything not placed. Default label «Advanced». */
+  advanced?: { label?: LocalizedText };
+}
+
 /**
  * Translates your own exceptions into admin errors. Return undefined to leave an error alone.
  * Runs for every error that is not already an AdminError, after the request's context has ended
@@ -79,6 +99,12 @@ export interface AdminModuleOptions {
   /** Languages people can switch between (the UI ships `en` and `fa`). Default `[locale]`. */
   locales?: string[];
   branding?: AdminBranding;
+  /**
+   * The sidebar in the owner's words (spec §5.3): ordered sections listing resources, settings pages and links.
+   * Whatever is visible and not placed goes into a last «advanced» section, collapsed. Without it, Nest modules group
+   * the sidebar as before.
+   */
+  menu?: AdminMenuOptions;
   /** The unit shown with every `money` field that sets none of its own. Display only: values are never converted. */
   currency?: AdminCurrency;
   /**
@@ -130,6 +156,7 @@ export interface ResolvedAdminOptions {
   locale: string;
   locales: string[];
   branding: AdminBranding;
+  menu?: AdminMenuOptions;
   currency?: Required<AdminCurrency>;
   /** DataSource names whose entities get default resources. */
   autoRegister: string[];
@@ -169,6 +196,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     locales,
     branding: checkBranding(options.branding ?? {}),
     currency: options.currency && checkCurrency(options.currency, 'currency'),
+    menu: options.menu && checkMenuShape(options.menu),
     uiDistPath: options.uiDistPath,
     autoRegister: options.autoRegister === true ? ['default'] : Array.isArray(options.autoRegister) ? options.autoRegister : [],
     transactions: options.transactions ?? true,
@@ -201,6 +229,24 @@ function checkBranding(branding: AdminBranding): AdminBranding {
     throw new Error('nest-my-admin: branding.logo must be an http(s) URL or a relative path');
   }
   return branding;
+}
+
+/** What can be checked before the resources exist: keys, items and links (references are checked at bootstrap). */
+function checkMenuShape(menu: AdminMenuOptions): AdminMenuOptions {
+  if (!Array.isArray(menu.sections)) throw new Error('nest-my-admin: menu.sections must be a list');
+  const keys = new Set<string>();
+  for (const section of menu.sections) {
+    const where = `nest-my-admin: menu.sections.${String(section.key)}`;
+    if (typeof section.key !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/i.test(section.key)) throw new Error(`nest-my-admin: menu section key "${String(section.key)}" must be letters, digits, - and _`);
+    if (section.key === 'advanced') throw new Error(`${where}: the key "advanced" is the last section's`);
+    if (keys.has(section.key)) throw new Error(`${where}: the key is used twice`);
+    keys.add(section.key);
+    if (!Array.isArray(section.items)) throw new Error(`${where}: items must be a list`);
+    for (const item of section.items) {
+      if ('href' in item && /^[a-z][a-z0-9+.-]*:/i.test(item.href.trim()) && !/^https?:\/\//i.test(item.href.trim())) throw new Error(`${where}: href must be an http(s) URL or a relative path`);
+    }
+  }
+  return menu;
 }
 
 function checkFiles(files: AdminFilesOptions | undefined): ResolvedAdminOptions['files'] {

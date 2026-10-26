@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
+import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
 import { InlineReader } from '../inlines/inline-reader.js';
@@ -10,6 +10,7 @@ import { toErrorResponse } from '../http/error-response.js';
 import { toActionSchema } from '../decorators/admin-action.js';
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
+import { buildMenu, checkMenu } from './menu.js';
 import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { likePattern } from '../crud/list-query-builder.js';
 import { parseId } from '../crud/list-query.js';
@@ -46,9 +47,10 @@ export class AdminApiService {
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
     private readonly policy: AdminPolicy,
     private readonly files: FilesService,
-    pages: PageRegistry,
+    private readonly pageRegistry: PageRegistry,
     audit: AdminAudit,
   ) {
+    const pages = pageRegistry;
     // Without `audit` nothing is recorded: the audit log is not even a participant.
     this.writes = new WriteRunner(options, this.logger, [filesParticipant(files), ...(audit.enabled ? [auditParticipant(audit)] : [])]);
     this.pages = new PageService({ pages, policy, options, files, writes: this.writes });
@@ -131,7 +133,45 @@ export class AdminApiService {
         resources: items,
         pages: groupPages,
       }));
-    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups };
+    const menu = this.options.menu && buildMenu(this.options.menu, text, groups.flatMap((group) => group.resources), groups.flatMap((group) => group.pages));
+    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups, ...(menu ? { menu } : {}) };
+  }
+
+  /** The menu's references are checked once every resource and settings page is registered. */
+  onApplicationBootstrap(): void {
+    if (this.options.menu) checkMenu(this.options.menu, this.registry, this.pageRegistry);
+  }
+
+  /**
+   * `GET /api/menu/badges`: each menu badge counted for this user through the list's own path (scopes and `query()`
+   * apply). A badge whose filters name a field this user cannot see, or on a resource they cannot view, is left out.
+   */
+  async badges(ctx: AdminContext): Promise<MenuBadges> {
+    const out: MenuBadges = {};
+    const perms = this.policy.permissionsOf(ctx);
+    for (const section of this.options.menu?.sections ?? []) {
+      for (const item of section.items) {
+        if (!('resource' in item) || !item.badge) continue;
+        const entry = this.registry.get(item.resource);
+        if (!perms.canOn(entry.schema.name, 'view')) continue;
+        let params: ListParams;
+        try {
+          params = parseListQuery(new URLSearchParams({ ...item.badge, pageSize: '1' }), this.view(entry, ctx).schema);
+        } catch {
+          continue; // a filter on a field this user cannot see: no count, so nothing to compare
+        }
+        // `none` lists are not counted page by page, but a badge is a count: estimate it instead.
+        params.count = params.count === 'none' ? 'estimate' : params.count;
+        // An overridden findMany may ignore scopes; for a scoped user the count goes through the scoped base path.
+        const overridden = entry.resource.findMany !== AdminResourceBase.prototype.findMany;
+        const found = overridden && this.policy.scoped(entry, 'view', ctx)
+          ? await AdminResourceBase.prototype.findMany.call(entry.resource, params, ctx)
+          : await entry.resource.findMany(params, ctx);
+        if (found.total === null || found.total === undefined) continue;
+        out[`${section.key}.${item.resource}`] = { count: found.total, estimate: found.estimated === true };
+      }
+    }
+    return out;
   }
 
   /** A resource's schema with its labels in `locale`. */

@@ -349,7 +349,40 @@ export interface MetaResponse {
   /** Languages people can switch between. */
   locales: string[];
   groups: MetaGroup[];
+  /** The host's curated menu (`menu` option), cut to what this user reaches; absent without one (groups are the menu). */
+  menu?: MetaMenu;
 }
+
+/** One entry of a menu section. */
+export type MetaMenuItem =
+  | {
+      kind: 'resource';
+      resource: string;
+      label: string;
+      icon?: string;
+      creatable: boolean;
+      searchable: boolean;
+      /** A count is served for it by `GET /api/menu/badges` (key `<section>.<resource>`). */
+      badge?: true;
+    }
+  | { kind: 'page'; page: string; label: string; icon?: string }
+  | { kind: 'link'; href: string; label: string };
+
+export interface MetaMenuSection {
+  key: string;
+  label: string;
+  icon?: string;
+  items: MetaMenuItem[];
+}
+
+export interface MetaMenu {
+  sections: MetaMenuSection[];
+  /** Everything visible that no section places (key `advanced`), collapsed by default. May be empty. */
+  advanced: MetaMenuSection;
+}
+
+/** `GET /api/menu/badges`: counts by `<section>.<resource>`, scoped to the viewer; a badge the viewer may not count is absent. */
+export type MenuBadges = Record<string, { count: number; estimate: boolean }>;
 
 export type SortDirection = 'asc' | 'desc';
 

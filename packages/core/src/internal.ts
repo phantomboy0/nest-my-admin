@@ -14,3 +14,5 @@ export { createAdminContext, runInAdminContext } from './resource/admin-context.
 export { FilesService } from './files/files.service.js';
 export { AdminAudit, type AuditContext, type AuditInput } from './audit/audit.service.js';
 export { AuditReader } from './audit/audit-reader.js';
+export { ADMIN_OPTIONS } from './constants.js';
+export type { ResolvedAdminOptions } from './options.js';
