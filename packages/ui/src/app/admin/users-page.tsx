@@ -55,7 +55,7 @@ export function UsersPage() {
           {t('filters.search')}
         </Button>
       </form>
-      <ul aria-label={t('rbac.users')} className="flex flex-col divide-y rounded-lg border">
+      <ul aria-label={t('rbac.users')} className="flex flex-col divide-y rounded-card border bg-card shadow-card">
         {items.map((user) => (
           <li key={user.id}>
             <Link to={`/-/users/${encodeURIComponent(user.id)}`} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-muted/50">
@@ -274,7 +274,7 @@ function UserEditor({ user, roles, groups, capabilities }: { user?: RbacUser; ro
         </div>
       )}
       {user && editable && capabilities.password && (
-        <section aria-labelledby="set-password" className="flex flex-col gap-2 rounded-lg border p-4">
+        <section aria-labelledby="set-password" className="flex flex-col gap-2 rounded-card border bg-card shadow-card p-4">
           <h2 id="set-password" className="font-medium">
             {t('rbac.setPassword')}
           </h2>
@@ -292,7 +292,7 @@ function UserEditor({ user, roles, groups, capabilities }: { user?: RbacUser; ro
         </section>
       )}
       {user?.twoFactor && editable && capabilities.resetTwoFactor && (
-        <section aria-labelledby="reset-two-factor" className="flex flex-col gap-2 rounded-lg border p-4">
+        <section aria-labelledby="reset-two-factor" className="flex flex-col gap-2 rounded-card border bg-card shadow-card p-4">
           <h2 id="reset-two-factor" className="font-medium">
             {t('rbac.resetTwoFactor')}
           </h2>

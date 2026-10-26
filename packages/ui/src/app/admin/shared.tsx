@@ -27,7 +27,7 @@ export function fromLocalized(value: LocalizedTextJson | null | undefined): Reco
 export function PageTitle({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h1 className="text-xl font-semibold">{children}</h1>
+      <h1 className="text-[22px] font-bold">{children}</h1>
       <div className="flex flex-wrap gap-2">{actions}</div>
     </div>
   );

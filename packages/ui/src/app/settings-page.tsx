@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import type { FieldSchema, PageResponse } from '@nest-my-admin/core/contract';
 import { FieldInput } from '@/app/field-input';
-import { LeaveBar, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
+import { LeaveBar, SaveBar, SaveKey, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
 import { FormLayout } from '@/app/form-layout';
 import { ReadOnlyField } from '@/app/form-page';
 import { ObjectInput } from '@/app/object-input';
@@ -138,7 +138,7 @@ function SettingsForm({ page }: { page: PageResponse }) {
 
   return (
     <form ref={formRef} onSubmit={submit} noValidate className={cn('flex flex-col gap-5', schema.layout?.length ? 'max-w-4xl' : 'max-w-2xl')}>
-      <h1 className="text-xl font-semibold">{schema.label}</h1>
+      <h1 className="text-[22px] font-bold">{schema.label}</h1>
       {schema.readonly && (
         <p role="note" className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
           {t('settings.viewOnly')}
@@ -157,10 +157,7 @@ function SettingsForm({ page }: { page: PageResponse }) {
       )}
       <FormLayout layout={schema.layout} names={names} errors={fieldErrors} render={renderField} />
       {!schema.readonly && (
-        <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
-          <Button type="submit" disabled={save.isPending || uploads.busy} aria-keyshortcuts="Control+S Meta+S">
-            {t(save.isPending ? 'form.saving' : 'form.save')}
-          </Button>
+        <SaveBar dirty={dirty}>
           {dirty && (
             <Button
               type="button"
@@ -176,7 +173,11 @@ function SettingsForm({ page }: { page: PageResponse }) {
               {t('settings.discard')}
             </Button>
           )}
-        </div>
+          <Button type="submit" disabled={save.isPending || uploads.busy} aria-keyshortcuts="Control+S Meta+S">
+            {t(save.isPending ? 'form.saving' : 'form.save')}
+            <SaveKey />
+          </Button>
+        </SaveBar>
       )}
     </form>
   );

@@ -85,7 +85,7 @@ export function LoginPage() {
           <div className="flex flex-col items-center gap-2 text-center">
             {logo && <img src={logo} alt="" className="size-10 rounded-md object-contain" />}
             <p className="text-sm text-muted-foreground">{brandName(locale)}</p>
-            <h1 id="login-title" className="text-xl font-semibold">
+            <h1 id="login-title" className="text-[22px] font-bold">
               {t(step === 'otp' ? 'auth.otpTitle' : 'auth.title')}
             </h1>
           </div>

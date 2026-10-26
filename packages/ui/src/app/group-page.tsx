@@ -18,7 +18,7 @@ export function GroupPage() {
   if (!group) return <PageMessage>{t('common.pageNotFound')}</PageMessage>;
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold">{group.label}</h1>
+      <h1 className="text-[22px] font-bold">{group.label}</h1>
       <GroupCards group={group} />
     </div>
   );
@@ -52,7 +52,7 @@ function GroupCards({ group }: { group: MetaGroup }) {
   );
 }
 
-const cardClass = 'flex items-center gap-3 rounded-lg border p-4 hover:bg-muted/50';
+const cardClass = 'flex items-center gap-3 rounded-card border bg-card shadow-card p-4 hover:bg-muted/50';
 
 /** One card per settings page. */
 function PageCards({ pages }: { pages: MetaPageSummary[] }) {

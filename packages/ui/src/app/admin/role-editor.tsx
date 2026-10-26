@@ -114,7 +114,7 @@ function RoleEditor({ catalog, role }: { catalog: RbacCatalog; role?: RbacRole }
         <h2 id="matrix-title" className="font-medium">
           {t('rbac.matrix')}
         </h2>
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto rounded-card border bg-card shadow-card">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/40">
@@ -275,7 +275,7 @@ function RoleEditor({ catalog, role }: { catalog: RbacCatalog; role?: RbacRole }
           <h2 id="pages-title" className="font-medium">
             {t('rbac.pages')}
           </h2>
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-card border bg-card shadow-card">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">

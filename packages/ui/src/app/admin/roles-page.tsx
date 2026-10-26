@@ -81,7 +81,7 @@ export function RolesPage() {
       </PageTitle>
       {notice && <Alert tone="success">{notice}</Alert>}
       {importRoles.isError && <Alert>{importRoles.error instanceof SyntaxError ? t('rbac.notJson') : describeError(importRoles.error)}</Alert>}
-      <ul aria-label={t('rbac.roles')} className="flex flex-col divide-y rounded-lg border">
+      <ul aria-label={t('rbac.roles')} className="flex flex-col divide-y rounded-card border bg-card shadow-card">
         {roles.data.items.map((role) => (
           <li key={role.name}>
             <Link to={`/-/roles/${encodeURIComponent(role.name)}`} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-muted/50">

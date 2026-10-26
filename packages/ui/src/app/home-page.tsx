@@ -12,7 +12,7 @@ export function HomePage() {
   if (meta.data.groups.length === 0) return <PageMessage>{t('shell.noResources')}</PageMessage>;
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold">{meta.data.title}</h1>
+      <h1 className="text-[22px] font-bold">{meta.data.title}</h1>
       <GroupSections groups={meta.data.groups} />
     </div>
   );

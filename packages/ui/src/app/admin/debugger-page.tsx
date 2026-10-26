@@ -48,7 +48,7 @@ export function DebuggerPage() {
     <div className="flex max-w-5xl flex-col gap-5">
       <PageTitle>{t('debugger.title')}</PageTitle>
       <p className="-mt-3 text-sm text-muted-foreground">{t('debugger.intro')}</p>
-      <form onSubmit={submit} className="grid gap-4 rounded-lg border p-4 md:grid-cols-3" aria-label={t('debugger.title')}>
+      <form onSubmit={submit} className="grid gap-4 rounded-card border bg-card shadow-card p-4 md:grid-cols-3" aria-label={t('debugger.title')}>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="debug-user">{t('debugger.user')}</Label>
           <Input id="debug-user" placeholder={t('rbac.searchUsers')} value={search} onChange={(event) => setSearch(event.target.value)} autoComplete="off" />
@@ -151,7 +151,7 @@ function Explanation({ data }: { data: PermissionExplanation }) {
         <h2 id="debug-operations" className="font-medium">
           {t('debugger.operations')} · {data.resource.label}
         </h2>
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto rounded-card border bg-card shadow-card">
           <table className="w-full text-sm">
             <tbody className="divide-y">
               {data.operations.map((operation) => (
@@ -181,7 +181,7 @@ function Explanation({ data }: { data: PermissionExplanation }) {
           <h2 id="debug-actions" className="font-medium">
             {t('debugger.actions')}
           </h2>
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-card border bg-card shadow-card">
             <table className="w-full text-sm">
               <tbody className="divide-y">
                 {data.actions.map((action) => (
@@ -212,7 +212,7 @@ function Explanation({ data }: { data: PermissionExplanation }) {
         <h2 id="debug-fields" className="font-medium">
           {t('debugger.fields')}
         </h2>
-        <div className="overflow-x-auto rounded-lg border">
+        <div className="overflow-x-auto rounded-card border bg-card shadow-card">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-xs text-muted-foreground">
               <tr>
@@ -289,7 +289,7 @@ function Explanation({ data }: { data: PermissionExplanation }) {
           <h2 id="debug-pages" className="font-medium">
             {t('debugger.pages')}
           </h2>
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto rounded-card border bg-card shadow-card">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-xs text-muted-foreground">
                 <tr>

@@ -76,7 +76,7 @@ export function AuditPage() {
   return (
     <div className="flex max-w-4xl flex-col gap-4">
       <PageTitle>{t('audit.title')}</PageTitle>
-      <fieldset className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-3">
+      <fieldset className="grid gap-3 rounded-card border bg-card shadow-card p-3 sm:grid-cols-2 lg:grid-cols-3">
         <legend className="px-1 text-xs font-medium text-muted-foreground">{t('filters.filters')}</legend>
         <TextFilter label={t('audit.filter.actor')} value={params.get('actor') ?? ''} onCommit={(value) => set('actor', value)} />
         <TextFilter
