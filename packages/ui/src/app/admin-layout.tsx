@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Eye, X } from 'lucide-react';
+import { Eye } from 'lucide-react';
 import { Header } from '@/app/header';
 import { Sidebar } from '@/app/sidebar';
 import { Toaster } from '@/app/toaster';
@@ -114,7 +114,7 @@ function Shell() {
 
   return (
     <div className="flex min-h-svh bg-background text-foreground">
-      <aside className={cn('sticky top-0 hidden h-svh shrink-0 border-e bg-sidebar text-sidebar-foreground md:block', nav.railCollapsed ? 'w-16' : 'w-64')}>
+      <aside className={cn('sticky top-0 hidden h-svh shrink-0 border-e border-sidebar-border bg-sidebar text-sidebar-foreground md:block', nav.railCollapsed ? 'w-16' : 'w-64')}>
         <Sidebar title={title} logo={logo} groups={groups} rail={nav.railCollapsed} />
       </aside>
 
@@ -123,18 +123,13 @@ function Shell() {
           <div className="absolute inset-0 bg-black/40" aria-hidden onClick={() => setMenuOpen(false)} />
           {/* A link closes the menu at once: a form with unsaved changes may hold the navigation back to ask first. */}
           <aside
-            className="absolute inset-y-0 start-0 flex w-72 max-w-[85vw] flex-col border-e bg-sidebar text-sidebar-foreground shadow-xl"
+            className="absolute inset-y-0 start-0 flex w-[300px] max-w-[85vw] flex-col border-e border-sidebar-border bg-sidebar text-sidebar-foreground shadow-xl"
             onClick={(event) => {
               if ((event.target as HTMLElement).closest('a')) setMenuOpen(false);
             }}
           >
-            <div className="flex justify-end p-2">
-              <Button variant="ghost" size="icon" aria-label={t('shell.closeMenu')} onClick={() => setMenuOpen(false)}>
-                <X />
-              </Button>
-            </div>
             <div className="min-h-0 flex-1">
-              <Sidebar title={title} logo={logo} groups={groups} />
+              <Sidebar title={title} logo={logo} groups={groups} onClose={() => setMenuOpen(false)} />
             </div>
           </aside>
         </div>
@@ -147,8 +142,10 @@ function Shell() {
           <ViewAsBanner />
           <Header meta={meta.data} onOpenMenu={() => setMenuOpen(true)} />
         </div>
-        <main className="flex-1 p-4 md:p-6">
-          <Outlet />
+        <main className="flex-1 p-4 md:p-7">
+          <div className="mx-auto w-full max-w-[1400px]">
+            <Outlet />
+          </div>
         </main>
       </div>
       <Toaster />

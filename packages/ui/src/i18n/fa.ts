@@ -12,6 +12,10 @@ export const fa: Messages = {
   'common.requestFailed': 'درخواست ناموفق بود ({status})',
   'common.reference': '{message} (کد پیگیری: {id})',
 
+  'shell.adminPanel': 'پنل مدیریت',
+  'palette.move': 'جابه‌جایی',
+  'palette.openItem': 'باز کردن',
+  'palette.close': 'بستن',
   'shell.menu': 'منو',
   'shell.closeMenu': 'بستن منو',
   'shell.resources': 'بخش‌ها',

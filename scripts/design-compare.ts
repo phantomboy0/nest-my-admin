@@ -25,7 +25,8 @@ const OUT = join(ROOT, 'design-compare');
 const FONT = join(ROOT, 'node_modules/.bun/@fontsource-variable+vazirmatn@5.3.0/node_modules/@fontsource-variable/vazirmatn/files/vazirmatn-arabic-wght-normal.woff2');
 
 type Step = { click?: string; hover?: string; press?: string; viewport?: { width: number; height: number } };
-interface Screen { designId: string; viewport: { width: number; height: number }; theme: 'light' | 'dark'; route: string; crop?: { x: number; y: number; width: number; height: number }; setup?: Step[] }
+type Clip = { x: number; y: number; width: number; height: number };
+interface Screen { designId: string; viewport: { width: number; height: number }; theme: 'light' | 'dark'; route: string; crop?: Clip; designCrop?: Clip; setup?: Step[] }
 
 const screens = JSON.parse(await readFile(join(import.meta.dir, 'design-screens.json'), 'utf8')) as Record<string, Screen>;
 const ids = JSON.parse(await readFile(join(import.meta.dir, 'design-ids.json'), 'utf8')) as Record<string, string>;
@@ -60,7 +61,8 @@ async function shootDesign(screen: Screen): Promise<Buffer> {
   await page.route('https://fonts.gstatic.com/**', (route) => route.fulfill({ body: font, contentType: 'font/woff2' }));
   await page.setContent(pages.get(screen.designId)!, { waitUntil: 'networkidle' });
   await page.evaluate(() => document.fonts.ready);
-  const shot = await page.screenshot({ fullPage: !screen.crop, clip: screen.crop });
+  const clip = screen.designCrop ?? screen.crop;
+  const shot = await page.screenshot({ fullPage: !clip, clip });
   await page.close();
   return shot;
 }
@@ -72,8 +74,8 @@ async function shootReal(screen: Screen, storage: string): Promise<Buffer> {
   await page.goto(baseUrl + screen.route, { waitUntil: 'networkidle' });
   for (const step of screen.setup ?? []) {
     if (step.viewport) await page.setViewportSize(step.viewport);
-    if (step.click) await page.locator(step.click).first().click();
-    if (step.hover) await page.locator(step.hover).first().hover();
+    if (step.click) await page.locator(step.click).first().click({ timeout: 5000 });
+    if (step.hover) await page.locator(step.hover).first().hover({ timeout: 5000 });
     if (step.press) await page.keyboard.press(step.press);
     await page.waitForTimeout(300);
   }

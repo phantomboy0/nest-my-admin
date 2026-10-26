@@ -1,10 +1,9 @@
 import { Fragment } from 'react';
 import { Link, useLocation } from 'react-router';
-import { ChevronRight, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { ChevronLeft, Menu, PanelRight } from 'lucide-react';
 import type { MetaResponse } from '@nest-my-admin/core/contract';
 import { CommandPalette } from '@/app/command-palette';
-import { DisplayMenu, LocaleSwitch, ThemeSwitch } from '@/app/preferences';
-import { UserMenu } from '@/app/user-menu';
+import { ThemeToggle } from '@/app/preferences';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { navStore, useNavState } from '@/lib/nav-state';
@@ -53,14 +52,15 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
   return crumbs;
 }
 
+/** The design's top bar: menu (phone) or sidebar toggle, a divider, breadcrumbs, then search (⌘K) and the theme. */
 export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; onOpenMenu: () => void }) {
   const { t } = useLocale();
   const nav = useNavState();
   const crumbs = useCrumbs(meta);
   const last = crumbs.length - 1;
   return (
-    <header className="flex h-14 items-center gap-2 border-b px-4">
-      <Button variant="ghost" size="icon" className="md:hidden" aria-label={t('shell.menu')} onClick={onOpenMenu}>
+    <header className="flex h-14 items-center gap-2 border-b border-border bg-card px-5">
+      <Button variant="ghost" size="icon" className="md:hidden" aria-label={t('shell.menu')} onClick={onOpenMenu} data-sidebar-toggle="">
         <Menu />
       </Button>
       <Button
@@ -70,14 +70,16 @@ export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; o
         aria-label={t(nav.railCollapsed ? 'shell.expandSidebar' : 'shell.collapseSidebar')}
         aria-pressed={nav.railCollapsed}
         onClick={() => navStore.toggleRail()}
+        data-sidebar-toggle=""
       >
-        {nav.railCollapsed ? <PanelLeftOpen className="rtl:-scale-x-100" /> : <PanelLeftClose className="rtl:-scale-x-100" />}
+        <PanelRight className="ltr:-scale-x-100" />
       </Button>
-      <nav aria-label={t('shell.breadcrumbs')} className="min-w-0 flex-1">
-        <ol className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground">
+      <div className="hidden h-5 w-px bg-border md:block" aria-hidden />
+      <nav aria-label={t('shell.breadcrumbs')} className="min-w-0 flex-1 ps-1">
+        <ol className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
           {crumbs.map((crumb, index) => (
             <Fragment key={`${index}:${crumb.label}`}>
-              {index > 0 && <ChevronRight className="size-3.5 shrink-0 rtl:rotate-180" aria-hidden />}
+              {index > 0 && <ChevronLeft className="size-3.5 shrink-0 ltr:rotate-180" aria-hidden />}
               <li className={index === last ? 'truncate font-medium text-foreground' : 'hidden truncate sm:block'}>
                 {crumb.to && index !== last ? (
                   <Link to={crumb.to} className="hover:text-foreground">
@@ -91,14 +93,9 @@ export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; o
           ))}
         </ol>
       </nav>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <CommandPalette />
-        <LocaleSwitch />
-        <DisplayMenu />
-        <UserMenu />
-        <div className="hidden sm:flex">
-          <ThemeSwitch />
-        </div>
+        <ThemeToggle />
       </div>
     </header>
   );

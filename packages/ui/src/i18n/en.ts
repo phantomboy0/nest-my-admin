@@ -10,6 +10,10 @@ export const en = {
   'common.requestFailed': 'Request failed ({status})',
   'common.reference': '{message} (reference: {id})',
 
+  'shell.adminPanel': 'Admin panel',
+  'palette.move': 'Move',
+  'palette.openItem': 'Open',
+  'palette.close': 'Close',
   'shell.menu': 'Menu',
   'shell.closeMenu': 'Close menu',
   'shell.resources': 'Resources',

@@ -1,3 +1,4 @@
+import { openAccountMenu } from './shell';
 import { expect, test, type Page } from '@playwright/test';
 import { totpCode } from '@nest-my-admin/auth';
 
@@ -277,26 +278,28 @@ test('the stock log pages forward and back with a cursor', async ({ page, isMobi
 
 test('switching to Persian turns the page right-to-left and survives a reload', async ({ page, isMobile }) => {
   await page.goto('/admin');
+  await openAccountMenu(page);
   await page.getByLabel('Language').selectOption('fa');
+  await page.keyboard.press('Escape');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('html')).toHaveAttribute('lang', 'fa');
   await expect(page.getByRole('heading', { name: 'فروشگاه نمونه', level: 1 })).toBeVisible();
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  if (isMobile) await page.getByRole('button', { name: 'منو', exact: true }).click();
+  if (isMobile) await page.locator('[data-sidebar-toggle]').filter({ visible: true }).first().click();
   await page.getByRole('navigation', { name: 'بخش‌ها' }).getByRole('list', { name: 'کاتالوگ' }).getByRole('link', { name: 'محصول' }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
   await expect(page.getByRole('link', { name: 'جدید' })).toBeVisible();
 });
 
 test('dark mode survives a reload', async ({ page, isMobile }) => {
-  // On phones the theme is in the Display settings menu.
-  const openDisplay = async () => {
-    if (isMobile) await page.getByRole('button', { name: 'Display settings' }).click();
-  };
+  // The theme choice (light, dark, system) is in the account menu.
+  void isMobile;
+  const openDisplay = async () => openAccountMenu(page);
   await page.goto('/admin/product');
   await openDisplay();
   await page.getByRole('radio', { name: 'Dark' }).click();
+  await page.keyboard.press('Escape');
   await expect(page.locator('html')).toHaveClass(/dark/);
   await page.reload();
   await expect(page.locator('html')).toHaveClass(/dark/);
@@ -310,10 +313,11 @@ test('pinned resources, the collapsed sidebar and breadcrumbs', async ({ page, i
   await page.goto('/admin/product');
   const nav = page.getByRole('navigation', { name: 'Resources' });
   await nav.getByRole('button', { name: 'Pin Tag' }).click();
-  await expect(nav.getByRole('region', { name: 'Pinned' }).getByRole('link', { name: 'Tag' })).toBeVisible();
+  await expect(nav.getByRole('list', { name: 'Pinned' }).getByRole('link', { name: 'Tag' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Collapse sidebar' }).click();
-  await nav.getByRole('link', { name: 'Supplier' }).click(); // icon-only links keep their names
+  await nav.getByRole('button', { name: 'Catalog' }).hover(); // icon-only sections keep their names; their lists fly out
+  await page.getByRole('link', { name: 'Supplier' }).click();
   await expect(page).toHaveURL(/\/admin\/supplier$/);
   await page.getByRole('button', { name: 'Expand sidebar' }).click();
 
@@ -436,7 +440,9 @@ test('labels, help and enum labels follow the language; statuses are badges (M2-
   const row = (isMobile ? page.getByRole('listitem') : page.getByRole('row')).filter({ hasText: 'DEMO-4' });
   await expect(row.locator('[data-color="gray"]')).toHaveText('Archived');
   await page.goto('/admin/product/new');
+  await openAccountMenu(page);
   await page.getByLabel('Language').selectOption('fa');
+  await page.keyboard.press('Escape');
   await expect(page.getByRole('textbox', { name: 'نام', exact: true })).toBeVisible();
   await expect(page.getByText('نشانی محصول در فروشگاه.')).toBeVisible();
   const status = page.getByLabel('وضعیت');
@@ -537,7 +543,7 @@ test('Duplicate prefills a copy without its SKU; Save & new opens an empty form'
 test('Jalali dates: typed in any digits, picked from the calendar, and used in filters (M2-4 Review Focus 1)', async ({ page, isMobile }, testInfo) => {
   const url = await makeProduct(page, { name: 'Nowruz lamp', sku: `JAL-${testInfo.project.name.toUpperCase()}`, price: '9', stock: 3, status: 'active' });
   await page.goto(url);
-  await page.getByRole('button', { name: 'Display settings' }).click();
+  await openAccountMenu(page);
   await page.getByRole('radio', { name: 'Jalali' }).click();
   await page.keyboard.press('Escape');
 
@@ -666,7 +672,7 @@ test.describe('signing in', () => {
     await expect(page).toHaveURL(/\/admin\/product\?search=lamp$/);
     await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Account menu for Demo Editor' }).click();
+    await openAccountMenu(page); // Demo Editor
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page).toHaveURL(/\/admin\/login$/);
     expect((await page.request.get('/admin/api/meta')).status()).toBe(401);
@@ -924,7 +930,7 @@ test.describe('two-factor sign-in (M3-4 Review Focus 3)', () => {
       await page.getByRole('button', { name: 'Sign in' }).click();
     };
     const signOut = async () => {
-      await page.getByRole('button', { name: 'Account menu for Tess Two' }).click();
+      await openAccountMenu(page); // Tess Two
       await page.getByRole('button', { name: 'Sign out' }).click();
       await expect(page).toHaveURL(/\/admin\/login$/);
     };

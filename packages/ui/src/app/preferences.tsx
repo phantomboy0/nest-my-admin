@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { CalendarCog, Languages, Monitor, Moon, Sun } from 'lucide-react';
-import { Popover } from 'radix-ui';
+import { Languages, Monitor, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { readTheme, saveTheme, type ThemeChoice } from '@/lib/theme';
@@ -18,7 +17,7 @@ export function ThemeSwitch() {
     ['system', t('shell.themeSystem'), Monitor],
   ];
   return (
-    <div role="radiogroup" aria-label={t('shell.theme')} className="flex items-center rounded-lg border p-0.5">
+    <div role="radiogroup" aria-label={t('shell.theme')} className="flex items-center rounded-control border border-border p-0.5">
       {options.map(([value, label, Icon]) => (
         <button
           key={value}
@@ -45,11 +44,11 @@ export function LocaleSwitch() {
   const { t, locale, locales, setLocale } = useLocale();
   if (locales.length < 2) return null;
   return (
-    <label className="flex items-center gap-1.5 text-sm">
+    <label className="flex items-center gap-1.5 text-[13px]">
       <Languages className="size-4 text-muted-foreground" aria-hidden />
       <span className="sr-only">{t('shell.language')}</span>
       <select
-        className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+        className="h-8 flex-1 rounded-control border border-input bg-card px-2 text-[13px]"
         value={locale}
         onChange={(event) => setLocale(event.target.value)}
       >
@@ -63,20 +62,20 @@ export function LocaleSwitch() {
   );
 }
 
-/** Calendar and digits (and, on phones, the theme): how dates and numbers are shown in this browser. */
-export function DisplayMenu() {
+/** Calendar and digits: how dates and numbers are shown in this browser (inside the user menu). */
+export function DisplayMenuItems() {
   const { t, calendar, digits, setDisplay } = useLocale();
   const group = <T extends string>(label: string, value: T, options: Array<[T, string]>, onPick: (value: T) => void) => (
     <div role="radiogroup" aria-label={label} className="flex flex-col gap-1.5">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <div className="flex rounded-lg border p-0.5">
+      <div className="flex rounded-control border border-border p-0.5">
         {options.map(([option, text]) => (
           <button
             key={option}
             type="button"
             role="radio"
             aria-checked={value === option}
-            className={cn('flex-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground', value === option && 'bg-muted text-foreground')}
+            className={cn('flex-1 cursor-pointer rounded-md px-2 py-1 text-[13px] text-muted-foreground hover:text-foreground', value === option && 'bg-muted text-foreground')}
             onClick={() => onPick(option)}
           >
             {text}
@@ -86,22 +85,31 @@ export function DisplayMenu() {
     </div>
   );
   return (
-    <Popover.Root>
-      <Popover.Trigger asChild>
-        <Button variant="outline" size="icon-sm" aria-label={t('display.title')} title={t('display.title')}>
-          <CalendarCog />
-        </Button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content align="end" sideOffset={6} className="z-50 flex w-64 flex-col gap-3 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md">
-          {group(t('display.calendar'), calendar, [['gregorian', t('display.gregorian')], ['persian', t('display.jalali')]], (value) => setDisplay({ calendar: value }))}
-          {group(t('display.digits'), digits, [['latn', t('display.latinDigits')], ['arabext', t('display.persianDigits')]], (value) => setDisplay({ digits: value }))}
-          <div className="flex flex-col gap-1.5 sm:hidden">
-            <span className="text-xs font-medium text-muted-foreground">{t('shell.theme')}</span>
-            <ThemeSwitch />
-          </div>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <>
+      {group(t('display.calendar'), calendar, [['gregorian', t('display.gregorian')], ['persian', t('display.jalali')]], (value) => setDisplay({ calendar: value }))}
+      {group(t('display.digits'), digits, [['latn', t('display.latinDigits')], ['arabext', t('display.persianDigits')]], (value) => setDisplay({ digits: value }))}
+    </>
+  );
+}
+
+/** The top bar's one-click theme button (the design's sun/moon): flips between light and dark. */
+export function ThemeToggle() {
+  const { t } = useLocale();
+  const [choice, setChoice] = useState<ThemeChoice>(readTheme);
+  const dark = choice === 'dark' || (choice === 'system' && typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label={t('shell.theme')}
+      title={t('shell.theme')}
+      onClick={() => {
+        const next = dark ? 'light' : 'dark';
+        saveTheme(next);
+        setChoice(next);
+      }}
+    >
+      {dark ? <Sun /> : <Moon />}
+    </Button>
   );
 }
