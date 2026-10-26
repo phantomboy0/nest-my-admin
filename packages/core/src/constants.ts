@@ -20,6 +20,7 @@ export const MAX_BULK = 100;
 
 /** Reflect-metadata key holding an @AdminSettingsPage definition. */
 export const ADMIN_PAGE_METADATA = 'nest-my-admin:page';
+export const ADMIN_WIDGET_METADATA = 'nest-my-admin:widget';
 
 /** Reflect-metadata key holding the @AdminAction definitions of a resource class, by method name. */
 export const ADMIN_ACTIONS_METADATA = 'nest-my-admin:actions';

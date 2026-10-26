@@ -1,3 +1,5 @@
+import { DashboardService } from './dashboard/dashboard.service.js';
+import { WidgetRegistry } from './dashboard/widget-registry.js';
 import { Module, type DynamicModule } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 import { AdminApiService } from './api/admin-api.service.js';
@@ -25,6 +27,8 @@ export class AdminModule {
         { provide: ADMIN_OPTIONS, useValue: resolveAdminOptions(options) },
         ResourceRegistry,
         PageRegistry,
+        WidgetRegistry,
+        DashboardService,
         AdminAuthService,
         AdminAudit,
         AdminRbac,

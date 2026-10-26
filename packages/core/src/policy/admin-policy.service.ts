@@ -1,3 +1,4 @@
+import { WidgetRegistry } from '../dashboard/widget-registry.js';
 import { visibleTabs } from '../crud/list-tabs.js';
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { Brackets, type EntityManager, type SelectQueryBuilder, type WhereExpressionBuilder } from 'typeorm';
@@ -46,6 +47,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
     private readonly auth: AdminAuthService,
     private readonly rbac: AdminRbac,
     private readonly pages: PageRegistry,
+    private readonly widgets: WidgetRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {}
 
@@ -63,7 +65,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
       }
       entry.resource.attachScoper((qb, ctx) => this.applyScopes(qb, entry, 'view', ctx));
     }
-    checkRoles(this.options.roles, buildCatalog(this.registry, this.options, this.pages.list().map((page) => page.name)), (message) => {
+    checkRoles(this.options.roles, buildCatalog(this.registry, this.options, this.pages.list().map((page) => page.name), this.widgets.codes()), (message) => {
       throw new Error(`nest-my-admin: ${message}`);
     });
     if (this.auth.adapter && this.options.roles.length === 0 && !this.options.rbac) {

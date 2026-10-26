@@ -70,3 +70,4 @@ export {
 export { appendSetCookie, isSecureRequest, parseCookies, serializeCookie, type CookieOptions } from './http/cookies.js';
 export { AfterSave, BeforeDelete, BeforeSave, type DeleteMode, type HookKind, type SaveMode } from './decorators/hooks.js';
 export type * from './contract.js';
+export { AdminWidget, type AdminWidgetOptions, type AdminWidgetSource } from './decorators/admin-widget.js';

@@ -19,6 +19,8 @@ import {
 import { AuditReader } from '../audit/audit-reader.js';
 import { addAuditRoutes } from '../audit/audit-routes.js';
 import { addMenuRoutes } from '../api/menu-routes.js';
+import { addDashboardRoutes } from '../dashboard/dashboard-routes.js';
+import { DashboardService } from '../dashboard/dashboard.service.js';
 import { AdminAudit, clientOf } from '../audit/audit.service.js';
 import type { AuditMeta } from '../audit/entities.js';
 import type { AdminAuthAdapter, AdminPrincipal } from '../auth/auth-adapter.js';
@@ -92,6 +94,7 @@ export class AdminHttpServer implements OnModuleInit {
     private readonly audit: AdminAudit,
     auditReader: AuditReader,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
+    private readonly dashboard: DashboardService,
   ) {
     this.router
       .add('GET', '/api/session', async ({ res, principal, ctx }) => {
@@ -249,6 +252,7 @@ export class AdminHttpServer implements OnModuleInit {
     addPageRoutes(this.router, { api: this.api });
     addAuditRoutes(this.router, { reader: auditReader });
     addMenuRoutes(this.router, { api: this.api });
+    addDashboardRoutes(this.router, { dashboard: this.dashboard });
     addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry, audit: this.audit });
   }
 

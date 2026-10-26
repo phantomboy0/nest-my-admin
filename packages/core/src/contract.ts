@@ -370,6 +370,8 @@ export interface MetaResponse {
   /** Languages people can switch between. */
   locales: string[];
   groups: MetaGroup[];
+  /** This user may see at least one dashboard widget: the dashboard replaces the home page. */
+  dashboard?: boolean;
   /** The host's curated menu (`menu` option), cut to what this user reaches; absent without one (groups are the menu). */
   menu?: MetaMenu;
 }
@@ -859,6 +861,59 @@ export interface AsideCardSchema {
   fields: string[];
   relation?: { field: string; resource: string; link: boolean };
 }
+
+/** Dashboard widgets (spec §5.8). */
+export type WidgetType = 'stat' | 'chart' | 'table' | 'progress' | 'list';
+
+/**
+ * The period a widget is asked for, computed by the UI in the browser's time zone (Jalali-aware): ISO instants, `to`
+ * excluded, and the window before it for comparisons. The server checks `from < to` and a span of at most 366 days.
+ */
+export interface WidgetParams {
+  period: 'day' | 'week' | 'month' | 'year' | 'range';
+  from: string;
+  to: string;
+  previousFrom: string;
+  previousTo: string;
+}
+
+/** `GET /api/dashboard`: the widgets this user may see, in order. */
+export interface DashboardResponse {
+  widgets: Array<{ name: string; type: WidgetType; title: string; size: 1 | 2 | 3 | 4 }>;
+}
+
+export interface StatWidgetData {
+  /** Already formatted by the host or a plain number as text (the UI formats digits). */
+  value: string;
+  unit?: string;
+  /** Percent against the previous period. */
+  change?: number;
+  previousLabel?: string;
+}
+export interface ChartWidgetData {
+  kind: 'bar' | 'line';
+  labels: string[];
+  series: Array<{ label: string; values: number[]; dashed?: boolean }>;
+  total?: string;
+  subtitle?: string;
+}
+export interface TableWidgetData {
+  columns: Array<{ key: string; label: string }>;
+  /** Cell values by column key; a `{ label, tone }` cell is a status badge. */
+  rows: Array<Record<string, string | number | { label: string; tone: Tone }>>;
+  /** «View all»: the list with this filter. */
+  link?: { resource: string; filter?: Record<string, string> };
+}
+export interface ProgressWidgetData {
+  percent: number;
+  value: string;
+  caption: string;
+}
+export interface ListWidgetData {
+  items: Array<{ icon?: string; text: string; status?: Tone; link?: string }>;
+}
+/** `GET /api/dashboard/:widget`: the data of the widget's type. */
+export type WidgetData = StatWidgetData | ChartWidgetData | TableWidgetData | ProgressWidgetData | ListWidgetData;
 
 /** A list tab (spec §5.5). */
 export interface ListTabSchema {

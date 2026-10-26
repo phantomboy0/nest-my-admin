@@ -11,6 +11,8 @@ import { toActionSchema } from '../decorators/admin-action.js';
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
 import { buildMenu, checkMenu } from './menu.js';
+import { DashboardService } from '../dashboard/dashboard.service.js';
+import { WidgetRegistry } from '../dashboard/widget-registry.js';
 import { loadComputed, type CompiledComputed } from '../crud/computed-columns.js';
 import { resourceFileOwner } from '../files/file-owner.js';
 import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
@@ -51,6 +53,8 @@ export class AdminApiService {
     private readonly files: FilesService,
     private readonly pageRegistry: PageRegistry,
     audit: AdminAudit,
+    private readonly dashboard: DashboardService,
+    private readonly widgets: WidgetRegistry,
   ) {
     const pages = pageRegistry;
     // Without `audit` nothing is recorded: the audit log is not even a participant.
@@ -147,7 +151,9 @@ export class AdminApiService {
         pages: groupPages,
       }));
     const menu = this.options.menu && buildMenu(this.options.menu, text, groups.flatMap((group) => group.resources), groups.flatMap((group) => group.pages));
-    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups, ...(menu ? { menu } : {}) };
+    // With widgets in the app, whether this user has a dashboard (it replaces the home page).
+    const dashboard = this.widgets.list().length > 0 ? { dashboard: ctx ? this.dashboard.has(ctx) : true } : {};
+    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups, ...dashboard, ...(menu ? { menu } : {}) };
   }
 
   /**

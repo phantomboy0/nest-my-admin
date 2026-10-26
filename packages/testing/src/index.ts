@@ -11,7 +11,10 @@ import {
   type AuditEntry,
   type AuditResponse,
   type ListResponse,
+  type DashboardResponse,
   type MenuBadges,
+  type WidgetData,
+  type WidgetParams,
   type TabCounts,
   type MetaResponse,
   type OptionsResponse,
@@ -19,7 +22,7 @@ import {
   type ResourceSchema,
   type SearchResponse,
 } from '@nest-my-admin/core';
-import { ADMIN_OPTIONS, AdminApiService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, ResourceRegistry, createAdminContext, runInAdminContext, type ResolvedAdminOptions } from '@nest-my-admin/core/internal';
+import { ADMIN_OPTIONS, AdminApiService, DashboardService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, ResourceRegistry, createAdminContext, runInAdminContext, type ResolvedAdminOptions } from '@nest-my-admin/core/internal';
 
 /** Who a test acts as. With `roles`, exactly these roles (code or stored); without, the admin resolves them as for a request. */
 export interface TestUser extends Partial<Omit<AdminUser, 'id'>> {
@@ -73,6 +76,17 @@ export class AdminClient {
 
   meta(): Promise<MetaResponse> {
     return this.run((api, ctx) => api.meta(ctx.locale, ctx));
+  }
+  /** The dashboard's widgets this user sees (`GET /api/dashboard`). */
+  dashboard(): Promise<DashboardResponse> {
+    return this.run(async (_api, ctx) => this.app.get(DashboardService, { strict: false }).layout(ctx));
+  }
+  /** One widget's data for a period (the last seven days by default). */
+  widget(name: string, period: Partial<WidgetParams> = {}): Promise<WidgetData> {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const params = { period: 'week', from: new Date(now - 7 * day).toISOString(), to: new Date(now).toISOString(), previousFrom: new Date(now - 14 * day).toISOString(), previousTo: new Date(now - 7 * day).toISOString(), ...period };
+    return this.run((_api, ctx) => this.app.get(DashboardService, { strict: false }).load(name, new URLSearchParams(params), ctx));
   }
   /** A list's tab counts (`GET /api/resources/:resource/tab-counts`). */
   tabCounts(resource: string): Promise<TabCounts> {
@@ -337,6 +351,14 @@ export class AdminTesting {
     };
 
     scan('meta', meta, false);
+    // The dashboard: every widget this user sees, for the last week.
+    for (const widget of (await call(() => user.dashboard())).widgets) {
+      try {
+        scan(`dashboard ${widget.name}`, await call(() => user.widget(widget.name)), false);
+      } catch {
+        // A widget that fails shows its own error card; it reveals nothing.
+      }
+    }
     scan(`schema ${resource}`, schema, false);
     // A tab counts no more than the user's own list on that tab shows.
     if (schema.list.tabs?.length) {

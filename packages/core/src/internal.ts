@@ -16,3 +16,4 @@ export { AdminAudit, type AuditContext, type AuditInput } from './audit/audit.se
 export { AuditReader } from './audit/audit-reader.js';
 export { ADMIN_OPTIONS } from './constants.js';
 export type { ResolvedAdminOptions } from './options.js';
+export { DashboardService } from './dashboard/dashboard.service.js';
