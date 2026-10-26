@@ -25,7 +25,7 @@ export async function seedProducts(app: INestApplication): Promise<void> {
     .get<Repository<Tag>>(getRepositoryToken(Tag))
     .save([{ name: 'Bestseller' }, { name: 'Eco' }, { name: 'Fragile' }, { name: 'هديه' }]);
   await products.save([
-    { name: 'Desk lamp', slug: 'desk-lamp', sku: 'DEMO-1', price: '24.90', stock: 12, status: 'active', releasedOn: '2024-03-01', category: lighting, tags: [bestseller, fragile] },
+    { name: 'Desk lamp', slug: 'desk-lamp', sku: 'DEMO-1', price: '24.90', compareAtPrice: '29.90', stock: 12, status: 'active', releasedOn: '2024-03-01', category: lighting, tags: [bestseller, fragile] },
     { name: 'Notebook', slug: 'notebook', sku: 'DEMO-2', price: '3.50', stock: 200, status: 'active', releasedOn: '2023-09-15', category: stationery, tags: [eco] },
     { name: 'Standing desk', slug: 'standing-desk', sku: 'DEMO-3', price: '499.00', stock: 0, status: 'draft', category: furniture, tags: [] },
     // Persian text typed on an Arabic keyboard (ي and ك): search with Persian letters still finds it.

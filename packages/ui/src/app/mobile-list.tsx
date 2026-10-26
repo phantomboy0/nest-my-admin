@@ -1,11 +1,14 @@
 import { Fragment, useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import type { AdminRecord, FieldSchema, ListResponse, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, ComputedColumnSchema, ComputedValue, FieldSchema, ListResponse, ResourceSchema } from '@nest-my-admin/core/contract';
+import { ComputedCell } from '@/app/computed-cell';
 import { DisplayValue, ValueBadge } from '@/app/widgets/badge';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatNumber, useT } from '@/i18n';
 import { api } from '@/lib/api';
+import { cellModel } from '@/lib/computed-cells';
 import { formatCell } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -126,8 +129,10 @@ export function MobileList({ schema, query, columns, trash, selectMode, selected
   );
 }
 
-/** A card: from `list.mobile` (title, subtitle, badge, meta line), or the title and the columns. */
+/** A card: computed columns as the design draws them, else `list.mobile` (title, subtitle, badge, meta line), else the title and the columns. */
 function MobileCard({ schema, item, columns }: { schema: ResourceSchema; item: AdminRecord; columns: FieldSchema[] }) {
+  const computed = Object.entries(schema.list.computed ?? {}).filter(([name]) => schema.list.columns.includes(name));
+  if (computed.length > 0) return <ComputedCard schema={schema} item={item} computed={computed} />;
   const config = schema.list.mobile;
   const title = typeof item._title === 'string' ? item._title : String(item._id);
   if (!config) {
@@ -173,6 +178,39 @@ function MobileCard({ schema, item, columns }: { schema: ResourceSchema; item: A
           ))}
         </dl>
       )}
+    </div>
+  );
+}
+
+/**
+ * The design's phone card for a list with computed columns: the image at the side, the title (and its subline) with the
+ * switch beside it, the money, then badges and counts as pills.
+ */
+function ComputedCard({ schema, item, computed }: { schema: ResourceSchema; item: AdminRecord; computed: Array<[string, ComputedColumnSchema]> }) {
+  const of = (kind: ComputedColumnSchema['kind']) => computed.filter(([, column]) => column.kind === kind);
+  const cell = ([name, column]: [string, ComputedColumnSchema], compact = true) => <ComputedCell key={name} schema={schema} name={name} column={column} item={item} compact={compact} />;
+  const [image] = of('image');
+  const [title] = of('title');
+  return (
+    <div className="flex min-w-0 flex-1 gap-3">
+      {image && cell(image)}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">{title ? cell(title) : <span className="text-[14.5px] font-semibold">{typeof item._title === 'string' ? item._title : String(item._id)}</span>}</div>
+          {of('toggle').map((entry) => cell(entry))}
+        </div>
+        {of('money').map((entry) => cell(entry))}
+        {(of('badge').length > 0 || of('count').length > 0) && (
+          <div className="flex flex-wrap gap-1.5">
+            {of('badge').map((entry) => cell(entry))}
+            {of('count').map(([name, column]) => (
+              <Badge key={name} tone="neutral">
+                {cellModel(column, (item._computed as Record<string, ComputedValue> | undefined)?.[name]).text} {column.label}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

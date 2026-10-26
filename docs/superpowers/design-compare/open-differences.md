@@ -24,3 +24,5 @@ Differences between the real admin and the approved design that are not fixed ye
 | all fa screens | Persian digits and ٬ separators are now the fa default; existing fa screenshot baselines change (release note) | spec §4 | 3 |
 | palette | No key hints (G T, N) next to items; records show no status at the end; an empty query lists every place to go (the design shows a few) | keyboard shortcuts per item are not built | 5 |
 | sidebar-expanded | Menu content is the demo's (no مشتری‌ها/پشتیبانی); the support badge is filled primary in the design, ours are all muted | demo content; badge emphasis is not configurable | 5 |
+| products-desktop | No ⋯ row menu; the price header has no unit («قیمت (تومان)»); demo categories are Latin | row actions menu is Task 8; header units are not generated | 8 |
+| products-phone | Cards have no SKU · category line (only SKU); the price unit sits after, as in the design, but the struck price is under it | the card shows the title's subline only | 6 |

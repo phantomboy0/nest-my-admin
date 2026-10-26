@@ -829,7 +829,7 @@ export interface ComputedColumnSchema {
 }
 
 /**
- * A computed cell's value (`AdminRecord._computed[key]`): `value` is the main one (an image is a file key, a toggle
+ * A computed cell's value (`AdminRecord._computed[key]`): `value` is the main one (an image is its URL, a toggle
  * a boolean), `subline` and `previous` go with `title` and `money`, `label` and `tone` with `badge`.
  */
 export interface ComputedValue {

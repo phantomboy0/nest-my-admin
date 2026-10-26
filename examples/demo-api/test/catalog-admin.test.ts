@@ -59,8 +59,8 @@ describe('product admin (service-first)', () => {
   test('the form comes from the DTOs', async () => {
     const res = await agent.get('/admin/api/meta/resources/product');
     expect(res.body.form).toMatchObject({
-      create: ['name', 'slug', 'sku', 'price', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery'],
-      update: ['name', 'slug', 'price', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery'],
+      create: ['name', 'slug', 'sku', 'price', 'compareAtPrice', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery'],
+      update: ['name', 'slug', 'price', 'compareAtPrice', 'cost', 'stock', 'status', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery'],
       requiredOnCreate: ['name', 'sku', 'price'],
     });
     expect(res.body.form.constraints.create.name).toEqual({ required: true, minLength: 1, maxLength: 120 });
@@ -132,7 +132,7 @@ describe('product admin (service-first)', () => {
   test('archived products are locked except their status (readonlyIf)', async () => {
     const { body } = await post({ name: 'Old', sku: 'old-1', price: '2' });
     const archived = await agent.patch(`${base}/${body.id}`).send({ status: 'archived' });
-    expect(archived.body._readonly).toEqual(['name', 'slug', 'cost', 'price', 'stock', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery']);
+    expect(archived.body._readonly).toEqual(['name', 'slug', 'cost', 'price', 'compareAtPrice', 'stock', 'releasedOn', 'categoryId', 'tags', 'image', 'gallery']);
     const res = await agent.patch(`${base}/${body.id}`).send({ name: 'Renamed', price: '1' });
     expect(res.status).toBe(422);
     expect(res.body).toMatchObject({ code: 'VALIDATION', fields: { name: ['is read-only'], price: ['is read-only'] } });

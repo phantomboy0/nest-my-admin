@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 export function ColumnMenu({ schema, prefs }: { schema: ResourceSchema; prefs: ColumnPrefs }) {
   const t = useT();
   const all = orderedColumns(schema.list.columns, prefs);
-  const label = (name: string) => schema.fields.find((field) => field.name === name)?.label ?? name;
+  const label = (name: string) => schema.list.computed?.[name]?.label ?? schema.fields.find((field) => field.name === name)?.label ?? name;
   const visible = all.filter((name) => !prefs.hidden.includes(name));
   return (
     <Popover.Root>

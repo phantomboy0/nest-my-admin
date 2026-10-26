@@ -169,7 +169,7 @@ beforeAll(async () => {
   for (let i = 1; i <= 60; i++) {
     const product = await ds.getRepository(Product).save({ name: `P${String(i).padStart(2, '0')}`, sku: `SKU-${i}`, price: '10.00', compareAtPrice: i % 2 ? '12.50' : null, status: i === 7 ? 'draft' : i % 5 ? 'active' : 'inactive', categoryId: i % 2 ? shoes.id : null });
     for (let v = 0; v < i % 4; v++) await ds.getRepository(Variant).save({ productId: product.id, stock: i, hidden: v === 2 });
-    for (let m = i % 3; m > 0; m--) await ds.getRepository(Media).save({ product: { id: product.id }, image: `img-${i}-${m}.png`, sort: m });
+    for (let m = i % 3; m > 0; m--) await ds.getRepository(Media).save({ product: { id: product.id }, image: `/img/${i}-${m}.png`, sort: m });
   }
 });
 afterAll(async () => {
@@ -196,7 +196,7 @@ describe(`computed list columns (${TEST_DB})`, () => {
   test('values: first row, path, title with subline, money with previous, aggregate, count, toggle, mapped badge', async () => {
     const byName = new Map((await rows('root', 'pageSize=100')).map((row) => [row.name, row._computed]));
     const p05 = byName.get('P05')!;
-    expect(p05.image).toEqual({ value: 'img-5-1.png' }); // lowest `sort` first
+    expect(p05.image).toEqual({ value: '/img/5-1.png' }); // lowest `sort` first; a URL (not a file key) stays as it is
     expect(p05.title).toEqual({ value: 'P05', subline: 'SKU-5' });
     expect(p05.money).toEqual({ value: '10.00', previous: '12.50' });
     expect(p05.variants).toEqual({ value: 1 });

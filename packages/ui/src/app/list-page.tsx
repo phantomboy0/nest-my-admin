@@ -2,9 +2,10 @@ import { Fragment, useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ListChecks, Plus, RotateCcw, Trash2, X } from 'lucide-react';
-import type { AdminRecord, BulkResult, FieldSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, BulkResult, ComputedColumnSchema, FieldSchema } from '@nest-my-admin/core/contract';
 import { ActionButton } from '@/app/action-button';
 import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
+import { ComputedCell } from '@/app/computed-cell';
 import { EditableCell } from '@/app/editable-cell';
 import { FilterBar } from '@/app/filter-bar';
 import { MobileList } from '@/app/mobile-list';
@@ -78,10 +79,23 @@ export function ListPage() {
   if (schema.isError) return <PageMessage tone="error">{schema.error.message}</PageMessage>;
 
   const s = schema.data;
-  const columns = visibleColumns(s.list.columns, prefs)
-    .map((name) => s.fields.find((field) => field.name === name))
-    .filter((field): field is FieldSchema => field !== undefined);
-  const detailColumns = columns.filter((column) => !s.primaryKeys.includes(column.name));
+  // A column is a field (or path) or a computed column (`list.computed`).
+  const columns = visibleColumns(s.list.columns, prefs).flatMap((name): ListColumn[] => {
+    const computed = s.list.computed?.[name];
+    if (computed) return [{ name, label: computed.label, computed }];
+    const field = s.fields.find((candidate) => candidate.name === name);
+    return field ? [{ name, label: field.label, field }] : [];
+  });
+  const detailColumns = columns.flatMap((column) => (column.field && !s.primaryKeys.includes(column.name) ? [column.field] : []));
+  // An image right before a title is drawn inside the title's cell (the design's product cell: thumbnail, name, SKU).
+  for (let index = columns.length - 2; index >= 0; index--) {
+    if (columns[index]!.computed?.kind === 'image' && columns[index + 1]!.computed?.kind === 'title') {
+      columns[index + 1] = { ...columns[index + 1]!, image: columns[index]! };
+      columns.splice(index, 1);
+    }
+  }
+  // The record link goes on the first column that is text: not an image or a switch.
+  const linkIndex = columns.findIndex((column) => column.computed?.kind !== 'image' && column.computed?.kind !== 'toggle');
   const sort = sortParam
     ? { field: sortParam.replace(/^-/, ''), direction: sortParam.startsWith('-') ? 'desc' : 'asc' }
     : s.list.defaultSort;
@@ -354,14 +368,25 @@ export function ListPage() {
                     )}
                     {columns.map((column, index) => (
                       <TableCell key={column.name}>
-                        {index === 0 && !trash ? (
+                        {column.computed ? (
+                          <div className="flex items-center gap-3">
+                            {column.image && <ComputedCell schema={s} name={column.image.name} column={column.image.computed!} item={item} />}
+                            {index === linkIndex && !trash ? (
+                              <Link to={recordPath(item)} className="min-w-0 hover:underline" onClick={(event) => event.stopPropagation()}>
+                                <ComputedCell schema={s} name={column.name} column={column.computed} item={item} />
+                              </Link>
+                            ) : (
+                              <ComputedCell schema={s} name={column.name} column={column.computed} item={item} />
+                            )}
+                          </div>
+                        ) : index === linkIndex && !trash ? (
                           <Link to={recordPath(item)} className="font-semibold hover:underline" onClick={(event) => event.stopPropagation()}>
-                            {formatCell(item[column.name], column)}
+                            {formatCell(item[column.name], column.field!)}
                           </Link>
                         ) : !trash && s.list.editable.includes(column.name) && !(Array.isArray(item._readonly) && item._readonly.includes(column.name)) && (item._perm as { update?: boolean } | undefined)?.update !== false ? (
-                          <EditableCell schema={s} item={item} field={column} />
+                          <EditableCell schema={s} item={item} field={column.field!} />
                         ) : (
-                          <CellValue value={item[column.name]} field={column} record={item} />
+                          <CellValue value={item[column.name]} field={column.field!} record={item} />
                         )}
                       </TableCell>
                     ))}
@@ -426,6 +451,16 @@ export function ListPage() {
       <QuickView schema={s} item={quickView} onClose={() => setQuickView(undefined)} />
     </div>
   );
+}
+
+/** A list column: a field (or path), or a computed column. */
+interface ListColumn {
+  name: string;
+  label: string;
+  field?: FieldSchema;
+  computed?: ComputedColumnSchema;
+  /** A title column drawn with the image column that came right before it. */
+  image?: ListColumn;
 }
 
 /** A cell; a related record links to its own page when its resource is registered. */

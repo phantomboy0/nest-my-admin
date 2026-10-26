@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
+import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
 import { InlineReader } from '../inlines/inline-reader.js';
@@ -11,7 +11,8 @@ import { toActionSchema } from '../decorators/admin-action.js';
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
 import { buildMenu, checkMenu } from './menu.js';
-import { loadComputed } from '../crud/computed-columns.js';
+import { loadComputed, type CompiledComputed } from '../crud/computed-columns.js';
+import { resourceFileOwner } from '../files/file-owner.js';
 import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { likePattern } from '../crud/list-query-builder.js';
 import { parseId } from '../crud/list-query.js';
@@ -138,6 +139,28 @@ export class AdminApiService {
     return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups, ...(menu ? { menu } : {}) };
   }
 
+  /**
+   * Image cells hold a file key; the page gets its URL (the storage's public one, or the admin's download route, which
+   * checks the viewer again). A value that is already an http(s) or relative URL stays; anything else becomes null.
+   */
+  private async imageUrls(entry: RegisteredResource, computed: CompiledComputed[], values: Map<string, Record<string, ComputedValue>>, ctx: AdminContext): Promise<void> {
+    for (const column of computed) {
+      if (column.column.kind !== 'image') continue;
+      const source = column.source;
+      const holder = source.type === 'first' ? this.registry.forEntity(source.relation.inverseEntityMetadata.target as Function, entry.dataSource) : source.type === 'field' && !source.path.includes('.') ? entry : undefined;
+      const field = source.type === 'first' ? source.field : source.type === 'field' ? source.path : undefined;
+      const isFile = holder && field && ['file', 'image'].includes(holder.fieldConfig.get(field)?.widget ?? '');
+      const cells = [...values.values()].map((row) => row[column.key]).filter((cell): cell is ComputedValue => cell !== undefined);
+      const keys = cells.map((cell) => cell.value).filter((value): value is string => typeof value === 'string');
+      const urls = isFile && keys.length > 0 ? await this.files.refs(resourceFileOwner(holder!, this.policy), keys.map((key) => ({ [field!]: key })), [field!], ctx) : [];
+      const byKey = new Map(keys.map((key, index) => [key, (urls[index]?.[field!] as AdminFileRef | undefined)?.url]));
+      for (const cell of cells) {
+        const value = typeof cell.value === 'string' ? cell.value : undefined;
+        cell.value = value === undefined ? null : (byKey.get(value) ?? (/^(https?:\/\/|\/)/i.test(value) ? value : null));
+      }
+    }
+  }
+
   /** The menu's references are checked once every resource and settings page is registered. */
   onApplicationBootstrap(): void {
     if (this.options.menu) checkMenu(this.options.menu, this.registry, this.pageRegistry);
@@ -226,6 +249,7 @@ export class AdminApiService {
     if (computed.length > 0) {
       const locale = ctx.locale ?? this.options.locale;
       const values = await loadComputed(computed, items, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (entity, field) => this.registry.forEntity(entity, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+      await this.imageUrls(entry, computed, values, ctx);
       for (const record of records) record._computed = values.get(String(record._id)) ?? {};
     }
     return {
