@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { FormLayoutInline, FormLayoutNode, FormLayoutSection } from '@nest-my-admin/core/contract';
 import { isRtl, useLocale, useT } from '@/i18n';
+import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 interface FormLayoutProps {
@@ -14,12 +15,14 @@ interface FormLayoutProps {
   errors: Record<string, string[]>;
   /** An inline section of the layout; without it, inlines are left out. */
   renderInline?: (inline: FormLayoutInline) => ReactNode | null;
+  /** Sections without cards (a layout inside a card: an inline's row). */
+  plain?: boolean;
 }
 
 const COLUMNS = { 1: '', 2: 'md:grid-cols-2', 3: 'md:grid-cols-2 lg:grid-cols-3' } as const;
 
 /** Sections (with 1–3 columns on wide screens, one on phones) and tabs, from `form.layout` (spec §9.4). */
-export function FormLayout({ layout: given, names, render, errors, renderInline }: FormLayoutProps) {
+export function FormLayout({ layout: given, names, render, errors, renderInline, plain }: FormLayoutProps) {
   const layout = given && (renderInline ? (given as SectionNode[]) : withoutInlines(given));
   const listed = new Set((layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((section) => (isInline(section) ? [] : section.fields)));
   const rest = names.filter((name) => !listed.has(name));
@@ -27,18 +30,18 @@ export function FormLayout({ layout: given, names, render, errors, renderInline 
   const firstTab = (layout ?? []).findIndex((node) => 'tab' in node);
   const before = firstTab === -1 ? (layout ?? []).filter((node): node is Block => !('tab' in node)) : (layout ?? []).slice(0, firstTab).filter((node): node is Block => !('tab' in node));
   const after = firstTab === -1 ? [] : (layout ?? []).slice(firstTab).filter((node): node is Block => !('tab' in node));
-  const block = (node: Block, key: string) => (isInline(node) ? <Fragment key={key}>{renderInline?.(node)}</Fragment> : <Section key={key} section={node} render={render} />);
+  const block = (node: Block, key: string) => (isInline(node) ? <Fragment key={key}>{renderInline?.(node)}</Fragment> : <Section key={key} section={node} render={render} plain={plain} />);
   return (
     <>
       {before.map((node, index) => block(node, `b${index}`))}
       {tabs.length > 0 && <Tabs tabs={tabs} render={render} errors={errors} block={block} />}
       {after.map((node, index) => block(node, `a${index}`))}
-      {rest.length > 0 && <Section section={{ fields: rest, columns: 1 }} render={render} />}
+      {rest.length > 0 && <Section section={{ fields: rest, columns: 1 }} render={render} plain={plain} />}
     </>
   );
 }
 
-function Section({ section, render }: { section: FormLayoutSection; render: FormLayoutProps['render'] }) {
+function Section({ section, render, plain }: { section: FormLayoutSection; render: FormLayoutProps['render']; plain?: boolean }) {
   const titleId = useId();
   const children = section.fields.map((name) => [name, render(name)] as const).filter(([, node]) => node !== null);
   if (children.length === 0) return null;
@@ -51,14 +54,22 @@ function Section({ section, render }: { section: FormLayoutSection; render: Form
       ))}
     </div>
   );
-  if (!section.title) return grid;
+  if (plain) {
+    if (!section.title) return grid;
+    return (
+      <section aria-labelledby={titleId} className="flex flex-col gap-3">
+        <h3 id={titleId} className="text-[13px] font-semibold text-muted-foreground">
+          {section.title}
+        </h3>
+        {grid}
+      </section>
+    );
+  }
+  if (!section.title) return <Card bodyClassName="p-5">{grid}</Card>;
   return (
-    <section aria-labelledby={titleId} className="flex flex-col gap-4">
-      <h2 id={titleId} className="border-b pb-1.5 text-sm font-semibold text-muted-foreground">
-        {section.title}
-      </h2>
+    <Card aria-labelledby={titleId} title={<span id={titleId}>{section.title}</span>}>
       {grid}
-    </section>
+    </Card>
   );
 }
 
@@ -105,7 +116,7 @@ function Tabs({ tabs, render, errors, block }: { tabs: TabNode[]; render: FormLa
 
   return (
     <div className="flex flex-col gap-4">
-      <div role="tablist" className="flex gap-1 overflow-x-auto border-b" onKeyDown={onKeyDown}>
+      <div role="tablist" className="flex gap-0.5 overflow-x-auto border-b" onKeyDown={onKeyDown}>
         {tabs.map((tab, index) => (
           <button
             key={index}
@@ -120,8 +131,8 @@ function Tabs({ tabs, render, errors, block }: { tabs: TabNode[]; render: FormLa
             tabIndex={index === active ? 0 : -1}
             onClick={() => setActive(index)}
             className={cn(
-              '-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-              index === active ? 'border-primary font-medium' : 'border-transparent text-muted-foreground hover:text-foreground',
+              '-mb-px flex h-[38px] items-center gap-1.5 border-b-2 px-3 text-[13px] whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+              index === active ? 'border-foreground font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground',
             )}
           >
             {tab.tab}

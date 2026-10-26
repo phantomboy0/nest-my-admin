@@ -418,6 +418,7 @@ export const en = {
   'form.leaveTitle': 'Leave without saving? Your changes will be lost.',
   'form.stay': 'Stay',
   'form.leave': 'Leave',
+  'form.unsaved': 'Unsaved changes',
   'form.formatJson': 'Format',
   'form.tabHasErrors': '(has errors)',
   'form.readOnly': 'Read-only',

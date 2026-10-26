@@ -1,11 +1,11 @@
 import { Fragment, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Copy, ExternalLink, Lock } from 'lucide-react';
+import { ChevronRight, Copy, ExternalLink, Lock, Trash2 } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, FormLayoutInline, InlineChanges, InlineRows, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
 import { FieldInput, RichText } from '@/app/field-input';
 import { RecordActions } from '@/app/action-button';
-import { LeaveBar, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
+import { LeaveBar, SaveBar, SaveKey, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
 import { FormLayout } from '@/app/form-layout';
 import { InlineSection } from '@/app/inline-section';
 import { HistoryTab, historyKey } from '@/app/history-tab';
@@ -342,7 +342,10 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   return (
     <form ref={formRef} onSubmit={submit} noValidate className={cn('flex flex-col gap-5', schema.form.layout?.length ? 'max-w-4xl' : 'max-w-2xl')}>
       {mode === 'create' ? (
-        <h1 className="text-xl font-semibold">{t('form.new', { name: schema.label })}</h1>
+        <div className="flex items-center gap-3">
+          <BackButton to={`/${schema.name}`} />
+          <h1 className="text-[22px] font-bold">{t('form.new', { name: schema.label })}</h1>
+        </div>
       ) : (
         <DetailHeader
           schema={schema}
@@ -354,6 +357,34 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
             navigate(`/${schema.name}`);
           }}
           onChanged={onChanged}
+          extra={
+            <>
+              {schema.creatable && (
+                <Button asChild variant="outline">
+                  <Link to={`/${schema.name}/new?${new URLSearchParams({ from: id! })}`}>
+                    <Copy />
+                    {t('form.duplicate')}
+                  </Link>
+                </Button>
+              )}
+              {canDelete &&
+                (confirmingDelete ? (
+                  <>
+                    <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                      {t(remove.isPending ? 'form.deleting' : schema.softDelete ? 'form.confirmMoveToTrash' : 'form.confirmDelete')}
+                    </Button>
+                    <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
+                      {t('form.keep')}
+                    </Button>
+                  </>
+                ) : (
+                  <Button type="button" variant="outline" className="text-destructive" onClick={() => setConfirmingDelete(true)}>
+                    <Trash2 />
+                    {t(schema.softDelete ? 'form.moveToTrash' : 'form.delete')}
+                  </Button>
+                ))}
+            </>
+          }
         />
       )}
       {source && inlines.length > 0 && (
@@ -405,45 +436,22 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
           render={renderField}
           renderInline={renderInline}
         />
-        <div className="sticky bottom-0 flex flex-wrap gap-2 border-t bg-background py-3 md:static md:border-0 md:py-0">
-          {canUpdate && (
-            <Button type="submit" value="list" disabled={save.isPending || uploads.busy} aria-keyshortcuts="Control+S Meta+S">
-              {t(save.isPending ? 'form.saving' : 'form.save')}
-            </Button>
-          )}
+        <SaveBar dirty={dirty}>
+          <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
+            {t(canUpdate ? 'common.cancel' : 'form.back')}
+          </Button>
           {canUpdate && schema.creatable && (
             <Button type="submit" value="new" variant="outline" disabled={save.isPending || uploads.busy}>
               {t('form.saveAndNew')}
             </Button>
           )}
-          <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
-            {t(canUpdate ? 'common.cancel' : 'form.back')}
-          </Button>
-          {mode === 'edit' && schema.creatable && (
-            <Button asChild variant="outline">
-              <Link to={`/${schema.name}/new?${new URLSearchParams({ from: id! })}`}>
-                <Copy />
-                {t('form.duplicate')}
-              </Link>
+          {canUpdate && (
+            <Button type="submit" value="list" disabled={save.isPending || uploads.busy} aria-keyshortcuts="Control+S Meta+S">
+              {t(save.isPending ? 'form.saving' : 'form.save')}
+              <SaveKey />
             </Button>
           )}
-          {mode === 'edit' &&
-            canDelete &&
-            (confirmingDelete ? (
-              <div className="ms-auto flex gap-2">
-                <Button type="button" variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>
-                  {t(remove.isPending ? 'form.deleting' : schema.softDelete ? 'form.confirmMoveToTrash' : 'form.confirmDelete')}
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => setConfirmingDelete(false)}>
-                  {t('form.keep')}
-                </Button>
-              </div>
-            ) : (
-              <Button type="button" variant="outline" className="ms-auto" onClick={() => setConfirmingDelete(true)}>
-                {t(schema.softDelete ? 'form.moveToTrash' : 'form.delete')}
-              </Button>
-            ))}
-        </div>
+        </SaveBar>
         {mode === 'edit' && record && schema.related.length > 0 && (
           <nav aria-label={t('form.related')} className="flex flex-col gap-2 border-t pt-4">
             <h2 className="text-sm font-medium text-muted-foreground">{t('form.related')}</h2>
@@ -483,7 +491,7 @@ function RecordTabs({ active, onChange }: { active: RecordTab; onChange: (tab: R
     <div
       role="tablist"
       aria-label={t('audit.recordTabs')}
-      className="flex gap-1 overflow-x-auto border-b"
+      className="flex gap-0.5 overflow-x-auto border-b"
       onKeyDown={(event) => {
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End') return;
         event.preventDefault();
@@ -507,8 +515,8 @@ function RecordTabs({ active, onChange }: { active: RecordTab; onChange: (tab: R
           tabIndex={name === active ? 0 : -1}
           onClick={() => onChange(name)}
           className={cn(
-            '-mb-px border-b-2 px-3 py-2 text-sm whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-            name === active ? 'border-primary font-medium' : 'border-transparent text-muted-foreground hover:text-foreground',
+            '-mb-px flex h-[38px] items-center border-b-2 px-3 text-[13px] whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+            name === active ? 'border-foreground font-semibold' : 'border-transparent text-muted-foreground hover:text-foreground',
           )}
         >
           {t(name === 'details' ? 'audit.details' : 'audit.history')}
@@ -551,24 +559,38 @@ interface DetailHeaderProps {
   /** An action left the record out of the user's view (or removed it). */
   onGone: () => void;
   onChanged: () => void;
+  /** Buttons after the record's actions (Duplicate, Delete). */
+  extra?: ReactNode;
+}
+
+function BackButton({ to }: { to: string }) {
+  const t = useT();
+  return (
+    <Button asChild variant="outline" size="icon" className="shrink-0">
+      <Link to={to} aria-label={t('form.back')}>
+        <ChevronRight className="ltr:rotate-180" />
+      </Link>
+    </Button>
+  );
 }
 
 /** The record's title with its badge fields, its actions, and the resource's external links (spec §9.4). */
-function DetailHeader({ schema, record, id, dirty, onGone, onChanged }: DetailHeaderProps) {
+function DetailHeader({ schema, record, id, dirty, onGone, onChanged, extra }: DetailHeaderProps) {
   const t = useT();
   const badges = schema.fields.filter((field) => field.widget === 'badge' && record?.[field.name] !== undefined && record?.[field.name] !== null);
   const links = Array.isArray(record?._links) ? (record._links as RecordLink[]) : [];
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-semibold">{recordHeading(schema.label, record, id)}</h1>
-        {badges.map((field) => (
-          <ValueBadge key={field.name} value={record![field.name]} field={field} />
-        ))}
-        {record && id !== undefined && <RecordActions schema={schema} record={record} id={id} dirty={dirty} onGone={onGone} onChanged={onChanged} />}
-      </div>
+    <div className="flex flex-wrap items-start gap-3">
+      <BackButton to={`/${schema.name}`} />
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-[22px] font-bold">{recordHeading(schema.label, record, id)}</h1>
+          {badges.map((field) => (
+            <ValueBadge key={field.name} value={record![field.name]} field={field} />
+          ))}
+        </div>
       {links.length > 0 && (
-        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
           {links.map((link) => (
             <li key={`${link.label}:${link.href}`}>
               <a href={link.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline" aria-label={t('form.externalLink', { name: link.label })}>
@@ -579,6 +601,11 @@ function DetailHeader({ schema, record, id, dirty, onGone, onChanged }: DetailHe
           ))}
         </ul>
       )}
+      </div>
+      <div className="ms-auto flex flex-wrap items-center gap-2">
+        {record && id !== undefined && <RecordActions schema={schema} record={record} id={id} dirty={dirty} onGone={onGone} onChanged={onChanged} />}
+        {extra}
+      </div>
     </div>
   );
 }

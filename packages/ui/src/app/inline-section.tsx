@@ -170,13 +170,20 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
   const showControls = ordered || rows.some(canRemove);
 
   return (
-    <section aria-labelledby={titleId} className="flex min-w-0 flex-col gap-3" data-inline={child.name}>
-      <div className="flex flex-wrap items-baseline gap-2 border-b pb-1.5">
-        <h2 id={titleId} className="text-sm font-semibold text-muted-foreground">
+    <section aria-labelledby={titleId} className="flex min-w-0 flex-col rounded-card border bg-card shadow-card" data-inline={child.name}>
+      <div className="flex min-h-14 flex-wrap items-center gap-2 border-b px-5 py-3">
+        <h2 id={titleId} className="text-[15px] font-semibold">
           {inline.label}
         </h2>
-        <span className="text-xs text-muted-foreground">{limits(t, inline, rows.length)}</span>
+        <span className="inline-flex h-5 items-center rounded-full bg-muted px-2 text-[11px] text-muted-foreground">{limits(t, inline, rows.length)}</span>
+        {canCreate && (
+          <Button type="button" variant="outline" size="sm" className="ms-auto" onClick={add}>
+            <Plus />
+            {t('form.add', { name: inline.label })}
+          </Button>
+        )}
       </div>
+      <div className="flex flex-col gap-3 p-5 empty:hidden">
       {truncated && (
         <p role="note" className="text-sm text-muted-foreground">
           {t('inline.truncated', { count: truncated.total - rows.length })}{' '}
@@ -187,13 +194,13 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
       )}
       {rows.length === 0 && <p className="text-sm text-muted-foreground">{t('inline.empty')}</p>}
       {rows.length > 0 && inline.display === 'table' && (
-        // Phones scroll the table sideways; the page itself never does.
-        <div className="relative overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
+        // Flush with the card's edges, like a list table; phones scroll it sideways, the page itself never does.
+        <div className="relative -mx-5 overflow-x-auto border-y first:-mt-5 first:border-t-0 last:-mb-5 last:border-b-0">
+          <table className="w-full text-[13px]">
+            <thead className="bg-[color-mix(in_oklab,var(--muted)_50%,transparent)] text-[12.5px] text-muted-foreground">
               <tr>
                 {fields.map((field) => (
-                  <th key={field.name} scope="col" className="px-2 py-1.5 text-start font-medium">
+                  <th key={field.name} scope="col" className="px-3.5 py-2.5 text-start font-medium whitespace-nowrap">
                     {field.label}
                     {child.form.requiredOnCreate.includes(field.name) && rows.some((row) => row.id === undefined) && (
                       <span aria-hidden className="text-destructive">
@@ -203,7 +210,7 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
                   </th>
                 ))}
                 {showControls && (
-                  <th scope="col" className="px-2 py-1.5">
+                  <th scope="col" className="px-3.5 py-2.5">
                     <span className="sr-only">{t('inline.rowActions')}</span>
                   </th>
                 )}
@@ -213,11 +220,11 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
               {rows.map((row, index) => (
                 <tr key={row.key} data-row={row.key} className={cn('border-t align-top', dragging === index && 'opacity-50')} {...dropTarget(index)}>
                   {fields.map((field) => (
-                    <td key={field.name} className="min-w-32 px-2 py-1.5">
+                    <td key={field.name} className="min-w-32 px-3.5 py-2">
                       {cell(row, field, true)}
                     </td>
                   ))}
-                  {showControls && <td className="px-2 py-1.5">{controls(row, index)}</td>}
+                  {showControls && <td className="px-3.5 py-2">{controls(row, index)}</td>}
                 </tr>
               ))}
             </tbody>
@@ -227,12 +234,13 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
       {inline.display === 'table' && rows.map((row) => <Fragment key={row.key}>{rowAlert(row)}</Fragment>)}
       {inline.display === 'cards' &&
         rows.map((row, index) => (
-          <div key={row.key} data-row={row.key} className={cn('flex flex-col gap-4 rounded-lg border p-3', dragging === index && 'opacity-50')} {...dropTarget(index)}>
+          <div key={row.key} data-row={row.key} className={cn('flex flex-col gap-4 rounded-card border bg-background/40 p-4', dragging === index && 'opacity-50')} {...dropTarget(index)}>
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-medium">{titleOf(row) ?? t('inline.newRow', { name: inline.label, index: index + 1 })}</span>
               {controls(row, index)}
             </div>
             <FormLayout
+              plain
               layout={child.form.layout}
               names={fields.map((field) => field.name)}
               errors={errors?.rows[row.key] ?? {}}
@@ -249,14 +257,7 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
           {errors.inline.join(' — ')}
         </p>
       )}
-      {canCreate && (
-        <div>
-          <Button type="button" variant="outline" size="sm" onClick={add}>
-            <Plus />
-            {t('form.add', { name: inline.label })}
-          </Button>
-        </div>
-      )}
+      </div>
     </section>
   );
 }

@@ -420,6 +420,7 @@ export const fa: Messages = {
   'form.leaveTitle': 'بدون ذخیره خارج می‌شوید؟ تغییرات از دست می‌رود.',
   'form.stay': 'بمان',
   'form.leave': 'خروج',
+  'form.unsaved': 'تغییرات ذخیره نشده',
   'form.formatJson': 'مرتب‌سازی',
   'form.tabHasErrors': '(دارای خطا)',
   'form.readOnly': 'فقط خواندنی',
