@@ -37,3 +37,11 @@ Differences between the real admin and the approved design that are not fixed ye
 | sidebar-expanded (shop-nest) | The design captures the sidebar with «فروش» open on the orders page; the capture opens on the dashboard | the screen's URL, not the menu | 15 |
 | palette (shop-nest) | The design shows a typed order number with matching orders; the capture's query is empty, so it lists actions and places | the screen script types nothing for shop-nest's numbers | 15 |
 | sidebar (shop-nest) | Low-stock badge on «موجودی» is fixed at 5 (`commerce.lowStockThreshold`'s default) | a menu badge is a fixed list query, read at boot | 15 |
+| products-desktop (shop-nest) | Title «محصول» (the resource's label) instead of «محصولات», and «جدید» instead of «افزودن محصول» | resources have no plural label or add-button text | 16 |
+| products-desktop (shop-nest) | No row ⋯ menu, no «خروجی Excel», no change-category or bulk-price actions | out of scope (spec §8b) | 16 |
+| product-edit (shop-nest) | No status card with publish settings beside the form; status is a field of «اطلاعات اصلی» | aside cards are read-only | 16 |
+| product-edit (shop-nest) | «قیمت و موجودی» is a summary (lowest price, variant count), not inputs | price, sale price, SKU and stock live per variant in shop-nest; the variants table edits them | 16 |
+| product-edit (shop-nest) | Questions are an editable cards inline (question and answer), not the design's answer/hide thread | shop-nest's FAQs are written by staff; answering customers' questions inline is out (spec §8b) | 16 |
+| product-edit (shop-nest) | Variants: no colour/size columns, stock or active switch per row, no «ساخت خودکار از ویژگی‌ها» | variant auto-build is out (spec §8b); stock is changed only by «Adjust stock» (plan 3) | 16 |
+| product-edit (shop-nest) | Section anchors under the header are the page's tabs (جزئیات، تاریخچه), not one per section with counts | record tabs per section are not built | 16 |
+| product-edit (shop-nest) | A «مرتبط» row lists inline children (تنوع، تصویر محصول…) too | related links follow `schema.related`, which ignores `nav: false` | 16 |
