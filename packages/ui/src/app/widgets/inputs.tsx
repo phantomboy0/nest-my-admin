@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/i18n';
-import { groupMoney } from '@/lib/money';
+import { formatMoney, groupMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { enumLabel } from '@/lib/widgets';
 
@@ -19,8 +19,12 @@ export interface WidgetProps {
 
 /** A decimal as text with thousands grouped when the input is left (the payload drops the commas again). */
 export function MoneyInput({ id, field, value, onChange, aria }: WidgetProps) {
+  // The field's unit, else the host's global one (spec §4).
+  const { unit, position } = formatMoney('0', { currency: field.currency });
+  const addon = unit && <span className="shrink-0 text-[13px] text-muted-foreground">{unit}</span>;
   return (
     <div className="flex items-center gap-2">
+      {position === 'before' && addon}
       <Input
         id={id}
         type="text"
@@ -33,7 +37,7 @@ export function MoneyInput({ id, field, value, onChange, aria }: WidgetProps) {
         onBlur={() => onChange(groupMoney(value, field.scale))}
         {...aria}
       />
-      {field.currency && <span className="text-sm text-muted-foreground">{field.currency}</span>}
+      {position !== 'before' && addon}
     </div>
   );
 }

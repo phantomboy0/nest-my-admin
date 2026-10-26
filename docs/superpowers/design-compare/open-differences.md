@@ -24,3 +24,4 @@ Differences between the real admin and the approved design that are not fixed ye
 | order-detail | Status stepper at the top; items table with thumbnails and totals block; status history with notes | stepper and inline presentation | 10, 11 |
 | order-detail | «چاپ فاکتور»، «چاپ برچسب پستی», tracking-code field, refund button | printing, tracking code and gateway refund are out of scope (spec §8b) | — |
 | product-edit, order-detail | Save bar shows a subtitle of what changed in the design («قیمت فروش ویژه، ۲ تنوع»); ours says only «تغییرات ذخیره نشده» | the list of changed fields is not tracked per field label | 2d |
+| all fa screens | Persian digits and ٬ separators are now the fa default; existing fa screenshot baselines change (release note) | spec §4 | 3 |

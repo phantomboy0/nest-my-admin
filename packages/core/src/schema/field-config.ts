@@ -1,6 +1,7 @@
 import type { FieldSchema, FieldType, FormLayoutInline, FormLayoutNode, FormLayoutSection } from '../contract.js';
 import { BADGE_COLORS, WIDGETS, getAdminFieldOptions, type AdminFieldOptions, type WidgetName } from '../decorators/admin-field.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
+import { checkCurrency } from './currency.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { didYouMean } from './suggest.js';
 
@@ -140,6 +141,13 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
       if (field!.type !== 'string' && field!.type !== 'text') fail(`fields.${name}: a \`secret\` field must be text, got ${field!.type}`);
       if (options.widget !== undefined && !SECRET_WIDGETS.includes(options.widget)) fail(`fields.${name}: a \`secret\` field cannot use the "${options.widget}" widget`);
     }
+    if (options.currency !== undefined && typeof options.currency !== 'string') {
+      try {
+        checkCurrency(options.currency, `fields.${name}.currency`);
+      } catch (error) {
+        fail((error as Error).message.replace(/^nest-my-admin: /, ''));
+      }
+    }
     if (options.sensitive !== undefined && typeof options.sensitive !== 'boolean') fail(`fields.${name}.sensitive: must be true or false`);
     for (const color of Object.values(options.colors ?? {})) {
       if (!BADGE_COLORS.includes(color)) fail(`fields.${name}: unknown badge colour "${color}" (use ${BADGE_COLORS.join(', ')})`);
@@ -195,7 +203,9 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
   if (options.colors) out.colors = { ...options.colors };
   if (options.showIf) out.showIf = { ...options.showIf };
   if (options.slugFrom !== undefined) out.slugFrom = options.slugFrom;
-  if (options.currency !== undefined) out.currency = options.currency;
+  if (options.currency !== undefined) {
+    out.currency = typeof options.currency === 'string' ? { unit: options.currency, position: 'after' } : { unit: text(options.currency.unit), position: options.currency.position ?? 'after' };
+  }
   if (options.widget === 'file' || options.widget === 'image') {
     out.file = {
       accept: [...(options.file?.accept ?? (options.widget === 'image' ? ['image/*'] : ['*/*']))],

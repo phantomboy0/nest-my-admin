@@ -9,7 +9,7 @@ export class InvoiceAdmin extends AdminResourceBase<Invoice> {
   fields: FieldsConfig<Invoice> = {
     number: { label: { en: 'Number', fa: 'شماره' } },
     customer: { label: { en: 'Customer', fa: 'مشتری' } },
-    total: { widget: 'money', currency: 'USD', label: { en: 'Total', fa: 'جمع' } },
+    total: { widget: 'money', label: { en: 'Total', fa: 'جمع' } },
     // Private (the default): the download goes through the admin, which checks the invoice's permissions each time.
     pdf: { widget: 'file', label: { en: 'PDF', fa: 'فایل PDF' }, file: { accept: ['application/pdf'], maxBytes: 5 * 1024 * 1024 } },
   };

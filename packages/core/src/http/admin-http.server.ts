@@ -324,6 +324,7 @@ export class AdminHttpServer implements OnModuleInit {
         locale: this.options.locale,
         locales: this.options.locales,
         branding: this.options.branding as AdminRuntimeConfig['branding'],
+        ...(this.options.currency ? { currency: this.options.currency } : {}),
       },
       { title: this.options.title },
     );

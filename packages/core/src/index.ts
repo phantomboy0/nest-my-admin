@@ -1,5 +1,5 @@
 export { AdminModule } from './admin.module.js';
-export type { AdminAuditOptions, AdminBranding, AdminFilesOptions, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
+export type { AdminAuditOptions, AdminBranding, AdminCurrency, AdminFilesOptions, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
 export type { LocalizedText } from './i18n/localized-text.js';
 export { ResourceRegistry, type RegisteredGroup, type RegisteredResource } from './registry/resource-registry.js';
 export type { DbNames } from './registry/db-names.js';

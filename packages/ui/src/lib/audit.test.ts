@@ -172,7 +172,7 @@ describe('entrySubject', () => {
 
 describe('changeRow', () => {
   test('before and after through the field’s formatter', () => {
-    const price = field('decimal', { name: 'price', label: 'Price', widget: 'money', currency: 'USD', scale: 2 });
+    const price = field('decimal', { name: 'price', label: 'Price', widget: 'money', currency: { unit: 'USD', position: 'after' }, scale: 2 });
     expect(changeRow({ field: 'price', before: '1234.50', after: '1300.00' }, price)).toEqual({ field: 'price', label: 'Price', state: 'values', before: '1,234.50 USD', after: '1,300.00 USD', truncated: false });
   });
 

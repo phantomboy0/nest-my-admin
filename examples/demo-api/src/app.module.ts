@@ -20,6 +20,8 @@ import { StaffModule } from './staff/staff.module.js';
       locale: 'en',
       locales: ['en', 'fa'],
       branding: { primaryColor: '#0f766e' },
+      // Money fields without a unit of their own (the invoice total) show this one.
+      currency: { unit: { en: 'Toman', fa: 'تومان' } },
       // Sign in as admin / admin-demo-pass (or NMA_DEMO_PASSWORD) on a fresh database.
       // `editor` edits the catalog: products (drafts only, price read-only, no cost), categories and tags. They also
       // handle orders: they may ship them (`order.action.ship`, with `order.update`, which every action on a record

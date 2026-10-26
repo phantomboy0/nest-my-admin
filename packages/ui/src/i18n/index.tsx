@@ -77,6 +77,7 @@ export function formatRelative(value: Date, now = new Date(), locale = active): 
 /** Applies a locale to the page: `<html lang dir>`, and the module state used outside React. */
 export function applyLocale(locale: string): void {
   active = locale;
+  if (typeof document === 'undefined') return; // unit tests: module state only
   document.documentElement.lang = locale;
   document.documentElement.dir = isRtl(locale) ? 'rtl' : 'ltr';
 }

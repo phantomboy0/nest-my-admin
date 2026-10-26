@@ -18,13 +18,13 @@ function read(key: string): string | null {
   }
 }
 
-/** The saved choices; without one, the Jalali calendar for Persian and Latin digits. */
+/** The saved choices; without one, Persian gets the Jalali calendar and Persian digits (spec §4), other languages Gregorian and Latin. */
 export function readDisplayPrefs(locale: string): DisplayPrefs {
   const calendar = read(CALENDAR_KEY);
   const digits = read(DIGITS_KEY);
   return {
     calendar: calendar === 'gregorian' || calendar === 'persian' ? calendar : locale.split('-')[0] === 'fa' ? 'persian' : 'gregorian',
-    digits: digits === 'latn' || digits === 'arabext' ? digits : 'latn',
+    digits: digits === 'latn' || digits === 'arabext' ? digits : locale.split('-')[0] === 'fa' ? 'arabext' : 'latn',
   };
 }
 

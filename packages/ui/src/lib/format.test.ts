@@ -55,7 +55,7 @@ describe('calendar and digits (display preferences)', () => {
     applyDisplay({ calendar: 'gregorian', digits: 'arabext' });
     expect(formatCell('1234.50', field('decimal'))).toBe('۱۲۳۴٫۵۰');
     expect(formatCell(42, field('number'))).toBe('۴۲');
-    expect(formatCell('1234.5', { ...field('decimal'), widget: 'money', scale: 2, currency: 'USD' })).toBe('۱٬۲۳۴٫۵۰ USD');
+    expect(formatCell('1234.5', { ...field('decimal'), widget: 'money', scale: 2, currency: { unit: 'USD', position: 'after' } })).toBe('۱٬۲۳۴٫۵۰ USD');
   });
   afterAll(() => applyDisplay({ calendar: 'gregorian', digits: 'latn' }));
 });

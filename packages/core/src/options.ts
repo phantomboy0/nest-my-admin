@@ -6,7 +6,10 @@ import type { AdminContext } from './resource/admin-context.js';
 import type { AdminError } from './errors.js';
 import type { LocalizedText } from './i18n/localized-text.js';
 import type { AdminStorage } from './files/storage.js';
+import { checkCurrency, type AdminCurrency } from './schema/currency.js';
 import { DEFAULT_MAX_FILE_BYTES, MAX_FILE_BYTES } from './schema/field-config.js';
+
+export type { AdminCurrency } from './schema/currency.js';
 
 /** Host branding for the UI (spec §9.5): applied as CSS variables and shown in the sidebar. */
 export interface AdminBranding {
@@ -76,6 +79,8 @@ export interface AdminModuleOptions {
   /** Languages people can switch between (the UI ships `en` and `fa`). Default `[locale]`. */
   locales?: string[];
   branding?: AdminBranding;
+  /** The unit shown with every `money` field that sets none of its own. Display only: values are never converted. */
+  currency?: AdminCurrency;
   /**
    * Give every entity without an @AdminResource a default resource: `true` for the default DataSource, or the names
    * of the DataSources to cover (`['default', 'reports']`). Default `false`.
@@ -125,6 +130,7 @@ export interface ResolvedAdminOptions {
   locale: string;
   locales: string[];
   branding: AdminBranding;
+  currency?: Required<AdminCurrency>;
   /** DataSource names whose entities get default resources. */
   autoRegister: string[];
   transactions: boolean;
@@ -162,6 +168,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     locale,
     locales,
     branding: checkBranding(options.branding ?? {}),
+    currency: options.currency && checkCurrency(options.currency, 'currency'),
     uiDistPath: options.uiDistPath,
     autoRegister: options.autoRegister === true ? ['default'] : Array.isArray(options.autoRegister) ? options.autoRegister : [],
     transactions: options.transactions ?? true,

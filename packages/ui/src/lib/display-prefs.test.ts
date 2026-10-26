@@ -14,12 +14,14 @@ globalThis.localStorage = {
 describe('display preferences', () => {
   beforeEach(() => store.clear());
   test('defaults follow the language', () => {
-    expect(readDisplayPrefs('fa')).toEqual({ calendar: 'persian', digits: 'latn' });
+    expect(readDisplayPrefs('fa')).toEqual({ calendar: 'persian', digits: 'arabext' });
     expect(readDisplayPrefs('en')).toEqual({ calendar: 'gregorian', digits: 'latn' });
   });
   test('a saved choice wins over the default', () => {
     saveDisplayPrefs({ calendar: 'gregorian', digits: 'arabext' });
     expect(readDisplayPrefs('fa')).toEqual({ calendar: 'gregorian', digits: 'arabext' });
+    saveDisplayPrefs({ digits: 'latn' });
+    expect(readDisplayPrefs('fa').digits).toBe('latn');
     store.set('nma.calendar', 'lunar');
     expect(readDisplayPrefs('en').calendar).toBe('gregorian');
   });

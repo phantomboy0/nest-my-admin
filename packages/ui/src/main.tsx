@@ -21,6 +21,7 @@ import { NotFound } from '@/app/not-found';
 import { SettingsPage } from '@/app/settings-page';
 import { LocaleProvider } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
+import { setGlobalCurrency } from '@/lib/money';
 import { setSignedOutHandler } from '@/lib/session';
 import { applyBranding, applyTheme, followSystemTheme, readTheme } from '@/lib/theme';
 
@@ -28,6 +29,7 @@ document.title = runtimeConfig.title;
 // Before the first render, so a dark or branded page never flashes light and unbranded.
 applyTheme(readTheme());
 applyBranding(runtimeConfig.branding);
+setGlobalCurrency(runtimeConfig.currency);
 followSystemTheme(readTheme);
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } });

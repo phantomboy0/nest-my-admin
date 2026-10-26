@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { ADMIN_FIELD_METADATA } from '../constants.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
+import type { AdminCurrency } from '../schema/currency.js';
 
 /** Inputs and displays the UI has (spec §5.6). */
 export const WIDGETS = [
@@ -42,8 +43,8 @@ export interface AdminFieldOptions {
   readonly?: boolean;
   /** The `slug` widget fills itself from this field until someone edits it. */
   slugFrom?: string;
-  /** Currency code shown with the `money` widget (display only). */
-  currency?: string;
+  /** The unit shown with the `money` widget (display only): a code such as `USD`, or a unit and its position. Wins over the global `currency`. */
+  currency?: string | AdminCurrency;
   /** `file` and `image` widgets: type, size and visibility limits; `richtext`: `maxBytes` and `visibility` of editor images. */
   file?: FileFieldOptions;
   /** `file` and `image` widgets on a json column: a list of files instead of one. */

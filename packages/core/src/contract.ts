@@ -51,8 +51,8 @@ export interface FieldSchema {
   showIf?: Record<string, string | number | boolean | null | Array<string | number | boolean | null>>;
   /** The slug widget fills itself from this field until edited. */
   slugFrom?: string;
-  /** Currency code for the money widget (display only). */
-  currency?: string;
+  /** The money widget's unit in the request's language, and where it goes (display only). */
+  currency?: CurrencyDisplay;
   /** Set for `file` and `image` widgets: what may be uploaded to the field. */
   file?: { accept: string[]; maxBytes: number; many: boolean };
   /** Set for the `richtext` widget: whether the editor can upload images (`files` is configured) and their largest size. */
@@ -779,9 +779,16 @@ export interface AuditResponse {
 /** A label in one language, or per language (`{ en: 'Orders', fa: 'سفارش‌ها' }`). */
 export type LocalizedLabel = string | Record<string, string>;
 
-/** Host branding (spec §9.5). Colours and lengths are validated by core before they reach the page. */
 /** A status colour of the design (badges, computed cells, stat changes). */
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'primary';
+
+/** A money unit as shown: `۳٬۲۵۰٬۰۰۰ تومان` (after) or `$12.50` (before). */
+export interface CurrencyDisplay {
+  unit: string;
+  position: 'after' | 'before';
+}
+
+/** Host branding (spec §9.5). Colours and lengths are validated by core before they reach the page. */
 
 export interface BrandingConfig {
   name?: LocalizedLabel;
@@ -801,4 +808,6 @@ export interface AdminRuntimeConfig {
   locale: string;
   locales: string[];
   branding: BrandingConfig;
+  /** The global money unit, in every configured language (the UI picks its own). */
+  currency?: { unit: LocalizedLabel; position: 'after' | 'before' };
 }
