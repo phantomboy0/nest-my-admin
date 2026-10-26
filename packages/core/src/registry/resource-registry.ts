@@ -49,6 +49,10 @@ export interface RegisteredResource {
   actions: ReadonlyMap<string, RegisteredAction>;
   /** Where the resource stands among the resources of its group (`@AdminResource({ order })`, default 100). */
   order: number;
+  /** Listed in navigation (sidebar, home, group pages, palette, global search): `nav`, else false for inline children. */
+  nav: boolean;
+  /** The `nav` option as set, before the inline-child default is applied. */
+  navOption?: boolean;
   /** The child resources its form edits inline (`{ inline: ChildAdmin }` in `form.layout`), in layout order. */
   inlines: RegisteredInline[];
 }
@@ -125,6 +129,10 @@ export class ResourceRegistry implements OnModuleInit {
     this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
     resolveInlines(this.list());
+    // Inline children are edited on their parent's page: out of navigation unless they ask to stay.
+    for (const child of this.list().flatMap((entry) => entry.inlines.map((inline) => inline.child))) {
+      if (child.navOption === undefined) child.nav = false;
+    }
     // A parent and its inlines are saved together or not at all: a promise only a transaction can keep.
     const parent = this.list().find((entry) => entry.inlines.length > 0);
     if (parent && !this.options.transactions) {
@@ -299,6 +307,8 @@ export class ResourceRegistry implements OnModuleInit {
       ),
       actions,
       order,
+      nav: definition.nav ?? true,
+      ...(definition.nav !== undefined ? { navOption: definition.nav } : {}),
       inlines: [],
     });
   }

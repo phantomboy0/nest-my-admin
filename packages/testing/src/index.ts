@@ -17,7 +17,7 @@ import {
   type ResourceSchema,
   type SearchResponse,
 } from '@nest-my-admin/core';
-import { AdminApiService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
+import { AdminApiService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, ResourceRegistry, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
 
 /** Who a test acts as. With `roles`, exactly these roles (code or stored); without, the admin resolves them as for a request. */
 export interface TestUser extends Partial<Omit<AdminUser, 'id'>> {
@@ -71,6 +71,11 @@ export class AdminClient {
 
   meta(): Promise<MetaResponse> {
     return this.run((api, ctx) => api.meta(ctx.locale, ctx));
+  }
+  /** Every resource the user may view, those without a navigation entry (`nav: false`) included. */
+  async resources(): Promise<string[]> {
+    const permissions = await this.permissions();
+    return this.app.get(ResourceRegistry, { strict: false }).list().map((entry) => entry.schema.name).filter((name) => permissions.canOn(name, 'view'));
   }
   schema(resource: string): Promise<ResourceSchema> {
     return this.run((api, ctx) => api.schema(resource, ctx.locale, ctx));
@@ -230,9 +235,10 @@ export class AdminTesting {
       return result;
     };
 
-    // Not reachable: the resource is absent from meta and every call is "not found".
+    // Not reachable: the user may not view it, and every call is "not found". (Meta is no guide: it leaves out `nav: false` resources.)
     const meta = await call(() => user.meta());
-    const reachable = meta.groups.some((group) => group.resources.some((item) => item.name === resource));
+    const viewable = await user.resources();
+    const reachable = viewable.includes(resource);
     if (!reachable) {
       const probes: Array<[string, () => Promise<unknown>]> = [
         ['schema', () => user.schema(resource)],
@@ -340,7 +346,7 @@ export class AdminTesting {
       }
     }
     // Every other resource the user reaches: its titles and columns, and the relations pointing here (columns, pickers).
-    for (const other of meta.groups.flatMap((group) => group.resources.map((item) => item.name))) {
+    for (const other of viewable) {
       if (other === resource) continue;
       const otherSchema = await call(() => user.schema(other));
       const page = await call(() => user.list(other, { pageSize: 100 }));

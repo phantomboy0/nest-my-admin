@@ -94,7 +94,8 @@ export class AdminApiService {
   meta(locale = this.options.locale, ctx?: AdminContext): MetaResponse {
     const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
     // Only resources the user may view (spec §6.5: meta is filtered per user).
-    const resources = this.registry.list().filter((entry) => !ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view'));
+    // `nav: false` resources have no entry of their own (spec §5): reachable by URL, not listed.
+    const resources = this.registry.list().filter((entry) => entry.nav && (!ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view')));
     const pages = this.pages.summaries(locale, ctx);
     // Inside a group: `order` first (lower first), then the label in the request's language.
     const byOrder = (a: { order: number; summary: { label: string } }, b: { order: number; summary: { label: string } }) =>
@@ -199,7 +200,7 @@ export class AdminApiService {
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new AdminValidationError({ limit: ['must be an integer from 1 to 20'] });
     const locale = ctx.locale ?? this.options.locale;
     const perms = this.policy.permissionsOf(ctx);
-    const searchable = this.registry.list().filter((entry) => perms.canOn(entry.schema.name, 'view') && this.view(entry, ctx).schema.list.search.length > 0);
+    const searchable = this.registry.list().filter((entry) => entry.nav && perms.canOn(entry.schema.name, 'view') && this.view(entry, ctx).schema.list.search.length > 0);
     const results = await Promise.all(
       searchable.map(async (entry) => {
         const schema = this.view(entry, ctx).schema;
