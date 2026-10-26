@@ -166,11 +166,13 @@ export function AccentPicker() {
             onClick={() => pick(color)}
           />
         ))}
-        <label className="relative size-6 cursor-pointer overflow-hidden rounded-full border border-border" title={t('display.customAccent')}>
-          <span className="sr-only">{t('display.customAccent')}</span>
-          <input type="color" className="absolute inset-0 size-full cursor-pointer opacity-0" value={/^#[0-9a-f]{6}$/i.test(shown ?? '') ? shown! : '#5b5bd6'} onChange={(event) => pick(event.target.value)} />
-          <span aria-hidden className="block size-full bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)]" />
-        </label>
+        <button
+          type="button"
+          className="size-6 cursor-pointer overflow-hidden rounded-full border border-border bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)]"
+          aria-label={t('display.customAccent')}
+          title={t('display.customAccent')}
+          onClick={() => openAccentInput(shown)}
+        />
         <Button type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-xs" aria-pressed={personal === null} onClick={() => pick(null)}>
           {t('display.defaultAccent')}
         </Button>
@@ -189,5 +191,36 @@ export function AccentPicker() {
       )}
       {save.isError && <p className="text-xs text-destructive">{describeError(save.error)}</p>}
     </div>
+  );
+}
+
+/**
+ * The browser's colour window outlives the menu that opened it (a click elsewhere, a new page): its input must too.
+ * One input for the whole admin, always on the page (`<AccentInput />` in the layout); the picker opens it.
+ */
+let accentInput: HTMLInputElement | null = null;
+
+function openAccentInput(current: string | null): void {
+  if (!accentInput) return;
+  if (current && /^#[0-9a-f]{6}$/i.test(current)) accentInput.value = current;
+  accentInput.click();
+}
+
+export function AccentInput() {
+  return (
+    <input
+      ref={(element) => {
+        accentInput = element;
+      }}
+      type="color"
+      tabIndex={-1}
+      aria-hidden
+      className="pointer-events-none fixed bottom-0 start-0 size-px opacity-0"
+      // `input` fires while the colour is being chosen: every step shows at once.
+      onInput={(event) => {
+        saveAccent(event.currentTarget.value);
+        applyAccent();
+      }}
+    />
   );
 }

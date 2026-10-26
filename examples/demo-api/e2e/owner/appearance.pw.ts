@@ -36,3 +36,17 @@ test('a superuser sets it for everyone; others see it until they pick their own'
   await picker.getByRole('button', { name: 'Reset for everyone' }).click();
   await expect(picker.getByRole('button', { name: 'Reset for everyone' })).toHaveCount(0);
 });
+
+test('the colour window keeps working after the menu closes and the page changes', async ({ page }) => {
+  await page.goto('/admin/');
+  await openAccountMenu(page);
+  await page.getByRole('group', { name: 'Accent colour' }).getByRole('button', { name: 'Another colour' }).click();
+  // The menu closes and another page opens while the browser's colour window is still up.
+  await page.keyboard.press('Escape');
+  await page.goto('/admin/product');
+  // What the colour window does on each change: the always-mounted input gets the value and an `input` event.
+  await page.evaluate("(() => { const input = document.querySelector('input[type=color]'); input.value = '#db2777'; input.dispatchEvent(new Event('input', { bubbles: true })); })()");
+  expect((await primary(page)).toLowerCase()).toBe('#db2777');
+  await openAccountMenu(page);
+  await page.getByRole('group', { name: 'Accent colour' }).getByRole('button', { name: 'Default' }).click();
+});
