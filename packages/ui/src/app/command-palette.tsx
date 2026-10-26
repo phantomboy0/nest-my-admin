@@ -123,8 +123,9 @@ export function CommandPalette() {
       <Dialog.Trigger asChild>
         <Button variant="outline" className="w-9 justify-start px-0 font-normal text-muted-foreground max-sm:justify-center sm:w-[260px] sm:px-3.5" aria-keyshortcuts="Control+K Meta+K" aria-label={t('palette.open')}>
           <Search />
-          <span className="hidden truncate sm:inline">{t('palette.placeholder')}</span>
-          <kbd className="ms-auto hidden rounded-[5px] border border-border bg-muted px-[5px] py-px font-mono text-[11px] text-muted-foreground sm:inline" dir="ltr">⌘K</kbd>
+          {/* The text takes the room, so ⌘K sits at the far end (the left in RTL), as drawn. */}
+          <span className="hidden min-w-0 flex-1 truncate text-start sm:inline">{t('palette.placeholder')}</span>
+          <kbd className="hidden shrink-0 rounded-[5px] border border-border bg-muted px-[5px] py-px font-mono text-[11px] text-muted-foreground sm:inline" dir="ltr">⌘K</kbd>
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
