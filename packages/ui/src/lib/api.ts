@@ -100,6 +100,7 @@ export const api = {
   meta: () => request<MetaResponse>('/meta'),
   menuBadges: () => request<MenuBadges>('/menu/badges'),
   dashboard: () => request<DashboardResponse>('/dashboard'),
+  setAppearance: (accent: string | null) => request<{ accent: string | null }>('/appearance', { method: 'PUT', body: JSON.stringify({ accent }) }),
   widget: (name: string, params: WidgetParams) => request<WidgetData>(`/dashboard/${encodeURIComponent(name)}?${new URLSearchParams({ ...params })}`),
   tabCounts: (resource: string) => request<TabCounts>(`/resources/${encodeURIComponent(resource)}/tab-counts`),
   rbac: {

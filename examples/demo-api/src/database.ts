@@ -1,5 +1,5 @@
 import { ADMIN_AUTH_ENTITIES } from '@nest-my-admin/auth';
-import { ADMIN_AUDIT_ENTITIES, ADMIN_FILE_ENTITIES, ADMIN_RBAC_ENTITIES } from '@nest-my-admin/core';
+import { ADMIN_AUDIT_ENTITIES, ADMIN_SETTING_ENTITIES, ADMIN_FILE_ENTITIES, ADMIN_RBAC_ENTITIES } from '@nest-my-admin/core';
 import type { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { Invoice } from './billing/invoice.entity.js';
 import { Category } from './catalog/category.entity.js';
@@ -18,7 +18,7 @@ import { Employee } from './staff/employee.entity.js';
 
 /** DATABASE_URL=postgres://… or mysql://… runs the demo on that database; without it, on in-memory sql.js. */
 export function databaseOptions(url = process.env.DATABASE_URL): TypeOrmModuleOptions {
-  const entities = [Product, Category, Tag, Supplier, StockMove, Article, Invoice, Order, OrderLine, OrderStatusLog, ProductSpec, ProductMedia, ShopSetting, Employee, ...ADMIN_AUTH_ENTITIES, ...ADMIN_RBAC_ENTITIES, ...ADMIN_FILE_ENTITIES, ...ADMIN_AUDIT_ENTITIES];
+  const entities = [Product, Category, Tag, Supplier, StockMove, Article, Invoice, Order, OrderLine, OrderStatusLog, ProductSpec, ProductMedia, ShopSetting, Employee, ...ADMIN_AUTH_ENTITIES, ...ADMIN_RBAC_ENTITIES, ...ADMIN_FILE_ENTITIES, ...ADMIN_AUDIT_ENTITIES, ...ADMIN_SETTING_ENTITIES];
   if (!url) return { type: 'sqljs', entities, synchronize: true };
   const scheme = new URL(url).protocol.slice(0, -1);
   if (scheme === 'postgres' || scheme === 'postgresql') return { type: 'postgres', url, entities, synchronize: true };

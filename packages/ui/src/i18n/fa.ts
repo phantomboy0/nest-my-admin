@@ -382,6 +382,11 @@ export const fa: Messages = {
   'display.gregorian': 'میلادی',
   'display.jalali': 'شمسی',
   'display.digits': 'ارقام',
+  'display.accent': 'رنگ اصلی',
+  'display.customAccent': 'رنگ دیگر',
+  'display.defaultAccent': 'پیش‌فرض',
+  'display.accentForEveryone': 'برای همه',
+  'display.resetForEveryone': 'بازگشت برای همه',
   'display.latinDigits': 'لاتین 123',
   'display.persianDigits': 'فارسی ۱۲۳',
 

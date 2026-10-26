@@ -380,6 +380,11 @@ export const en = {
   'display.gregorian': 'Gregorian',
   'display.jalali': 'Jalali',
   'display.digits': 'Digits',
+  'display.accent': 'Accent colour',
+  'display.customAccent': 'Another colour',
+  'display.defaultAccent': 'Default',
+  'display.accentForEveryone': 'Use for everyone',
+  'display.resetForEveryone': 'Reset for everyone',
   'display.latinDigits': 'Latin 123',
   'display.persianDigits': 'Persian ۱۲۳',
 

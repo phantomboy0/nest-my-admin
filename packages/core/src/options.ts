@@ -105,6 +105,12 @@ export interface AdminModuleOptions {
    * the sidebar as before.
    */
   menu?: AdminMenuOptions;
+  /**
+   * Let the admin's look be changed in the admin: an accent colour for everyone, set by users with
+   * `appearance.manage` (each person may still pick their own). Stored in `nma_setting`: add `ADMIN_SETTING_ENTITIES`
+   * to the DataSource (`dataSource`, default the default one).
+   */
+  appearance?: { dataSource?: string };
   /** The unit shown with every `money` field that sets none of its own. Display only: values are never converted. */
   currency?: AdminCurrency;
   /**
@@ -157,6 +163,7 @@ export interface ResolvedAdminOptions {
   locales: string[];
   branding: AdminBranding;
   menu?: AdminMenuOptions;
+  appearance?: { dataSource?: string };
   currency?: Required<AdminCurrency>;
   /** DataSource names whose entities get default resources. */
   autoRegister: string[];
@@ -197,6 +204,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     branding: checkBranding(options.branding ?? {}),
     currency: options.currency && checkCurrency(options.currency, 'currency'),
     menu: options.menu && checkMenuShape(options.menu),
+    appearance: options.appearance,
     uiDistPath: options.uiDistPath,
     autoRegister: options.autoRegister === true ? ['default'] : Array.isArray(options.autoRegister) ? options.autoRegister : [],
     transactions: options.transactions ?? true,
@@ -210,6 +218,11 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     files: checkFiles(options.files),
     audit: checkAudit(options.audit),
   };
+}
+
+/** A plain CSS colour (hex, rgb(), hsl(), oklch()…): what may reach a style property. */
+export function isCssColor(value: string): boolean {
+  return CSS_COLOR.test(value.trim());
 }
 
 const CSS_COLOR = /^(#[0-9a-f]{3,8}|(rgb|rgba|hsl|hsla|oklch|oklab|lch|lab)\([0-9.,%\s/+-]+(deg|turn|rad)?[0-9.,%\s/+-]*\))$/i;

@@ -71,3 +71,4 @@ export { appendSetCookie, isSecureRequest, parseCookies, serializeCookie, type C
 export { AfterSave, BeforeDelete, BeforeSave, type DeleteMode, type HookKind, type SaveMode } from './decorators/hooks.js';
 export type * from './contract.js';
 export { AdminWidget, type AdminWidgetOptions, type AdminWidgetSource } from './decorators/admin-widget.js';
+export { ADMIN_SETTING_ENTITIES, NmaSetting } from './appearance/entities.js';

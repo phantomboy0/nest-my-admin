@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Languages, Monitor, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
-import { THEME_EVENT, flipTheme, readTheme, saveTheme, type ThemeChoice } from '@/lib/theme';
+import { ACCENT_EVENT, THEME_EVENT, applyAccent, flipTheme, readAccent, readTheme, saveAccent, saveTheme, type ThemeChoice } from '@/lib/theme';
+import { api, describeError } from '@/lib/api';
+import { useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 const LANGUAGE_NAMES: Record<string, string> = { en: 'English', fa: 'فارسی' };
@@ -113,5 +116,78 @@ export function ThemeToggle() {
     >
       {dark ? <Sun /> : <Moon />}
     </Button>
+  );
+}
+
+/** The design's accents, offered as swatches; any other colour through the picker. */
+const ACCENTS = ['#5B5BD6', '#2563EB', '#0E7490', '#0F766E', '#9333EA', '#DB2777', '#EA580C'];
+
+/**
+ * The accent colour: this person's own (kept in this browser), or «Default» to follow the admin's. With
+ * `appearance.manage`, the colour shown can also be set (or reset) for everyone.
+ */
+export function AccentPicker() {
+  const { t } = useLocale();
+  const session = useSession();
+  const queryClient = useQueryClient();
+  const [personal, setPersonal] = useState<string | null>(readAccent);
+  useEffect(() => {
+    const follow = () => setPersonal(readAccent());
+    window.addEventListener(ACCENT_EVENT, follow);
+    return () => window.removeEventListener(ACCENT_EVENT, follow);
+  }, []);
+  const appearance = session.data?.appearance;
+  const save = useMutation({
+    mutationFn: (accent: string | null) => api.setAppearance(accent),
+    onSuccess: async ({ accent }) => {
+      // Everyone gets it; this person follows it too.
+      saveAccent(null);
+      applyAccent({ admin: accent });
+      await queryClient.invalidateQueries({ queryKey: ['session'] });
+    },
+  });
+  const pick = (color: string | null) => {
+    saveAccent(color);
+    applyAccent();
+  };
+  const shown = personal ?? appearance?.accent ?? null;
+  return (
+    <div role="group" aria-label={t('display.accent')} className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{t('display.accent')}</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {ACCENTS.map((color) => (
+          <button
+            key={color}
+            type="button"
+            aria-label={color}
+            aria-pressed={shown?.toLowerCase() === color.toLowerCase()}
+            className={cn('size-6 cursor-pointer rounded-full border-2 border-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring', shown?.toLowerCase() === color.toLowerCase() && 'border-foreground')}
+            style={{ background: color }}
+            onClick={() => pick(color)}
+          />
+        ))}
+        <label className="relative size-6 cursor-pointer overflow-hidden rounded-full border border-border" title={t('display.customAccent')}>
+          <span className="sr-only">{t('display.customAccent')}</span>
+          <input type="color" className="absolute inset-0 size-full cursor-pointer opacity-0" value={/^#[0-9a-f]{6}$/i.test(shown ?? '') ? shown! : '#5b5bd6'} onChange={(event) => pick(event.target.value)} />
+          <span aria-hidden className="block size-full bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)]" />
+        </label>
+        <Button type="button" variant="ghost" size="sm" className="h-6 px-1.5 text-xs" aria-pressed={personal === null} onClick={() => pick(null)}>
+          {t('display.defaultAccent')}
+        </Button>
+      </div>
+      {appearance?.manage && (
+        <div className="flex flex-wrap gap-1.5">
+          <Button type="button" variant="outline" size="sm" className="h-7 text-xs" disabled={save.isPending || !personal || personal === appearance.accent} onClick={() => save.mutate(personal)}>
+            {t('display.accentForEveryone')}
+          </Button>
+          {appearance.accent && (
+            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" disabled={save.isPending} onClick={() => save.mutate(null)}>
+              {t('display.resetForEveryone')}
+            </Button>
+          )}
+        </div>
+      )}
+      {save.isError && <p className="text-xs text-destructive">{describeError(save.error)}</p>}
+    </div>
   );
 }

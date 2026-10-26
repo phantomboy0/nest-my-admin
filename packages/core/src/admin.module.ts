@@ -1,3 +1,4 @@
+import { AdminAppearance } from './appearance/appearance.service.js';
 import { DashboardService } from './dashboard/dashboard.service.js';
 import { WidgetRegistry } from './dashboard/widget-registry.js';
 import { Module, type DynamicModule } from '@nestjs/common';
@@ -28,6 +29,7 @@ export class AdminModule {
         ResourceRegistry,
         PageRegistry,
         WidgetRegistry,
+        AdminAppearance,
         DashboardService,
         AdminAuthService,
         AdminAudit,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { brandingVariables, luminance, resolveTheme } from './theme';
+import { brandingVariables, effectiveAccent, luminance, resolveTheme } from './theme';
 
 describe('theme', () => {
   test('system follows the preference; explicit choices win', () => {
@@ -34,5 +34,17 @@ describe('branding', () => {
 
   test('the radius scales controls and cards together (8px : 12px by default)', () => {
     expect(brandingVariables({ radius: '6px' })).toEqual({ '--nma-radius-control': '6px', '--nma-radius-card': 'calc(6px * 1.5)' });
+  });
+});
+
+describe('accent', () => {
+  test('your own pick wins, then the admin’s, then the host’s branding, then the default', () => {
+    expect(effectiveAccent({ personal: '#9333EA', admin: '#0E7490', branding: '#0f766e' })).toBe('#9333EA');
+    expect(effectiveAccent({ personal: null, admin: '#0E7490', branding: '#0f766e' })).toBe('#0E7490');
+    expect(effectiveAccent({ personal: null, admin: null, branding: '#0f766e' })).toBe('#0f766e');
+    expect(effectiveAccent({ personal: null, admin: null })).toBeUndefined();
+  });
+  test('a personal pick that is not a plain colour is ignored', () => {
+    expect(effectiveAccent({ personal: 'red; background: url(x)', admin: '#0E7490' })).toBe('#0E7490');
   });
 });

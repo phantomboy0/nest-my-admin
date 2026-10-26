@@ -817,6 +817,35 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - **Read replicas.** Reads outside a transaction (that check after commit; with `transactions: false` the before and after images too) go through `dataSource.manager`, which TypeORM replication may send to a replica. A lagging replica then still shows a deleted row (no stamp), or shows an update as unchanged (a smaller diff, or no entry).
   - **Scopes that depend on a field.** A record's history is open to whoever may open the record now. A reader whose scope depends on a field (`ownerId`, a status) reads the values the record had before it entered their scope, in the fields they may view.
 
+## Upgrading to 0.4
+
+0.4 gives the admin a new look (the owner-admin design) and the features a shop owner's panel needs. All five packages are 0.4.0; upgrade them together. Every new feature is an option: an app that sets none of them gets the new look and today's behaviour, except for the points under "What a 0.3 app will notice".
+
+**What a 0.3 app will notice**
+
+- **The look.** New design tokens: the Vazirmatn font for every language (bundled), 12px cards, pill badges, a 256px sidebar with sections, a floating save bar with ⌘S, filter chips over lists, cards on phones. The default accent is `#5B5BD6`; to keep the old neutral one, set it back: `branding: { primaryColor: 'oklch(0.205 0 0)' }`.
+- **Persian digits by default in `fa`** (۱۲۳ and ٬ thousands separators). People switch back to Latin digits in their account menu (Display); the choice is kept per browser.
+- **Inline children leave navigation.** A resource another resource edits inline (`{ inline: ChildAdmin }`) is no longer in the sidebar, home, group pages, palette or global search; it keeps its URLs, permissions, history and audit entries. To keep it listed: `@AdminResource(Child, { nav: true })`.
+- **Contract changes** for code that reads the JSON API itself: `FieldSchema.currency` is `{ unit, position }` (a `currency: 'USD'` option still works), and a record's `_perm.actions` maps each record action to its label on that record, or `false` where it may not run (it was a list of names).
+- **The e2e/screenshot baselines of your own app**, if you keep any, change with the look.
+
+**New options**
+
+- **Currency**: `forRoot({ currency: { unit: { en: 'Toman', fa: 'تومان' } } })` labels every `money` field without a unit of its own; a field's `currency` (a code, or `{ unit, position }`) wins.
+- **A curated menu**: `forRoot({ menu: { sections: [{ key: 'sales', label: { fa: 'فروش' }, icon: 'shopping-cart', items: [{ resource: 'order', badge: { 'filter[status][eq]': 'paid' } }, { page: 'shop' }, { href: 'https://shop.example', label: 'Shop' }] }] } })`. Sections replace module groups in the sidebar, home, group pages, breadcrumbs and the palette; everything not placed goes into «Advanced», collapsed. Badges are counted for each user through the list's scoped count (`GET /api/menu/badges`, refreshed every minute).
+- **`nav: false`** on `@AdminResource` takes any resource out of navigation.
+- **Computed list columns**: `list.computed: { picture: { label, kind: 'image', source: { first: 'media', field: 'image', by: 'sort' } }, stock: { label, kind: 'badge', source: 'stock', map: (value, row) => ({ label, tone }) }, variants: { label, kind: 'count', source: { aggregate: 'count', relation: 'variants' }, sortable: true }, active: { label, kind: 'toggle', source: { toggle: 'status', on: 'active', off: 'archived' } } }`, named in `list.columns`. Kinds: image, title (with `subline`), money (with `previous`), badge, count, toggle; sources: a field or path, an aggregate or first row of a one-to-many relation (only the rows the viewer sees), an enum toggle, or `{ compute: (rows, ctx) => …, fields }` called once per page. A column reading something the viewer cannot see is cut.
+- **List tabs**: `list.tabs: [{ key: 'all', label }, { key: 'active', label, filter: { 'filter[status][eq]': 'active' } }, { key: 'out', label, where: (qb) => qb.andWhere(qb.alias + '.stock = 0') }]` (at most six), counted per user (`GET /api/resources/:r/tab-counts`).
+- **Primary record actions with per-record labels**: `@AdminAction({ primary: true, label: { static: 'Next step', for: (order) => (order.status === 'draft' ? 'Mark paid' : null) } })`: a filled button last in the record's header; `null` hides it on that record (and a run is refused).
+- **The record page**: `form.layout: { main: [...sections], aside: [{ title, fields: ['status', 'total'] }, { title, fields: { relation: 'customerId', fields: ['phone'] }, link: true }] }`, `form.mode: 'view'` (opens as text until «Edit»), `form.header: { badges, subtitle: ['customer', { computed: 'items' }], stepper: 'fulfillment' }`.
+- **Inline presentation**: an inline's `readonly`, `computed` (child computed columns as table columns) and `cards: { markFirst }`; a `{ summary: [{ label, value: 'total' | { computed } }] }` layout node; a field's `warnIf: { empty: true, message }` (a soft warning that never blocks a save).
+- **A stepper**: `fields: { fulfillment: { widget: 'stepper', exclude: ['cancelled'], history: { inline: StatusLogAdmin, value: 'value', at: 'at', where: { field: 'fulfillment' } } } }` shows an ordered enum as steps with the time each was reached.
+- **The accent colour, in the admin**: `forRoot({ appearance: {} })` (add `ADMIN_SETTING_ENTITIES` to the DataSource) lets people with `appearance.manage` set the accent for everyone (account menu → Display → «Use for everyone»); everyone may pick their own, kept in their browser. Order: their own, the admin-wide one, `branding.primaryColor`.
+- **A dashboard**: `@AdminWidget('sales', { type: 'stat' | 'chart' | 'table' | 'progress' | 'list', title, order, size, permission })` providers with `load(params, ctx)`; the period (today, week, month, year, a range; Jalali-aware) is computed by the UI and checked by the server. Codes `dashboard.<name>` (or the widget's `permission`); `dashboard.*` grants every widget. With a widget to show, the dashboard replaces the home page.
+- **`@nest-my-admin/testing`**: `expectNoLeaks` also crawls menu badges, tab counts, computed cells and the dashboard.
+
+Still missing (planned): printing a record (an invoice, a shipping label) and exporting a list to Excel.
+
 ## Upgrading to 0.3.2
 
 Nothing to change in an app on 0.3.1. New: `@AdminResource(Entity, { readonly: true })` for records only your own code writes (logs, orders, snapshots): the admin offers no New, Save, Delete, editable cell or inline add and remove, and its API answers 403 to every write, whatever the roles say; the resource's `@AdminAction`s still run with their usual permissions. The schema says `readonly: true`. Before, the way to get this was to throw from `create`/`update`/`delete`, and a superuser still saw the buttons.

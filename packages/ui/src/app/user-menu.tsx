@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { EllipsisVertical, History, LogOut, UserRound } from 'lucide-react';
 import { Popover } from 'radix-ui';
-import { DisplayMenuItems, LocaleSwitch, ThemeSwitch } from '@/app/preferences';
+import { AccentPicker, DisplayMenuItems, LocaleSwitch, ThemeSwitch } from '@/app/preferences';
 import { useLocale } from '@/i18n';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/queries';
@@ -85,6 +85,7 @@ export function UserBlock({ rail = false }: { rail?: boolean }) {
             <LocaleSwitch />
             <DisplayMenuItems />
             <ThemeSwitch />
+            <AccentPicker />
           </div>
           {auth.logout && !data.open && (
             <button type="button" className="flex h-[34px] items-center gap-2.5 rounded-md px-2 text-start text-[13px] hover:bg-muted" onClick={() => void logout()}>

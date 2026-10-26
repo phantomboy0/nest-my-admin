@@ -33,6 +33,8 @@ const plain = process.env.NMA_DEMO_PLAIN === '1';
       ...(plain
         ? {}
         : {
+            // The accent colour can be changed in the admin (account menu → Display): for everyone by superusers.
+            appearance: {},
             menu: {
               sections: [
                 {

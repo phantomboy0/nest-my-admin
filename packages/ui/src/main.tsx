@@ -23,12 +23,14 @@ import { LocaleProvider } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
 import { setGlobalCurrency } from '@/lib/money';
 import { setSignedOutHandler } from '@/lib/session';
-import { applyBranding, applyTheme, followSystemTheme, readTheme } from '@/lib/theme';
+import { applyAccent, applyBranding, applyTheme, followSystemTheme, readTheme } from '@/lib/theme';
 
 document.title = runtimeConfig.title;
 // Before the first render, so a dark or branded page never flashes light and unbranded.
 applyTheme(readTheme());
 applyBranding(runtimeConfig.branding);
+// This person's own accent (else the branding) before the first paint; the admin-wide one comes with the session.
+applyAccent({ branding: runtimeConfig.branding.primaryColor });
 setGlobalCurrency(runtimeConfig.currency);
 followSystemTheme(readTheme);
 

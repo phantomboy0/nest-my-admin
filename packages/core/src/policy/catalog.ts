@@ -29,5 +29,5 @@ export function buildCatalog(registry: ResourceRegistry, options: ResolvedAdminO
       restricted: fields.filter((name) => entry.fieldConfig.get(name)?.restricted === true),
     });
   }
-  return { resources, pages: [...pages], global: [...new Set([...options.permissions, ...(options.rbac ? RBAC_CODES : []), ...(options.audit ? AUDIT_CODES : []), ...widgetCodes])] };
+  return { resources, pages: [...pages], global: [...new Set([...options.permissions, ...(options.rbac ? RBAC_CODES : []), ...(options.audit ? AUDIT_CODES : []), ...(options.appearance ? ['appearance.manage'] : []), ...widgetCodes])] };
 }

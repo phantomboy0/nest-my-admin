@@ -20,6 +20,7 @@ import { AuditReader } from '../audit/audit-reader.js';
 import { addAuditRoutes } from '../audit/audit-routes.js';
 import { addMenuRoutes } from '../api/menu-routes.js';
 import { addDashboardRoutes } from '../dashboard/dashboard-routes.js';
+import { AdminAppearance } from '../appearance/appearance.service.js';
 import { DashboardService } from '../dashboard/dashboard.service.js';
 import { AdminAudit, clientOf } from '../audit/audit.service.js';
 import type { AuditMeta } from '../audit/entities.js';
@@ -95,6 +96,7 @@ export class AdminHttpServer implements OnModuleInit {
     auditReader: AuditReader,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
     private readonly dashboard: DashboardService,
+    private readonly appearance: AdminAppearance,
   ) {
     this.router
       .add('GET', '/api/session', async ({ res, principal, ctx }) => {
@@ -253,6 +255,7 @@ export class AdminHttpServer implements OnModuleInit {
     addAuditRoutes(this.router, { reader: auditReader });
     addMenuRoutes(this.router, { api: this.api });
     addDashboardRoutes(this.router, { dashboard: this.dashboard });
+    this.router.add('PUT', '/api/appearance', async ({ req, res, ctx }) => sendJson(res, 200, await this.appearance.setAccent((((await readJsonBody(req)) ?? {}) as { accent?: unknown }).accent ?? null, ctx)));
     addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry, audit: this.audit });
   }
 
@@ -310,6 +313,7 @@ export class AdminHttpServer implements OnModuleInit {
       auth: this.auth.capabilities,
       rbac: { enabled, view: enabled && (permissions.can('rbac.view') || permissions.can('rbac.manage')), manage: enabled && permissions.can('rbac.manage') },
       audit: { enabled: this.audit.enabled, view: this.audit.enabled && permissions.can('audit.view') },
+      ...(this.appearance.enabled ? { appearance: { accent: this.appearance.current(), manage: !viewAs && permissions.can('appearance.manage') } } : {}),
       permissionsVersion: this.rbac.permissionsVersion,
       ...(viewAs ? { viewAs: { by: toSessionUser(viewAs.by) } } : {}),
     };
