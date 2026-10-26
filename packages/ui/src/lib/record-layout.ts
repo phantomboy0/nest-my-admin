@@ -11,6 +11,18 @@ export function layoutFields(schema: ResourceSchema): string[] {
 }
 
 /**
+ * Read-only fields an aside card or a summary already shows: the form leaves them out of its last section of
+ * «everything else», so they appear once. Fields the user may change still get their input there.
+ */
+export function shownBesideMain(schema: ResourceSchema): Set<string> {
+  const sections = (schema.form.layout ?? []).flatMap((node: FormLayoutNode) => ('tab' in node ? node.sections : [node]));
+  const summaries = sections.flatMap((node) => ('summary' in node ? node.summary.flatMap((row) => ('field' in row.value ? [row.value.field] : [])) : []));
+  const cards = (schema.form.aside ?? []).flatMap((card) => (card.relation ? [] : card.fields));
+  const editable = new Set(schema.form.update);
+  return new Set([...summaries, ...cards].filter((name) => !editable.has(name)));
+}
+
+/**
  * What the record page shows (spec §5.6): which fields are inputs (none in view mode until «Edit»; then the update
  * form's fields the layout shows), the header's badges and subtitle, and the aside cards.
  */

@@ -24,7 +24,7 @@ import { hasInlineErrors, inlineErrorsOf, inlinePayload, inlineRowsOf, type Inli
 import { dependencyValues, toFormValues, toPayload, withoutImages, type FormValue, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
-import { asideValues, fieldWarnings, layoutModel, summaryRows } from '@/lib/record-layout';
+import { asideValues, fieldWarnings, layoutModel, shownBesideMain, summaryRows } from '@/lib/record-layout';
 import { isShown } from '@/lib/show-if';
 import { slugify } from '@/lib/slug';
 import { validatePayload } from '@/lib/validate';
@@ -129,6 +129,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   );
   const shownNames = mode === 'create' ? schema.form.create : [...schema.form.update, ...schema.form.readonly];
   const allFields = schema.fields.filter((field) => shownNames.includes(field.name));
+  const besideMain = shownBesideMain(schema);
   const fields = allFields.filter((field) => !locked.has(field.name));
   const names = fields.map((field) => field.name);
   // What the user started from: the loaded record (or, after "Load theirs", the record as it was then).
@@ -497,7 +498,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
         <div className={cn(model.aside.length > 0 ? 'flex min-w-0 flex-col gap-5' : 'contents')}>
         <FormLayout
           layout={schema.form.layout}
-          names={allFields.map((field) => field.name)}
+          names={allFields.map((field) => field.name).filter((name) => !besideMain.has(name))}
           errors={{ ...fieldErrors, ...Object.fromEntries(Object.entries(inlineErrors).filter(([, found]) => hasInlineErrors({ found })).map(([child]) => [`_inlines.${child}`, ['']])) }}
           render={renderField}
           renderInline={renderInline}

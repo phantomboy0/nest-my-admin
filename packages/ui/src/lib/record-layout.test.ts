@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { FieldSchema, FieldType, ResourceSchema } from '@nest-my-admin/core/contract';
-import { asideValues, fieldWarnings, layoutModel, summaryRows } from './record-layout';
+import { asideValues, fieldWarnings, layoutModel, shownBesideMain, summaryRows } from './record-layout';
 import { setGlobalCurrency } from './money';
 import { readOnlySchema } from './view-as';
 
@@ -68,5 +68,21 @@ describe('summaries and warnings', () => {
     expect(fieldWarnings(fields, { caption: '', sort: '' })).toEqual({ caption: 'No alt text' });
     expect(fieldWarnings(fields, { caption: '  ' })).toEqual({ caption: 'No alt text' });
     expect(fieldWarnings(fields, { caption: 'A red shoe' })).toEqual({});
+  });
+});
+
+describe('fields beside the main column', () => {
+  test('read-only fields an aside card or a summary shows are not repeated; editable ones and relation cards are not counted', () => {
+    const page = {
+      ...schema,
+      form: {
+        ...schema.form,
+        update: ['notes', 'status'],
+        readonly: ['total', 'number'],
+        layout: [{ fields: ['notes'], columns: 1 }, { title: 'Totals', summary: [{ label: 'Total', value: { field: 'total' } }, { label: 'Items', value: { computed: 'lines' } }] }],
+        aside: [{ title: 'Status', fields: ['status', 'number'] }, { title: 'Customer', fields: ['name'], relation: { field: 'customerId', resource: 'customer', link: true } }],
+      },
+    } as unknown as ResourceSchema;
+    expect([...shownBesideMain(page)].sort()).toEqual(['number', 'total']);
   });
 });
