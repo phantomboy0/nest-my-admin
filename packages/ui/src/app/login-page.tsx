@@ -24,7 +24,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
-  const next = safeNext(params.get('next'));
+  const next = safeNext(params.get('next'), runtimeConfig.basePath);
   const session = useSession();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');

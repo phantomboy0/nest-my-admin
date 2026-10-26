@@ -52,3 +52,35 @@ test('the order header: the primary next step names itself, runs in one click, a
   await next.click();
   await expect(page.getByRole('button', { name: 'Move to «shipped»' })).toBeVisible();
 });
+
+test('a session that ends mid-use: sign in again and land on the page asked for, not under /admin/admin', async ({ browser }) => {
+  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  const page = await context.newPage();
+  const signIn = async () => {
+    await page.getByLabel('Username').fill('admin');
+    await page.getByLabel('Password').fill('admin-demo-pass');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+  };
+  await page.goto('/admin/product');
+  await signIn();
+  await expect(page).toHaveURL(/\/admin\/product$/);
+  // The server forgets the session (a restart does): the next request is refused.
+  await context.clearCookies();
+  await page.goto('/admin/category');
+  await expect(page).toHaveURL(/\/admin\/login\?next=%2Fcategory$/);
+  await signIn();
+  await expect(page).toHaveURL(/\/admin\/category$/);
+  await context.close();
+});
+
+test('the collapsed sidebar’s flyout marks only the current page', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the rail is a desktop sidebar');
+  await page.goto('/admin/category');
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await page.getByRole('button', { name: 'Products', exact: true }).hover();
+  const flyout = page.locator('[data-radix-popper-content-wrapper]');
+  await expect(flyout.getByRole('link')).toHaveCount(5);
+  await expect(flyout.locator('a[aria-current="page"]')).toHaveText('Category');
+  for (const className of await flyout.getByRole('link').evaluateAll((links) => links.map((link) => link.getAttribute('class') ?? ''))) expect(className).not.toContain('=>');
+  await page.getByRole('button', { name: 'Expand sidebar' }).click();
+});

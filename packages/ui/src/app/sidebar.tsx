@@ -261,19 +261,18 @@ function RailSection({ section, muted }: { section: NavSection; muted?: boolean 
         <Popover.Content side="right" align="start" sideOffset={8} onMouseLeave={() => setOpen(false)} className="z-50 flex flex-col items-start gap-1.5">
           <span className="rounded-control bg-foreground px-3 py-1.5 text-[13px] font-medium text-background">{section.label}</span>
           <div className="flex min-w-40 flex-col gap-px rounded-[10px] border border-border bg-card p-1.5 shadow-[0_12px_32px_rgba(0,0,0,.12)]">
-            {section.entries.map((entry) => (
-              <Popover.Close key={entry.key} asChild>
-                {entry.external ? (
-                  <a href={entry.to} target="_blank" rel="noopener noreferrer" className={subClass({ isActive: false })}>
-                    {entry.label}
-                  </a>
-                ) : (
-                  <NavLink to={entry.to} className={subClass}>
-                    {entry.label}
-                  </NavLink>
-                )}
-              </Popover.Close>
-            ))}
+            {/* No Popover.Close asChild here: its Slot would merge NavLink's className function as text (every class, active ones too). */}
+            {section.entries.map((entry) =>
+              entry.external ? (
+                <a key={entry.key} href={entry.to} target="_blank" rel="noopener noreferrer" className={subClass({ isActive: false })} onClick={() => setOpen(false)}>
+                  {entry.label}
+                </a>
+              ) : (
+                <NavLink key={entry.key} to={entry.to} className={subClass} onClick={() => setOpen(false)}>
+                  {entry.label}
+                </NavLink>
+              ),
+            )}
           </div>
         </Popover.Content>
       </Popover.Portal>

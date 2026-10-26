@@ -22,7 +22,7 @@ import { SettingsPage } from '@/app/settings-page';
 import { LocaleProvider } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
 import { setGlobalCurrency } from '@/lib/money';
-import { setSignedOutHandler } from '@/lib/session';
+import { routerPath, setSignedOutHandler } from '@/lib/session';
 import { applyAccent, applyBranding, applyTheme, followSystemTheme, readTheme } from '@/lib/theme';
 
 document.title = runtimeConfig.title;
@@ -71,7 +71,9 @@ const router = createBrowserRouter(
 
 // A session that ends while the admin is open (expired, revoked elsewhere): drop what this user saw, then log in again.
 setSignedOutHandler(() => {
-  const { pathname, search } = router.state.location;
+  // The router's own location keeps the base path: strip it, or signing in would land on `/admin/admin/…`.
+  const pathname = routerPath(router.state.location.pathname, runtimeConfig.basePath);
+  const { search } = router.state.location;
   if (pathname === '/login') return;
   queryClient.clear();
   void router.navigate(`/login?${new URLSearchParams({ next: pathname + search })}`, { replace: true });
