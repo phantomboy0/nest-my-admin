@@ -9,6 +9,7 @@ import { databaseOptions } from './database.js';
 import { SalesModule } from './sales/sales.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { StaffModule } from './staff/staff.module.js';
+import { DashboardModule } from './dashboard/dashboard.module.js';
 
 /**
  * `NMA_DEMO_PLAIN=1` starts the demo as a host that sets none of the owner-admin options (menu, …): the screenshot
@@ -97,6 +98,8 @@ const plain = process.env.NMA_DEMO_PLAIN === '1';
     BillingModule,
     SettingsModule,
     StaffModule,
+    // The dashboard's widgets (every type): the configured demo only.
+    ...(plain ? [] : [DashboardModule]),
   ],
 })
 export class AppModule {}

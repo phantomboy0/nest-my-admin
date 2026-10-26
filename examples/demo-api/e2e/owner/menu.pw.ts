@@ -7,12 +7,8 @@ async function sidebar(page: Page) {
   return page.getByRole('navigation', { name: 'Resources' }).filter({ visible: true });
 }
 
-test('home cards and section pages follow the menu (Task 5)', async ({ page }) => {
-  await page.goto('/admin/');
-  const headings = page.getByRole('main').getByRole('heading', { level: 2 });
-  await expect(headings).toHaveText(['Sales', 'Products', 'Content', 'Settings', 'Advanced']);
-  await page.getByRole('link', { name: 'Sales', exact: true }).first().click();
-  await expect(page).toHaveURL(/\/admin\/g\/sales$/);
+test('section pages follow the menu (Task 5; the home cards are in dashboard.pw.ts: the admin’s home is the dashboard)', async ({ page }) => {
+  await page.goto('/admin/g/sales');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sales');
   await expect(page.getByRole('main').getByRole('link')).toHaveText([/^Order/, /^Invoice/]);
   // Order lines are edited on their order: no card, no section.

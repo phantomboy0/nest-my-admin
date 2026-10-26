@@ -30,3 +30,5 @@ Differences between the real admin and the approved design that are not fixed ye
 | order-detail | View-mode fields are a two-column label/value grid in a card; the design shows the order as the items table and totals | inline presentation and totals | 10 |
 | order-detail | Totals show items and the order total only (no subtotal, discount, shipping rows); line totals per row are not shown | the demo order has no discount/shipping fields | 10 |
 | product-edit | Picture cards are stacked cards with a caption; the design shows a grid of thumbnails with drag handles and an upload tile | a grid presentation for image inlines is not built | 10 |
+| dashboard-light/dark/phone | No horizontal "orders by stage" bars (chart widgets are vertical bars or lines); no relative times («۱۰ دقیقه پیش») in the orders table; the date-range control is an icon, not a date button | widget types as specified (§5.8) | 13 |
+| dashboard-light/dark/phone | No «اتصال‌ها» (CRM) card | out of scope (spec §8b) | — |

@@ -27,7 +27,8 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
   // A resource with no navigation entry (`nav: false`) is named by its own schema (already loaded by its page).
   const resourceRoute = Boolean(first) && !['g', 'p', '-', 'account'].includes(first!);
   const schema = useSchema(first ?? '', resourceRoute && meta !== undefined && !navGroups(meta).some((group) => group.resources.some((resource) => resource.name === first)));
-  const crumbs: Crumb[] = [{ label: t('shell.home'), to: '/' }];
+  // With a dashboard, home is the dashboard.
+  const crumbs: Crumb[] = [{ label: t(meta?.dashboard ? 'shell.dashboard' : 'shell.home'), to: '/' }];
   if (first === 'account' && !second) return [...crumbs, { label: t('auth.account') }];
   if (first === '-' && (second === 'users' || second === 'groups' || second === 'roles' || second === 'debugger' || second === 'audit')) {
     const section = { users: t('rbac.users'), groups: t('rbac.groups'), roles: t('rbac.roles'), debugger: t('debugger.title'), audit: t('audit.title') }[second];

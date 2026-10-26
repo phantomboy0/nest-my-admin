@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { RbacCatalog } from '@nest-my-admin/core/contract';
-import { catalogCodes, grants, togglePermission } from './role-draft';
+import { catalogCodes, codeMatches, grants, togglePermission } from './role-draft';
 
 const catalog: RbacCatalog = {
   operations: ['view', 'create', 'update', 'delete', 'purge'],
@@ -57,5 +57,14 @@ describe('role drafts', () => {
   });
   test('unticking a plain code removes it', () => {
     expect(togglePermission(['product.view', 'tag.view'], 'tag.view', false, known)).toEqual(['product.view']);
+  });
+});
+
+describe('dashboard codes', () => {
+  test('dashboard.* and * grant every widget, as on the server; a widget code grants only itself', () => {
+    expect(codeMatches('dashboard.*', 'dashboard.sales')).toBe(true);
+    expect(codeMatches('*', 'dashboard.sales')).toBe(true);
+    expect(codeMatches('dashboard.sales', 'dashboard.orders')).toBe(false);
+    expect(codeMatches('*.sales', 'dashboard.sales')).toBe(true);
   });
 });
