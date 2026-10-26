@@ -79,6 +79,9 @@ export async function seedStaff(app: INestApplication): Promise<void> {
     { name: 'Hedy Lamarr', position: 'Warehouse lead', salary: '4200.00', hiredOn: '2022-05-02' },
     { name: 'پروین اعتصامی', position: 'Support', salary: '3100.00', hiredOn: '2024-01-15' },
   ]);
+  // The shipped order is Hedy's (the order page's «Handled by» card).
+  const hedy = await employees.findOneByOrFail({ name: 'Hedy Lamarr' });
+  await app.get<Repository<Order>>(getRepositoryToken(Order)).update({ number: 'SO-1001' }, { handledById: hedy.id });
 }
 
 /** The shop's settings, without a payment key or a logo yet. */

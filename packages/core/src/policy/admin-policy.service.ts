@@ -301,6 +301,32 @@ export class AdminPolicy implements OnApplicationBootstrap {
     };
     // A tab filtering on a field this user cannot see would reveal it through its count.
     if (cut.list.tabs) cut.list.tabs = visibleTabs(cut);
+    // Aside cards and the header show only what this user may see; a card left empty is dropped.
+    if (schema.form.aside) {
+      const aside = schema.form.aside.flatMap((card) => {
+        if (!card.relation) {
+          const fields = card.fields.filter(visible);
+          return fields.length > 0 ? [{ ...card, fields }] : [];
+        }
+        const target = this.registry.find(card.relation.resource);
+        if (!visible(card.relation.field) || !target || !perms.canOn(target.schema.name, 'view')) return [];
+        const targetLevels = this.levels(target, ctx);
+        const fields = card.fields.filter((field) => (targetLevels.get(field) ?? 'hidden') !== 'hidden');
+        return fields.length > 0 ? [{ ...card, fields }] : [];
+      });
+      cut.form = { ...cut.form, aside };
+    }
+    if (schema.form.header) {
+      const { badges, subtitle, stepper } = schema.form.header;
+      cut.form = {
+        ...cut.form,
+        header: {
+          ...(badges ? { badges: badges.filter(visible) } : {}),
+          ...(subtitle ? { subtitle: subtitle.filter((item) => ('field' in item ? visible(item.field) : computed.has(item.computed))) } : {}),
+          ...(stepper && visible(stepper) ? { stepper } : {}),
+        },
+      };
+    }
     return { schema: cut, levels };
   }
 

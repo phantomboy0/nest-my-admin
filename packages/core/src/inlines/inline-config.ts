@@ -2,7 +2,7 @@ import type { EntityMetadata } from 'typeorm';
 import type { FormLayoutInline } from '../contract.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import type { RegisteredResource, RelationMetadataLike } from '../registry/resource-registry.js';
-import { DEFAULT_INLINE_MAX, layoutInlines, localizeLayout, type LayoutInlineConfig } from '../schema/field-config.js';
+import { DEFAULT_INLINE_MAX, layoutInlines, localizeLayout, mainLayout, type LayoutInlineConfig } from '../schema/field-config.js';
 import { isToOne } from '../schema/relation-fields.js';
 import { didYouMean } from '../schema/suggest.js';
 
@@ -36,7 +36,7 @@ export interface RegisteredInline {
  */
 export function resolveInlines(entries: RegisteredResource[]): void {
   for (const entry of entries) {
-    const layout = entry.resource.form?.layout;
+    const layout = mainLayout(entry.resource.form?.layout);
     const nodes = layoutInlines(layout);
     if (!layout || nodes.length === 0) continue;
     const fail = (message: string): never => {
@@ -81,7 +81,7 @@ function resolveInline(entry: RegisteredResource, node: LayoutInlineConfig, entr
   if (child.dataSource !== entry.dataSource) fail(`${where}: ${child.className} is on another DataSource; a parent and its inlines are saved in one transaction`);
   // A link holds one value: the parent's key (relations to composite keys are not fields either).
   if (entry.schema.primaryKeys.length !== 1) fail(`${where}: inlines need a parent with a single-column primary key`);
-  if (layoutInlines(child.resource.form?.layout).length > 0) fail(`${where}: ${child.className} declares inlines itself; inlines are one level deep`);
+  if (layoutInlines(mainLayout(child.resource.form?.layout)).length > 0) fail(`${where}: ${child.className} declares inlines itself; inlines are one level deep`);
   const childName = entityName(child.metadata);
   const parentName = entityName(entry.metadata);
 

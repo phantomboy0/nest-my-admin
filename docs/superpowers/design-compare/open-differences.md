@@ -26,3 +26,5 @@ Differences between the real admin and the approved design that are not fixed ye
 | sidebar-expanded | Menu content is the demo's (no مشتری‌ها/پشتیبانی); the support badge is filled primary in the design, ours are all muted | demo content; badge emphasis is not configurable | 5 |
 | products-desktop | No ⋯ row menu; the price header has no unit («قیمت (تومان)»); demo categories are Latin | row actions menu is Task 8; header units are not generated | 8 |
 | products-phone | Cards have no SKU · category line (only SKU); the price unit sits after, as in the design, but the struck price is under it | the card shows the title's subline only | 6 |
+| order-detail | Aside holds the demo's Payment and «Handled by» cards (no customer, address, wallet); the header subtitle has no item count | the demo order has no customer/address entities | 9 |
+| order-detail | View-mode fields are a two-column label/value grid in a card; the design shows the order as the items table and totals | inline presentation and totals | 10 |

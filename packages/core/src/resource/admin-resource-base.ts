@@ -146,8 +146,30 @@ export interface FormConfig {
   create?: DtoClass;
   /** Defaults to `create`. Update bodies are always validated as partial: only the fields sent are checked. */
   update?: DtoClass;
-  /** Sections (with 1–3 columns), optionally grouped into tabs. Fields left out go into a last section. */
-  layout?: LayoutConfig;
+  /**
+   * Sections (with 1–3 columns), optionally grouped into tabs. Fields left out go into a last section. For the
+   * design's record page, `{ main, aside }`: the sections in a main column and read-only cards beside it (spec §5.6).
+   */
+  layout?: LayoutConfig | { main: LayoutConfig; aside: AsideCardConfig[] };
+  /** `view`: an existing record opens as text, and «Edit» turns its editable fields into inputs. Default `edit`. */
+  mode?: 'edit' | 'view';
+  /**
+   * The record's header: `badges` (fields shown as badges next to the title; default: every badge-widget field) and a
+   * `subtitle` line of field values and computed list columns (`{ computed: '<list.computed key>' }`), joined by «·».
+   * `stepper` names an enum field shown as the order's steps (Task 11).
+   */
+  header?: { badges?: string[]; subtitle?: Array<string | { computed: string }>; stepper?: string };
+}
+
+/**
+ * A read-only card beside the record's main column: some of its own fields, or fields of a to-one relation's record
+ * (`relation`: the relation field), with a link to it (`link`, «مشاهده پروفایل»).
+ */
+export interface AsideCardConfig {
+  title: LocalizedText;
+  icon?: string;
+  fields: string[] | { relation: string; fields: string[] };
+  link?: boolean;
 }
 
 /** An external link shown in the record's header (Django's `view_on_site`): http(s) or a relative URL. */

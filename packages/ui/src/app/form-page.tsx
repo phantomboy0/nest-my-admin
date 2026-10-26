@@ -1,8 +1,9 @@
-import { Fragment, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ChevronRight, Copy, ExternalLink, Lock, Trash2 } from 'lucide-react';
+import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { ChevronRight, Copy, ExternalLink, Lock, Pencil, Trash2 } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, FormLayoutInline, InlineChanges, InlineRows, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
+import { AsideCard } from '@/app/aside-card';
 import { FieldInput, RichText } from '@/app/field-input';
 import { RecordActions } from '@/app/action-button';
 import { LeaveBar, SaveBar, SaveKey, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
@@ -21,6 +22,7 @@ import { hasInlineErrors, inlineErrorsOf, inlinePayload, inlineRowsOf, type Inli
 import { dependencyValues, toFormValues, toPayload, withoutImages, type FormValue, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { asideValues, layoutModel } from '@/lib/record-layout';
 import { isShown } from '@/lib/show-if';
 import { slugify } from '@/lib/slug';
 import { validatePayload } from '@/lib/validate';
@@ -116,7 +118,13 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   const perm = record?._perm as { update?: boolean; delete?: boolean } | undefined;
   const canUpdate = mode === 'create' || (schema.permissions?.update !== false && perm?.update !== false);
   const canDelete = schema.permissions?.delete !== false && perm?.delete !== false;
-  const locked = new Set(mode === 'edit' ? (canUpdate ? [...schema.form.readonly, ...lockedOn(record)] : [...schema.form.update, ...schema.form.readonly]) : []);
+  // View mode (`form.mode: 'view'`): the record opens as text; «Edit» turns its editable fields into inputs.
+  const [editing, setEditing] = useState(false);
+  const model = layoutModel(schema, mode === 'edit' ? record : undefined, editing);
+  const viewing = mode === 'edit' && schema.form.mode === 'view' && !editing;
+  const locked = new Set(
+    mode === 'edit' ? (canUpdate && !viewing ? [...schema.form.readonly, ...lockedOn(record)] : [...schema.form.update, ...schema.form.readonly]) : [],
+  );
   const shownNames = mode === 'create' ? schema.form.create : [...schema.form.update, ...schema.form.readonly];
   const allFields = schema.fields.filter((field) => shownNames.includes(field.name));
   const fields = allFields.filter((field) => !locked.has(field.name));
@@ -125,6 +133,13 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   const [base, setBase] = useState<AdminRecord | undefined>(record);
   const [initial, setInitial] = useState<FormValues>(() => toFormValues(fields, record ?? (source ? copyOf(schema, source) : undefined)));
   const [values, setValues] = useState<FormValues>(initial);
+  // «Edit» in view mode unlocks fields the form held no values for: start them from the record.
+  useEffect(() => {
+    if (!editing || !record) return;
+    const next = toFormValues(fields, record);
+    setInitial(next);
+    setValues(next);
+  }, [editing]);
   // Inline child records (`{ inline: ChildAdmin }` in the layout), saved with the parent. A copy starts without them.
   const inlines = inlinesOf(schema);
   const rowsOf = (from: AdminRecord | undefined): InlineRowsState => Object.fromEntries(inlines.map((inline) => [inline.inline, inlineRowsOf(inline, schema.inlines![inline.inline]!, from)]));
@@ -297,7 +312,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
         child={child}
         rows={rows[inline.inline] ?? []}
         onChange={(next) => setRows((previous) => ({ ...previous, [inline.inline]: next }))}
-        readOnly={!canUpdate || truncated !== undefined}
+        readOnly={!canUpdate || viewing || truncated !== undefined}
         errors={inlineErrors[inline.inline]}
         parent={schema.name}
         parentValues={dependencies}
@@ -310,7 +325,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   function renderField(name: string): ReactNode | null {
     const field = allFields.find((candidate) => candidate.name === name);
     if (!field || !isShown(field, values)) return null;
-    if (locked.has(name)) return <ReadOnlyField resource={schema.name} field={field} record={record} />;
+    if (locked.has(name)) return <ReadOnlyField resource={schema.name} field={field} record={record} plain={viewing} />;
     const formMode = mode === 'create' ? 'create' : 'update';
     return field.type === 'object' ? (
       <ObjectInput
@@ -340,7 +355,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   }
 
   return (
-    <form ref={formRef} onSubmit={submit} noValidate className={cn('flex flex-col gap-5', schema.form.layout?.length ? 'max-w-4xl' : 'max-w-2xl')}>
+    <form ref={formRef} onSubmit={submit} noValidate className={cn('flex flex-col gap-5', model.aside.length > 0 ? 'max-w-[1400px]' : schema.form.layout?.length ? 'max-w-4xl' : 'max-w-2xl')}>
       {mode === 'create' ? (
         <div className="flex items-center gap-3">
           <BackButton to={`/${schema.name}`} />
@@ -357,8 +372,16 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
             navigate(`/${schema.name}`);
           }}
           onChanged={onChanged}
+          badges={model.header.badges}
+          subtitle={model.header.subtitle}
           extra={
             <>
+              {viewing && canUpdate && (
+                <Button type="button" variant="outline" onClick={() => setEditing(true)}>
+                  <Pencil />
+                  {t('form.edit')}
+                </Button>
+              )}
               {schema.creatable && (
                 <Button asChild variant="outline">
                   <Link to={`/${schema.name}/new?${new URLSearchParams({ from: id! })}`}>
@@ -429,6 +452,8 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
         className={tab === 'details' ? 'contents' : 'hidden'}
         {...(hasHistory ? { role: 'tabpanel', id: 'record-panel-details', 'aria-labelledby': 'record-tab-details' } : {})}
       >
+        <div className={cn(model.aside.length > 0 ? 'grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]' : 'contents')}>
+        <div className={cn(model.aside.length > 0 ? 'flex min-w-0 flex-col gap-5' : 'contents')}>
         <FormLayout
           layout={schema.form.layout}
           names={allFields.map((field) => field.name)}
@@ -436,6 +461,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
           render={renderField}
           renderInline={renderInline}
         />
+        {!viewing && (
         <SaveBar dirty={dirty}>
           <Button type="button" variant="outline" onClick={() => navigate(`/${schema.name}`)}>
             {t(canUpdate ? 'common.cancel' : 'form.back')}
@@ -452,6 +478,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
             </Button>
           )}
         </SaveBar>
+        )}
         {mode === 'edit' && record && schema.related.length > 0 && (
           <nav aria-label={t('form.related')} className="flex flex-col gap-2 border-t pt-4">
             <h2 className="text-sm font-medium text-muted-foreground">{t('form.related')}</h2>
@@ -468,6 +495,15 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
             </ul>
           </nav>
         )}
+        </div>
+        {model.aside.length > 0 && (
+          <aside className="flex flex-col gap-5">
+            {model.aside.map((card, index) => (
+              <AsideCard key={index} card={card} values={asideValues(card, index, record)} schema={schema} />
+            ))}
+          </aside>
+        )}
+        </div>
       </div>
     </form>
   );
@@ -529,16 +565,17 @@ function RecordTabs({ active, onChange }: { active: RecordTab; onChange: (tab: R
 const lockedOn = (record: AdminRecord | undefined): string[] => (Array.isArray(record?._readonly) ? (record._readonly as string[]) : []);
 
 /** A field shown but not editable: its value as text (files and rich text as they look), with a lock. */
-export function ReadOnlyField({ resource, field, record }: { resource: string; field: FieldSchema; record: AdminRecord | undefined }) {
+export function ReadOnlyField({ resource, field, record, plain = false }: { resource: string; field: FieldSchema; record: AdminRecord | undefined; plain?: boolean }) {
   const t = useT();
   const value = record?.[field.name];
+  // `plain`: a record in view mode reads as text (label over value); locked fields of an edit form keep the lock.
   return (
     <div className="flex flex-col gap-1.5" data-readonly={field.name}>
-      <span className="flex items-center gap-1.5 text-sm font-medium">
+      <span className={cn('flex items-center gap-1.5 font-medium', plain ? 'text-[12.5px] text-muted-foreground' : 'text-sm')}>
         {field.label}
-        <Lock className="size-3.5 text-muted-foreground" aria-label={t('form.readOnly')} role="img" />
+        {!plain && <Lock className="size-3.5 text-muted-foreground" aria-label={t('form.readOnly')} role="img" />}
       </span>
-      <div className="min-h-8 rounded-lg bg-muted/50 px-2.5 py-1.5 text-sm break-words">
+      <div className={cn('text-sm break-words', !plain && 'min-h-8 rounded-lg bg-muted/50 px-2.5 py-1.5')}>
         {field.widget === 'richtext' && typeof value === 'string' && value !== '' ? (
           <RichText id={`field-${field.name}`} resource={resource} field={field} value={value} readOnly />
         ) : (
@@ -561,6 +598,9 @@ interface DetailHeaderProps {
   onChanged: () => void;
   /** Buttons after the record's actions (Duplicate, Delete). */
   extra?: ReactNode;
+  /** `form.header`: badge fields and the subtitle line (layoutModel). */
+  badges: FieldSchema[];
+  subtitle: string[];
 }
 
 function BackButton({ to }: { to: string }) {
@@ -575,9 +615,8 @@ function BackButton({ to }: { to: string }) {
 }
 
 /** The record's title with its badge fields, its actions, and the resource's external links (spec §9.4). */
-function DetailHeader({ schema, record, id, dirty, onGone, onChanged, extra }: DetailHeaderProps) {
+function DetailHeader({ schema, record, id, dirty, onGone, onChanged, extra, badges, subtitle }: DetailHeaderProps) {
   const t = useT();
-  const badges = schema.fields.filter((field) => field.widget === 'badge' && record?.[field.name] !== undefined && record?.[field.name] !== null);
   const links = Array.isArray(record?._links) ? (record._links as RecordLink[]) : [];
   return (
     <div className="flex flex-wrap items-start gap-3">
@@ -589,6 +628,7 @@ function DetailHeader({ schema, record, id, dirty, onGone, onChanged, extra }: D
             <ValueBadge key={field.name} value={record![field.name]} field={field} />
           ))}
         </div>
+        {subtitle.length > 0 && <p className="text-[13px] text-muted-foreground">{subtitle.join(' · ')}</p>}
       {links.length > 0 && (
         <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
           {links.map((link) => (

@@ -401,6 +401,8 @@ export const fa: Messages = {
   'inline.duplicateNote': 'تکثیر فقط همین رکورد را کپی می‌کند، نه {names} آن را.',
   'form.new': '{name} جدید',
   'form.back': 'بازگشت',
+  'form.edit': 'ویرایش',
+  'form.viewProfile': 'مشاهده پروفایل',
   'form.viewOnly': 'می‌توانید این رکورد را ببینید اما نمی‌توانید آن را تغییر دهید.',
   'form.save': 'ذخیره',
   'form.saving': 'در حال ذخیره…',

@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
 import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, TabCounts, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
-import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
+import { applyFieldConfig, localizeLayout, mainLayout } from '../schema/field-config.js';
 import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
 import { InlineReader } from '../inlines/inline-reader.js';
 import { InlineWriter, type InlinePlan } from '../inlines/inline-writer.js';
@@ -231,14 +231,16 @@ export class AdminApiService {
       return { ...item, label: fieldLabel ? `${base} (${fieldLabel})` : base };
     });
     const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes, this.files.enabled));
-    const layout = entry.resource.form?.layout;
+    const layout = mainLayout(entry.resource.form?.layout);
     const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, locale, this.options.locale);
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
     const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
     const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label) }]));
     const tabs = entry.schema.list.tabs?.map((tab, index) => ({ ...tab, label: text(entry.resource.list!.tabs![index]!.label) }));
     const list = { ...entry.schema.list, ...(computed ? { computed } : {}), ...(tabs ? { tabs } : {}) };
-    const localized = { ...entry.schema, label: text(entry.label), related, fields, form, actions, list };
+    const asideConfig = entry.resource.form?.layout && !Array.isArray(entry.resource.form.layout) ? entry.resource.form.layout.aside : undefined;
+    const localizedForm = form.aside && asideConfig ? { ...form, aside: form.aside.map((card, index) => ({ ...card, title: text(asideConfig[index]!.title) })) } : form;
+    const localized = { ...entry.schema, label: text(entry.label), related, fields, form: localizedForm, actions, list };
     const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
     // The child schema of every inline left in the layout (the policy removed those the user may not view).
     const children = (schema.form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('inline' in node ? [node.inline] : []));
@@ -343,7 +345,39 @@ export class AdminApiService {
     await this.policy.requireInScope(entry, id, rawId, 'view', ctx); // a findOne override may ignore scopes
     const record = await this.record(entry, entity, ctx);
     if (entry.inlines.length > 0) await this.inlines.readInto(record, entry, entity, ctx);
+    await this.recordPage(entry, entity, record, ctx);
     return record;
+  }
+
+  /**
+   * What the record page shows beside the form (spec §5.6): each relation aside card's record (`_aside`, read through
+   * the target's own GET, so its permissions and scopes apply; absent when this user may not see it) and the computed
+   * columns its header names (`_computed`).
+   */
+  private async recordPage(entry: RegisteredResource, entity: object, record: AdminRecord, ctx: AdminContext): Promise<void> {
+    const form = this.view(entry, ctx).schema.form;
+    const aside: Record<string, AdminRecord> = {};
+    for (const [index, card] of (form.aside ?? []).entries()) {
+      if (!card.relation) continue;
+      const value = record[card.relation.field];
+      const id = value && typeof value === 'object' ? (value as { id: unknown }).id : value;
+      if (id === null || id === undefined) continue;
+      try {
+        const related = await this.get(card.relation.resource, encodeRecordId([id]), ctx);
+        aside[String(index)] = { _id: related._id, _title: related._title, ...Object.fromEntries(card.fields.filter((field) => field in related).map((field) => [field, related[field]])) };
+      } catch (error) {
+        if (!(error instanceof AdminNotFoundError) && !(error instanceof AdminForbiddenError)) throw error;
+      }
+    }
+    if (Object.keys(aside).length > 0) record._aside = aside;
+    const keys = (form.header?.subtitle ?? []).flatMap((item) => ('computed' in item ? [item.computed] : []));
+    const computed = keys.flatMap((key) => (entry.computed.has(key) ? [entry.computed.get(key)!] : []));
+    if (computed.length > 0) {
+      const locale = ctx.locale ?? this.options.locale;
+      const values = await loadComputed(computed, [entity], entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (target, field) => this.registry.forEntity(target, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+      await this.imageUrls(entry, computed, values, ctx);
+      record._computed = values.get(String(record._id)) ?? {};
+    }
   }
 
   /** Serializes entities with their relation values and paths (`fields`) loaded and their titles. */

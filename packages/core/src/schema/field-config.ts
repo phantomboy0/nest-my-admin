@@ -61,6 +61,11 @@ export function isInlineConfig(node: LayoutSectionConfig | LayoutTabConfig | Lay
 }
 
 /** Every inline node of a layout, tabs included, in layout order. */
+/** The sections of `form.layout`: the list itself, or the main column of a `{ main, aside }` record layout. */
+export function mainLayout(layout: LayoutConfig | { main: LayoutConfig } | undefined): LayoutConfig | undefined {
+  return layout && !Array.isArray(layout) ? layout.main : layout;
+}
+
 export function layoutInlines(layout: LayoutConfig | undefined): LayoutInlineConfig[] {
   return (layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).filter(isInlineConfig);
 }

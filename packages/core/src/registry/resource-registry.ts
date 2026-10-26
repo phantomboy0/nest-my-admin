@@ -134,6 +134,20 @@ export class ResourceRegistry implements OnModuleInit {
     this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
     resolveInlines(this.list());
+    // Relation aside cards: the target resource and its fields, now that every resource is known.
+    for (const entry of this.list()) {
+      for (const [index, card] of (entry.schema.form.aside ?? []).entries()) {
+        if (!card.relation) continue;
+        const where = `${entry.className}: form.layout.aside[${index}]`;
+        const target = entry.schema.fields.find((field) => field.name === card.relation!.field)?.relation?.resource;
+        const targetEntry = target ? this.find(target) : undefined;
+        if (!targetEntry) throw new Error(`${where}: the relation "${card.relation.field}" points at an entity without an admin resource`);
+        card.relation.resource = targetEntry.schema.name;
+        for (const field of card.fields) {
+          if (!targetEntry.schema.fields.some((candidate) => candidate.name === field)) throw new Error(`${where}: unknown field "${field}" on ${targetEntry.schema.name}`);
+        }
+      }
+    }
     // Sortable computed columns order by a subquery over the rows the viewer may read.
     for (const entry of this.list()) {
       if (![...entry.computed.values()].some((column) => column.column.sortable)) continue;

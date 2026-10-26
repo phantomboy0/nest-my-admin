@@ -7,6 +7,7 @@ import {
   type AdminContext,
   type FieldsConfig,
   type FormConfig,
+  type LayoutConfig,
   type ListConfig,
 } from '@nest-my-admin/core';
 import { ConflictException } from '@nestjs/common';
@@ -25,6 +26,32 @@ import { OrderLineAdmin } from './order-line.admin.js';
  */
 /** Applies a decorator only in the configured demo (not with `NMA_DEMO_PLAIN=1`). */
 const onlyOwner = (decorator: MethodDecorator): MethodDecorator => (process.env.NMA_DEMO_PLAIN === '1' ? () => undefined : decorator);
+
+/** The order form's sections: the order, then its lines inline. */
+const orderMain: LayoutConfig = [
+  { section: { en: 'Order', fa: 'سفارش' }, fields: ['number', 'customer', 'total', 'tracking'], columns: 2 },
+  // Saved with the order in one transaction; `position` is written 0, 1, 2… by drag and the arrows.
+  {
+    section: { en: 'Lines', fa: 'ردیف‌ها' },
+    inline: OrderLineAdmin,
+    display: 'table',
+    fields: ['productId', 'description', 'quantity', 'unitPrice'],
+    order: 'position',
+    max: 50,
+  },
+];
+
+/** In the configured demo, beside the sections: payment and «Handled by» cards (spec §5.6). */
+const orderLayout: FormConfig['layout'] =
+  process.env.NMA_DEMO_PLAIN === '1'
+    ? orderMain
+    : {
+        main: orderMain,
+        aside: [
+          { title: { en: 'Payment', fa: 'پرداخت' }, icon: 'credit-card', fields: ['status', 'total', 'tracking'] },
+          { title: { en: 'Handled by', fa: 'مسئول سفارش' }, icon: 'user', fields: { relation: 'handledById', fields: ['position'] }, link: true },
+        ],
+      };
 
 @AdminResource(Order, { icon: 'cart', label: { en: 'Order', fa: 'سفارش' }, title: 'number' })
 export class OrderAdmin extends AdminResourceBase<Order> {
@@ -51,23 +78,21 @@ export class OrderAdmin extends AdminResourceBase<Order> {
       },
     },
     tracking: { label: { en: 'Tracking code', fa: 'کد رهگیری' }, readonly: true },
+    handledById: { label: { en: 'Handled by', fa: 'مسئول' } },
   };
   form: FormConfig = {
     create: CreateOrderDto,
     update: UpdateOrderDto,
-    layout: [
-      { section: { en: 'Order', fa: 'سفارش' }, fields: ['number', 'customer', 'total', 'tracking'], columns: 2 },
-      // Saved with the order in one transaction; `position` is written 0, 1, 2… by drag and the arrows.
-      {
-        section: { en: 'Lines', fa: 'ردیف‌ها' },
-        inline: OrderLineAdmin,
-        display: 'table',
-        fields: ['productId', 'description', 'quantity', 'unitPrice'],
-        order: 'position',
-        max: 50,
-      },
-    ],
+    // The design's order page (configured demo): the order opens as text, cards beside it.
+    ...(process.env.NMA_DEMO_PLAIN === '1'
+      ? {}
+      : {
+          mode: 'view' as const,
+          header: { badges: ['status'], subtitle: ['customer', 'createdAt'] },
+        }),
+    layout: orderLayout,
   };
+
 
   @AdminAction({ label: { en: 'Mark paid', fa: 'پرداخت شد' }, icon: 'credit-card' })
   async markPaid(order: Order, _input: unknown, ctx: AdminContext): Promise<ActionOutcome> {

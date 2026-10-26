@@ -457,8 +457,14 @@ export interface ResourceSchema {
     requiredOnCreate: string[];
     /** Shown on the update form but not writable (`readonly: true`); records add their own in `_readonly`. */
     readonly: string[];
-    /** Sections, inlines and tabs (`form.layout`); absent = one section in form order. */
+    /** Sections, inlines and tabs (`form.layout`, or its main column); absent = one section in form order. */
     layout?: FormLayoutNode[];
+    /** Read-only cards beside the main column (`form.layout.aside`), cut to what this user may see. */
+    aside?: AsideCardSchema[];
+    /** `view`: an existing record opens as text until «Edit». */
+    mode?: 'view';
+    /** The record's header: badge fields, and a subtitle of field values and computed columns (`_computed`). */
+    header?: { badges?: string[]; subtitle?: Array<{ field: string } | { computed: string }>; stepper?: string };
     constraints: { create: Record<string, FieldConstraints>; update: Record<string, FieldConstraints> };
   };
   /**
@@ -823,6 +829,17 @@ export type LocalizedLabel = string | Record<string, string>;
 
 /** A status colour of the design (badges, computed cells, stat changes). */
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'primary';
+
+/**
+ * An aside card (spec §5.6). Own fields come from the record; a relation card's from `_aside[index]` (the related
+ * record's fields this user may see, with its `_id`, absent when they may not see it), linking to it when `link`.
+ */
+export interface AsideCardSchema {
+  title: string;
+  icon?: string;
+  fields: string[];
+  relation?: { field: string; resource: string; link: boolean };
+}
 
 /** A list tab (spec §5.5). */
 export interface ListTabSchema {

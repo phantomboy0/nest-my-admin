@@ -399,6 +399,8 @@ export const en = {
   'inline.duplicateNote': 'Duplicate copies this record only, not its {names}.',
   'form.new': 'New {name}',
   'form.back': 'Back',
+  'form.edit': 'Edit',
+  'form.viewProfile': 'View',
   'form.viewOnly': 'You can view this record but not change it.',
   'form.save': 'Save',
   'form.saving': 'Saving…',
