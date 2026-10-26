@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ListChecks, Plus, RotateCcw, Trash2, X } from 'lucide-react';
-import type { AdminRecord, BulkResult, ComputedColumnSchema, FieldSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, BulkResult, ComputedColumnSchema, FieldSchema, ResourceSchema } from '@nest-my-admin/core/contract';
 import { ActionButton } from '@/app/action-button';
 import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
 import { ComputedCell } from '@/app/computed-cell';
@@ -14,6 +14,7 @@ import { DisplayValue } from '@/app/widgets/badge';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tabs } from '@/components/ui/tabs';
 import { formatNumber, useT } from '@/i18n';
 import { bulkActions, resourceActions, selectionResult } from '@/lib/actions';
 import { api, describeError } from '@/lib/api';
@@ -23,7 +24,7 @@ import { useIsMobile } from '@/lib/use-media';
 import { cn } from '@/lib/utils';
 import { isRef } from '@/lib/form-values';
 import { encodeRecordId } from '@/lib/record-id';
-import { hasActiveFilters, listQueryFromUrl, pageSizeOptions, paging, rangeText, withChanges, type ParamChanges } from '@/lib/list-state';
+import { activeTab, hasActiveFilters, listQueryFromUrl, pageSizeOptions, paging, rangeText, tabChanges, withChanges, type ParamChanges } from '@/lib/list-state';
 import { useList, useSchema } from '@/lib/queries';
 
 export function ListPage() {
@@ -235,6 +236,8 @@ export function ListPage() {
           )}
         </div>
       </div>
+
+      {s.list.tabs && s.list.tabs.length > 0 && !trash && <ListTabs schema={s} params={searchParams} onChange={updateParams} />}
 
       <FilterBar schema={s} params={searchParams} onChange={updateParams} trailing={<ColumnMenu schema={s} prefs={prefs} />} />
 
@@ -449,6 +452,26 @@ export function ListPage() {
         </>
       )}
       <QuickView schema={s} item={quickView} onClose={() => setQuickView(undefined)} />
+    </div>
+  );
+}
+
+/** The list's tabs (spec §5.5) with their counts; the active one comes from the URL's filters. */
+function ListTabs({ schema, params, onChange }: { schema: ResourceSchema; params: URLSearchParams; onChange: (changes: ParamChanges) => void }) {
+  // Under the list's key: whatever reloads the list (a save, an action) reloads the counts.
+  const counts = useQuery({ queryKey: ['list', schema.name, 'tab-counts'], queryFn: () => api.tabCounts(schema.name) });
+  const tabs = schema.list.tabs!;
+  const active = activeTab(tabs, params);
+  return (
+    <div className="overflow-x-auto">
+      <Tabs
+        items={tabs.map((tab) => {
+          const count = counts.data?.[tab.key];
+          return { key: tab.key, label: tab.label, ...(count ? { count: formatNumber(count.count), estimate: count.estimate } : {}) };
+        })}
+        value={active?.key ?? ''}
+        onChange={(key) => onChange(tabChanges(tabs.find((tab) => tab.key === key)!, params))}
+      />
     </div>
   );
 }

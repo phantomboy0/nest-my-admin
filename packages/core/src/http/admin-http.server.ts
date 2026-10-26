@@ -210,6 +210,7 @@ export class AdminHttpServer implements OnModuleInit {
       })
       .add('GET', '/api/meta', ({ res, ctx }) => sendJson(res, 200, this.api.meta(ctx.locale, ctx)))
       .add('GET', '/api/meta/resources/:resource', ({ res, ctx }, p) => sendJson(res, 200, this.api.schema(p.resource, ctx.locale, ctx)))
+      .add('GET', '/api/resources/:resource/tab-counts', async ({ res, ctx }, p) => sendJson(res, 200, await this.api.tabCounts(p.resource!, ctx)))
       .add('GET', '/api/search', async ({ res, url, ctx }) => sendJson(res, 200, await this.api.search(url.searchParams, ctx)))
       .add('GET', '/api/resources/:resource', async ({ res, url, ctx }, p) =>
         sendJson(res, 200, await this.api.list(p.resource, url.searchParams, ctx)),

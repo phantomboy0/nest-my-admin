@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
+import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, TabCounts, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
 import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
 import { InlineReader } from '../inlines/inline-reader.js';
@@ -161,6 +161,33 @@ export class AdminApiService {
     }
   }
 
+  /**
+   * A list's count for this user (menu badges, tab counts): through the resource's findMany, so `query()` and scopes
+   * apply; an overridden findMany may ignore scopes, so for a scoped user it goes through the scoped base path.
+   */
+  private async count(entry: RegisteredResource, params: ListParams, ctx: AdminContext): Promise<{ count: number; estimate: boolean } | undefined> {
+    const overridden = entry.resource.findMany !== AdminResourceBase.prototype.findMany;
+    const found = overridden && this.policy.scoped(entry, 'view', ctx) ? await AdminResourceBase.prototype.findMany.call(entry.resource, params, ctx) : await entry.resource.findMany(params, ctx);
+    return found.total === null || found.total === undefined ? undefined : { count: found.total, estimate: found.estimated === true };
+  }
+
+  /** `GET /api/resources/:resource/tab-counts`: each tab this user may use, counted in parallel (`null`: `count: 'none'`). */
+  async tabCounts(name: string, ctx: AdminContext): Promise<TabCounts> {
+    const entry = this.registry.get(name);
+    this.policy.require(entry, 'view', ctx);
+    const schema = this.view(entry, ctx).schema;
+    const counts = await Promise.all(
+      (schema.list.tabs ?? []).map(async (tab) => {
+        if (tab.count === 'none') return [tab.key, null] as const;
+        const params = parseListQuery(new URLSearchParams({ ...tab.filter, ...(tab.where ? { tab: tab.key } : {}), pageSize: '1' }), schema);
+        params.count = tab.count;
+        if (params.pagination === 'keyset') params.after = undefined;
+        return [tab.key, (await this.count(entry, params, ctx)) ?? null] as const;
+      }),
+    );
+    return Object.fromEntries(counts);
+  }
+
   /** The menu's references are checked once every resource and settings page is registered. */
   onApplicationBootstrap(): void {
     if (this.options.menu) checkMenu(this.options.menu, this.registry, this.pageRegistry);
@@ -186,13 +213,8 @@ export class AdminApiService {
         }
         // `none` lists are not counted page by page, but a badge is a count: estimate it instead.
         params.count = params.count === 'none' ? 'estimate' : params.count;
-        // An overridden findMany may ignore scopes; for a scoped user the count goes through the scoped base path.
-        const overridden = entry.resource.findMany !== AdminResourceBase.prototype.findMany;
-        const found = overridden && this.policy.scoped(entry, 'view', ctx)
-          ? await AdminResourceBase.prototype.findMany.call(entry.resource, params, ctx)
-          : await entry.resource.findMany(params, ctx);
-        if (found.total === null || found.total === undefined) continue;
-        out[`${section.key}.${item.resource}`] = { count: found.total, estimate: found.estimated === true };
+        const counted = await this.count(entry, params, ctx);
+        if (counted) out[`${section.key}.${item.resource}`] = counted;
       }
     }
     return out;
@@ -214,7 +236,8 @@ export class AdminApiService {
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
     const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
     const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label) }]));
-    const list = computed ? { ...entry.schema.list, computed } : entry.schema.list;
+    const tabs = entry.schema.list.tabs?.map((tab, index) => ({ ...tab, label: text(entry.resource.list!.tabs![index]!.label) }));
+    const list = { ...entry.schema.list, ...(computed ? { computed } : {}), ...(tabs ? { tabs } : {}) };
     const localized = { ...entry.schema, label: text(entry.label), related, fields, form, actions, list };
     const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
     // The child schema of every inline left in the layout (the policy removed those the user may not view).

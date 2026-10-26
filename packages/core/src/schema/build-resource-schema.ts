@@ -331,6 +331,18 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       search,
       editable,
       ...(mobile ? { mobile } : {}),
+      ...(resource.list?.tabs
+        ? {
+            tabs: resource.list.tabs.map((tab) => ({
+              key: tab.key,
+              // The first language given; AdminApiService localizes per request.
+              label: typeof tab.label === 'string' ? tab.label : (Object.values(tab.label)[0] ?? tab.key),
+              filter: { ...(tab.filter ?? {}) },
+              where: typeof tab.where === 'function',
+              count: tab.count ?? 'exact',
+            })),
+          }
+        : {}),
       ...(Object.keys(computedConfig).length > 0
         ? {
             computed: Object.fromEntries(

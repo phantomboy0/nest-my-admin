@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { activeFilterCount, restoreFilters, clearFilters, filterKey, hasActiveFilters, listQueryFromUrl, pageSizeOptions, paging, rangeText, withChanges } from './list-state';
+import type { ListTabSchema } from '@nest-my-admin/core/contract';
+import { activeFilterCount, activeTab, restoreFilters, tabChanges, clearFilters, filterKey, hasActiveFilters, listQueryFromUrl, pageSizeOptions, paging, rangeText, withChanges } from './list-state';
 
 describe('list state', () => {
   test('listQueryFromUrl keeps list params only, drops empties and sorts keys', () => {
@@ -66,4 +67,24 @@ test('restoreFilters undoes filter, search and sort changes back to a snapshot',
   const now = new URLSearchParams('sort=name&filter[status][in]=draft,active&filter[price][gte]=3&search=x&pageSize=50');
   expect(restoreFilters(now, before)).toEqual({ 'filter[price][gte]': null, 'filter[status][in]': 'draft', search: null, sort: '-price' });
   expect(restoreFilters(before, before)).toEqual({});
+});
+
+describe('list tabs', () => {
+  const tabs: ListTabSchema[] = [
+    { key: 'all', label: 'All', filter: {}, where: false, count: 'exact' as const },
+    { key: 'active', label: 'Active', filter: { 'filter[status][eq]': 'active' }, where: false, count: 'exact' as const },
+    { key: 'out', label: 'Out of stock', filter: {}, where: true, count: 'exact' as const },
+  ];
+  test('the active tab is the one whose filters the URL holds exactly; «all» has none', () => {
+    expect(activeTab(tabs, new URLSearchParams(''))?.key).toBe('all');
+    expect(activeTab(tabs, new URLSearchParams('filter[status][eq]=active&sort=-id'))?.key).toBe('active');
+    expect(activeTab(tabs, new URLSearchParams('tab=out'))?.key).toBe('out');
+    expect(activeTab(tabs, new URLSearchParams('filter[status][eq]=draft'))).toBeUndefined();
+    expect(activeTab(tabs, new URLSearchParams('filter[status][eq]=active&search=x'))?.key).toBe('active'); // the search is not a filter
+  });
+  test('selecting a tab replaces the filters with its own (and tab= for a where tab)', () => {
+    expect(tabChanges(tabs[1]!, new URLSearchParams('filter[price][gte]=5&tab=out&sort=name'))).toEqual({ 'filter[price][gte]': null, tab: null, 'filter[status][eq]': 'active' });
+    expect(tabChanges(tabs[2]!, new URLSearchParams('filter[status][eq]=active'))).toEqual({ 'filter[status][eq]': null, tab: 'out' });
+    expect(tabChanges(tabs[0]!, new URLSearchParams('filter[status][eq]=active'))).toEqual({ 'filter[status][eq]': null });
+  });
 });

@@ -418,6 +418,8 @@ export interface ResourceSchema {
     editable: string[];
     /** Phone cards: fields (or paths) for the title, subtitle, badge and meta line. Without it, the title and the columns. */
     mobile?: { title?: string; subtitle?: string; badge?: string; meta: string[] };
+    /** Tabs over the list (`list.tabs`) this viewer may use: a tab writes `filter` to the URL, plus `tab=<key>` when `where`. */
+    tabs?: ListTabSchema[];
     /** Computed columns (`list.computed`) this viewer may see, by key; their values are each record's `_computed`. */
     computed?: Record<string, ComputedColumnSchema>;
   };
@@ -818,6 +820,20 @@ export type LocalizedLabel = string | Record<string, string>;
 
 /** A status colour of the design (badges, computed cells, stat changes). */
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'primary';
+
+/** A list tab (spec §5.5). */
+export interface ListTabSchema {
+  key: string;
+  label: string;
+  /** `filter[...]` list parameters the tab sets (none: «all»). */
+  filter: Record<string, string>;
+  /** The tab restricts the list beyond its filters: send `tab=<key>`. */
+  where: boolean;
+  count: 'exact' | 'estimate' | 'none';
+}
+
+/** `GET /api/resources/:resource/tab-counts`: each tab's count for the viewer, `null` for `count: 'none'`. */
+export type TabCounts = Record<string, { count: number; estimate: boolean } | null>;
 
 /** A computed list column (spec §5.4). */
 export interface ComputedColumnSchema {

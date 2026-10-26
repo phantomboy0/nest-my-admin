@@ -8,6 +8,7 @@ import type {
   BulkResult,
   ListResponse,
   MenuBadges,
+  TabCounts,
   MetaResponse,
   OptionsResponse,
   PageResponse,
@@ -95,6 +96,7 @@ export const api = {
   },
   meta: () => request<MetaResponse>('/meta'),
   menuBadges: () => request<MenuBadges>('/menu/badges'),
+  tabCounts: (resource: string) => request<TabCounts>(`/resources/${encodeURIComponent(resource)}/tab-counts`),
   rbac: {
     catalog: () => request<RbacCatalog>('/rbac/catalog'),
     roles: () => request<{ items: RbacRole[] }>('/rbac/roles'),

@@ -15,6 +15,7 @@ export {
   type ComputedColumn,
   type ComputedSource,
   type ListConfig,
+  type ListTab,
   type ListParams,
   type RecordId,
   type RecordLinkConfig,

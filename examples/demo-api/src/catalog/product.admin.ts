@@ -20,6 +20,13 @@ const stockBadge = (value: unknown) => {
 /** The owner-admin products list (spec §5.4): picture, name over SKU, price over the earlier one, stock badge, specs, active switch. */
 const ownerList: ListConfig<Product> = {
   columns: ['product', 'categoryId', 'money', 'stockBadge', 'specCount', 'active'],
+  // The design's tabs; «out of stock» uses `where` (a condition the filter bar does not offer as such).
+  tabs: [
+    { key: 'all', label: { en: 'All', fa: 'همه' } },
+    { key: 'active', label: { en: 'Active', fa: 'فعال' }, filter: { 'filter[status][eq]': 'active' } },
+    { key: 'archived', label: { en: 'Inactive', fa: 'غیرفعال' }, filter: { 'filter[status][eq]': 'archived' } },
+    { key: 'out', label: { en: 'Out of stock', fa: 'ناموجود' }, where: (qb) => void qb.andWhere(`${qb.alias}.stock = 0`) },
+  ],
   computed: {
     picture: { label: { en: 'Picture', fa: 'تصویر' }, kind: 'image', source: { first: 'media', field: 'image', by: 'sort' } },
     product: { label: { en: 'Product', fa: 'محصول' }, kind: 'title', source: 'name', subline: 'sku' },

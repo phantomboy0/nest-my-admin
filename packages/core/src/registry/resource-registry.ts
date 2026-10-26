@@ -23,6 +23,7 @@ import { humanize, kebabCase } from '../schema/humanize.js';
 import { dbNamesFor, type DbNames } from './db-names.js';
 import { hookWarnings } from './hook-warnings.js';
 import { resolveInlines, type RegisteredInline } from '../inlines/inline-config.js';
+import { checkTabs } from '../crud/list-tabs.js';
 import { addComputedSort, checkComputed, type ChildQuery, type CompiledComputed } from '../crud/computed-columns.js';
 import type { ComputedColumn } from '../resource/admin-resource-base.js';
 
@@ -275,6 +276,9 @@ export class ResourceRegistry implements OnModuleInit {
       throw new Error(`${className}: ${message}`);
     });
     const schema = buildResourceSchema({ definition, resource, metadata, moduleGroup, className });
+    checkTabs(schema, resource.list?.tabs, (message) => {
+      throw new Error(`${className}: ${message}`);
+    });
     const computed = checkComputed(resource.list?.computed as Record<string, ComputedColumn> | undefined, metadata, (name) => schema.fields.find((field) => field.name === name)?.enumValues, (message) => {
       throw new Error(`${className}: ${message}`);
     });

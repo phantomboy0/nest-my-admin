@@ -12,6 +12,7 @@ import {
   type AuditResponse,
   type ListResponse,
   type MenuBadges,
+  type TabCounts,
   type MetaResponse,
   type OptionsResponse,
   type PageResponse,
@@ -72,6 +73,10 @@ export class AdminClient {
 
   meta(): Promise<MetaResponse> {
     return this.run((api, ctx) => api.meta(ctx.locale, ctx));
+  }
+  /** A list's tab counts (`GET /api/resources/:resource/tab-counts`). */
+  tabCounts(resource: string): Promise<TabCounts> {
+    return this.run((api, ctx) => api.tabCounts(resource, ctx));
   }
   /** The menu's counts (`GET /api/menu/badges`). */
   badges(): Promise<MenuBadges> {
@@ -150,7 +155,7 @@ export class AdminClient {
 
 /** One thing a user saw that they should not have. */
 export interface Leak {
-  kind: 'hidden-value' | 'out-of-scope-record' | 'unreachable-resource' | 'badge-count';
+  kind: 'hidden-value' | 'out-of-scope-record' | 'unreachable-resource' | 'badge-count' | 'tab-count';
   resource: string;
   /** The record it belongs to (`_id`), when there is one. */
   record?: string;
@@ -254,6 +259,7 @@ export class AdminTesting {
     if (!reachable) {
       const probes: Array<[string, () => Promise<unknown>]> = [
         ['schema', () => user.schema(resource)],
+        ['tab-counts', () => user.tabCounts(resource)],
         ['list', () => user.list(resource)],
         ...all.slice(0, 5).map((record): [string, () => Promise<unknown>] => [`get ${idOf(record)}`, () => user.get(resource, idOf(record))]),
       ];
@@ -332,6 +338,16 @@ export class AdminTesting {
 
     scan('meta', meta, false);
     scan(`schema ${resource}`, schema, false);
+    // A tab counts no more than the user's own list on that tab shows.
+    if (schema.list.tabs?.length) {
+      const tabCounts = await call(() => user.tabCounts(resource));
+      for (const tab of schema.list.tabs) {
+        const counted = tabCounts[tab.key];
+        if (!counted || counted.estimate) continue;
+        const listed = await call(() => user.list(resource, new URLSearchParams({ ...tab.filter, ...(tab.where ? { tab: tab.key } : {}), pageSize: '1' })));
+        if (listed.total !== null && counted.count > listed.total) leaks.push({ kind: 'tab-count', resource, where: `tab ${tab.key}`, value: `${counted.count} > ${listed.total}` });
+      }
+    }
     // A menu badge counts no more than the user's own list with the same filters shows.
     const counted = await call(() => user.badges());
     for (const { key, params } of user.badgeQueries(resource)) {

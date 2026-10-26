@@ -39,3 +39,11 @@ describe('filter chips (Review Focus 3)', () => {
     expect(chips('filter[nope][eq]=1&filter[status][in]=')).toEqual([]);
   });
 });
+
+describe('filter chips and tabs', () => {
+  test("the active tab's own filters are not chips; filters added on top of it are", () => {
+    const tabbed = { ...schema, list: { tabs: [{ key: 'all', label: 'All', filter: {}, where: false, count: 'exact' }, { key: 'drafts', label: 'Drafts', filter: { 'filter[status][in]': 'draft' }, where: false, count: 'exact' }] } } as unknown as ResourceSchema;
+    expect(filterChips(tabbed, new URLSearchParams('filter[status][in]=draft'))).toEqual([]);
+    expect(filterChips(tabbed, new URLSearchParams('filter[status][in]=draft&filter[price][gte]=5')).map(({ label }) => label)).toEqual(['Status', 'Price']);
+  });
+});

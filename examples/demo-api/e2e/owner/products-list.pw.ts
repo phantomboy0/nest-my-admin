@@ -36,3 +36,23 @@ test('computed columns: picture, name over SKU, price over the earlier one, stoc
   await expect(page).toHaveURL(/sort=-specCount/);
   await expect(page.getByRole('row').nth(1)).toContainText('Desk lamp'); // the seed gives it the specs
 });
+
+test('tabs: counts, the active tab from the URL, and a tab that restricts beyond filters', async ({ page }) => {
+  await page.goto('/admin/product');
+  const tabs = page.getByRole('tablist');
+  await expect(tabs.getByRole('tab', { name: /^All/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.getByRole('tab', { name: /^Active/ })).toContainText(/\d/);
+  await tabs.getByRole('tab', { name: /^Active/ }).click();
+  await expect(page).toHaveURL(/filter%5Bstatus%5D%5Beq%5D=active/);
+  await expect(tabs.getByRole('tab', { name: /^Active/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('Standing desk', { exact: true }).filter({ visible: true })).toHaveCount(0); // a draft
+  // The tab's own filter is the tab, not a chip.
+  await expect(page.getByRole('list', { name: 'Active filters' })).toHaveCount(0);
+  await tabs.getByRole('tab', { name: /^Out of stock/ }).click();
+  await expect(page).toHaveURL(/tab=out/);
+  await expect(page).not.toHaveURL(/filter%5Bstatus/);
+  await expect(page.getByText('Standing desk', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByText('Notebook', { exact: true }).filter({ visible: true })).toHaveCount(0);
+  await page.goto('/admin/product?filter%5Bstatus%5D%5Beq%5D=archived');
+  await expect(tabs.getByRole('tab', { name: /^Inactive/ })).toHaveAttribute('aria-selected', 'true');
+});

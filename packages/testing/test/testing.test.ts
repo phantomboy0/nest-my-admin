@@ -53,7 +53,12 @@ class Task {
 @Injectable()
 @AdminResource(Project, { title: 'name' })
 class ProjectAdmin extends AdminResourceBase<Project> {
-  list: ListConfig<Project> = { columns: ['id', 'name', 'ownerId', 'secret', 'budget'], search: ['name', 'secret'], filters: ['ownerId'] };
+  list: ListConfig<Project> = {
+    columns: ['id', 'name', 'ownerId', 'secret', 'budget'],
+    search: ['name', 'secret'],
+    filters: ['ownerId'],
+    tabs: [{ key: 'all', label: 'All' }, { key: 'u2', label: 'U2', filter: { 'filter[ownerId][eq]': 'u2' } }],
+  };
   fields: FieldsConfig<Project> = { budget: { restricted: true } };
   @AdminScope('own') own(ctx: AdminContext) {
     return { ownerId: ctx.user?.id };
@@ -389,6 +394,20 @@ describe(`@nest-my-admin/testing (${TEST_DB})`, () => {
       // And so would one shown to a user who cannot reach the resource.
       const outsider = await admin.expectNoLeaks('project', { as: { id: 'u9', roles: ['viewer'] } }).catch((caught: unknown) => caught);
       expect((outsider as AdminLeakError).report.leaks).toContainEqual({ kind: 'unreachable-resource', resource: 'project', where: 'menu badge work.project' });
+    } finally {
+      leaky.mockRestore();
+    }
+  });
+
+  test('expectNoLeaks compares tab counts with the user’s own list', async () => {
+    const member = { as: { id: 'u1', roles: ['member'] } };
+    expect((await admin.expectNoLeaks('project', member)).leaks).toEqual([]);
+    expect(await admin.as(member.as).tabCounts('project')).toEqual({ all: { count: 1, estimate: false }, u2: { count: 0, estimate: false } });
+    const api = admin.app.get(AdminApiService, { strict: false });
+    const leaky = spyOn(api, 'tabCounts').mockImplementation(async () => ({ all: { count: 1, estimate: false }, u2: { count: 1, estimate: false } }));
+    try {
+      const error = await admin.expectNoLeaks('project', member).catch((caught: unknown) => caught);
+      expect((error as AdminLeakError).report.leaks).toContainEqual({ kind: 'tab-count', resource: 'project', where: 'tab u2', value: '1 > 0' });
     } finally {
       leaky.mockRestore();
     }

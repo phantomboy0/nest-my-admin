@@ -1,9 +1,9 @@
-import type { FilterOperator, ListResponse } from '@nest-my-admin/core/contract';
+import type { FilterOperator, ListResponse, ListTabSchema } from '@nest-my-admin/core/contract';
 import { formatNumber, translate as tr } from '@/i18n';
 
 export type ParamChanges = Record<string, string | null>;
 
-const LIST_KEYS = new Set(['page', 'pageSize', 'sort', 'search', 'trashed', 'after']);
+const LIST_KEYS = new Set(['page', 'pageSize', 'sort', 'search', 'trashed', 'after', 'tab']);
 const isListKey = (key: string) => LIST_KEYS.has(key) || key.startsWith('filter[');
 
 /** The API list query is the page URL's list parameters, passed through unchanged (spec §11 syntax). */
@@ -95,4 +95,31 @@ export function restoreFilters(now: URLSearchParams, snapshot: URLSearchParams):
     changes[key] = snapshot.get(key);
   }
   return Object.fromEntries(Object.entries(changes).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** The URL's filters (non-empty `filter[...]` params) as a map. */
+function urlFilters(params: URLSearchParams): Map<string, string> {
+  return new Map([...params].filter(([key, value]) => key.startsWith('filter[') && value !== ''));
+}
+
+/** The tab the URL shows: the one whose filters (and `tab`, for a `where` tab) the URL holds exactly, else none. */
+export function activeTab(tabs: ListTabSchema[] | undefined, params: URLSearchParams): ListTabSchema | undefined {
+  const filters = urlFilters(params);
+  const tab = params.get('tab');
+  return tabs?.find((candidate) => {
+    if ((candidate.where ? candidate.key : null) !== tab) return false;
+    const own = Object.entries(candidate.filter);
+    return own.length === filters.size && own.every(([key, value]) => filters.get(key) === value);
+  });
+}
+
+/** Switching to a tab: every filter (and `tab`) goes, the tab's own filters come (and `tab=<key>` for a `where` tab). */
+export function tabChanges(tab: ListTabSchema, params: URLSearchParams): ParamChanges {
+  const changes: ParamChanges = {};
+  for (const key of urlFilters(params).keys()) changes[key] = null;
+  if (params.has('tab')) changes.tab = null;
+  Object.assign(changes, tab.filter);
+  if (tab.where) changes.tab = tab.key;
+  else if (params.has('tab')) changes.tab = null;
+  return changes;
 }

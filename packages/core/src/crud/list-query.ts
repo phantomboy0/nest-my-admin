@@ -8,7 +8,7 @@ import { toLatinNumber } from '../i18n/persian.js';
 type Errors = Record<string, string[]>;
 type Parsed<T> = { value: T } | { error: string };
 
-const PAGING_KEYS = new Set(['page', 'pageSize', 'sort', 'search', 'trashed', 'after']);
+const PAGING_KEYS = new Set(['page', 'pageSize', 'sort', 'search', 'trashed', 'after', 'tab']);
 const FILTER_KEY = /^filter\[([^\][]+)\](?:\[([^\][]+)\])?$/;
 const MAX_LIST_VALUES = 100;
 const MAX_TEXT = 200;
@@ -89,8 +89,13 @@ export function parseListQuery(query: URLSearchParams, schema: ResourceSchema): 
     else after = parsed.value;
   }
 
+  // `tab`: a list tab (`list.tabs`) whose own restriction (`where`) applies; its filters come as filter params.
+  const tab = readOne(query, 'tab', errors);
+  if (tab !== undefined && !schema.list.tabs?.some((candidate) => candidate.key === tab)) errors.tab = [`unknown tab "${tab}"`];
+
   if (Object.keys(errors).length > 0) throw new AdminValidationError(errors, 'Invalid list query');
   return {
+    ...(tab !== undefined ? { tab } : {}),
     page: keyset ? 1 : page,
     pageSize,
     sort,

@@ -1,3 +1,4 @@
+import { visibleTabs } from '../crud/list-tabs.js';
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { Brackets, type EntityManager, type SelectQueryBuilder, type WhereExpressionBuilder } from 'typeorm';
 import { ADMIN_OPTIONS, ADMIN_RESOURCE_METADATA } from '../constants.js';
@@ -298,6 +299,8 @@ export class AdminPolicy implements OnApplicationBootstrap {
         ...(schema.form.layout ? { layout: this.cutLayout(schema.form.layout, visible, ctx) } : {}),
       },
     };
+    // A tab filtering on a field this user cannot see would reveal it through its count.
+    if (cut.list.tabs) cut.list.tabs = visibleTabs(cut);
     return { schema: cut, levels };
   }
 

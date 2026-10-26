@@ -38,6 +38,8 @@ export interface ListParams {
   pagination?: 'offset' | 'keyset';
   /** Soft-deletable resources: `only` lists the trash, `with` lists everything. */
   trashed?: 'only' | 'with';
+  /** A list tab (`list.tabs`): its `where` applies in `buildListQuery`. */
+  tab?: string;
 }
 
 export interface FindManyResult<T> {
@@ -96,6 +98,20 @@ export interface ListConfig<T> {
    * viewer who cannot see a field or relation it reads; aggregates and first rows count only the rows the viewer sees.
    */
   computed?: Record<string, ComputedColumn<T>>;
+  /**
+   * Tabs over the list (spec §5.5), at most 6, each with its count: «همه» (no filter), «فعال» (`filter`), «ناموجود»
+   * (`where`, for what filters cannot say). `filter` holds `filter[...]` list parameters; `where` adds conditions
+   * (`qb.alias`, like `query()`). Counts follow the viewer's scopes; `count: 'none'` shows no count.
+   */
+  tabs?: ListTab[];
+}
+
+export interface ListTab {
+  key: string;
+  label: LocalizedText;
+  filter?: Record<string, string>;
+  where?: (qb: SelectQueryBuilder<any>, ctx: AdminContext) => void;
+  count?: CountMode;
 }
 
 /** Where a computed column's value comes from. */
@@ -214,6 +230,8 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     const context = ctx ?? AdminContext.current();
     const qb = this.restrict(repository.createQueryBuilder(alias), context);
     const sorter = this.#computedSort;
+    // The tab's own restriction (a tab with `where`); its filters arrive as normal filter params.
+    if (params.tab) this.list?.tabs?.find((tab) => tab.key === params.tab)?.where?.(qb, context as AdminContext);
     return applyListParams(qb, params, repository.metadata, sorter && ((query, field) => sorter(query, field, context)));
   }
 

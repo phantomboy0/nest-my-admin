@@ -78,6 +78,8 @@ export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps
   }
 
   const count = activeFilterCount(params);
+  // A tab's own filters are the tab: they make no chips (lib/filter-chips.ts).
+  const hasChips = filterChips(schema, params).length > 0;
   const sortLabel = sortChoiceLabel(schema, params, t);
   const openDrawer = () => {
     setSnapshot(new URLSearchParams(params));
@@ -109,9 +111,9 @@ export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps
           </Button>
         )}
       </div>
-      {(hasActiveFilters(params) || (drawer && sortLabel)) && (
+      {(hasChips || (drawer && sortLabel)) && (
         <div className="flex flex-wrap items-center gap-2">
-          {hasActiveFilters(params) && <FilterChips schema={schema} params={params} onChange={onChange} />}
+          {hasChips && <FilterChips schema={schema} params={params} onChange={onChange} />}
           {drawer && sortLabel && (
             <button type="button" className="inline-flex h-9 items-center gap-1.5 rounded-full border border-input bg-card px-3 text-[13px]" aria-haspopup="dialog" onClick={openDrawer}>
               <ArrowDownUp className="size-3.5 text-muted-foreground" aria-hidden />
