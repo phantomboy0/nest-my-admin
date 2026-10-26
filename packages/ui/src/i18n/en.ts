@@ -94,6 +94,7 @@ export const en = {
   'action.doneGone': '“{action}” done. The record is no longer in your view.',
   'action.bulkDone': '{action}: {count} done',
   'action.saveFirst': 'Save or discard your changes first.',
+  'action.more': 'More actions',
 
   'toast.region': 'Notifications',
   'toast.dismiss': 'Dismiss',

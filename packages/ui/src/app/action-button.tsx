@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, Ellipsis } from 'lucide-react';
+import { Popover } from 'radix-ui';
 import type { ActionSchema, AdminRecord, ResourceSchema } from '@nest-my-admin/core/contract';
 import { ActionDialog } from '@/app/action-dialog';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
 import { api, describeError } from '@/lib/api';
-import { actionOutcome, recordActions, runsAtOnce, type ActionOutcome } from '@/lib/actions';
+import { actionOutcome, headerActions, runsAtOnce, type ActionOutcome } from '@/lib/actions';
 import { iconNamed } from '@/lib/icons';
 import { toast } from '@/lib/toast';
+import { cn } from '@/lib/utils';
 
 interface ActionButtonProps {
   resource: string;
@@ -18,6 +21,10 @@ interface ActionButtonProps {
   subject?: string;
   size?: 'default' | 'sm';
   className?: string;
+  /** The record's next step: filled, with an arrow (the design's «انتقال به آماده ارسال ›»). */
+  primary?: boolean;
+  /** An entry of the header's ⋯ menu. */
+  menuItem?: boolean;
   /** The button cannot be used now; `describedBy` is the id of the text that says why. */
   blocked?: boolean;
   describedBy?: string;
@@ -30,7 +37,7 @@ interface ActionButtonProps {
  * is destructive or runs on several records, and runs on the click otherwise. The server's message is shown as a toast (a default one without a message), and
  * lists, counts and records of the resource reload.
  */
-export function ActionButton({ resource, action, ids, subject, size = 'default', className, blocked = false, describedBy, onDone }: ActionButtonProps) {
+export function ActionButton({ resource, action, ids, subject, size = 'default', className, primary = false, menuItem = false, blocked = false, describedBy, onDone }: ActionButtonProps) {
   const t = useT();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -58,8 +65,8 @@ export function ActionButton({ resource, action, ids, subject, size = 'default',
       <Button
         type="button"
         size={size}
-        variant={action.variant === 'destructive' ? 'destructive' : 'outline'}
-        className={className}
+        variant={action.variant === 'destructive' ? 'destructive' : primary ? 'default' : menuItem ? 'ghost' : 'outline'}
+        className={cn(menuItem && 'w-full justify-start font-normal', className)}
         disabled={blocked || run.isPending}
         aria-describedby={describedBy}
         data-action={action.name}
@@ -71,6 +78,7 @@ export function ActionButton({ resource, action, ids, subject, size = 'default',
       >
         {Icon && <Icon aria-hidden />}
         {action.label}
+        {primary && <ChevronLeft className="ltr:rotate-180" aria-hidden />}
       </Button>
       {open && (
         <ActionDialog
@@ -105,9 +113,33 @@ interface RecordActionsProps {
 export function RecordActions({ schema, record, id, dirty, onGone, onChanged }: RecordActionsProps) {
   const t = useT();
   const queryClient = useQueryClient();
-  const actions = recordActions(schema, record);
-  if (actions.length === 0) return null;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { primary, buttons, overflow } = headerActions(schema, record);
+  if (!primary && buttons.length === 0) return null;
   const noteId = 'record-actions-note';
+  const button = (action: ActionSchema, look: { primary?: boolean; menuItem?: boolean } = {}) => (
+    <ActionButton
+      key={action.name}
+      resource={schema.name}
+      action={action}
+      ids={[id]}
+      subject={typeof record._title === 'string' ? record._title : `#${id}`}
+      blocked={dirty}
+      describedBy={dirty ? noteId : undefined}
+      {...look}
+      onDone={(outcome) => {
+        setMenuOpen(false);
+        const stored = outcome.kind === 'record' ? outcome.record : undefined;
+        if (stored === null) {
+          onGone();
+          queryClient.removeQueries({ queryKey: ['record', schema.name, id] });
+          return;
+        }
+        if (stored) queryClient.setQueryData(['record', schema.name, id], stored);
+        onChanged();
+      }}
+    />
+  );
   return (
     <div role="group" aria-label={t('list.actions')} className="ms-auto flex flex-wrap items-center gap-2">
       {/* Said in words: a disabled button shows no tooltip. */}
@@ -116,27 +148,23 @@ export function RecordActions({ schema, record, id, dirty, onGone, onChanged }: 
           {t('action.saveFirst')}
         </span>
       )}
-      {actions.map((action) => (
-        <ActionButton
-          key={action.name}
-          resource={schema.name}
-          action={action}
-          ids={[id]}
-          subject={typeof record._title === 'string' ? record._title : `#${id}`}
-          blocked={dirty}
-          describedBy={dirty ? noteId : undefined}
-          onDone={(outcome) => {
-            const stored = outcome.kind === 'record' ? outcome.record : undefined;
-            if (stored === null) {
-              onGone();
-              queryClient.removeQueries({ queryKey: ['record', schema.name, id] });
-              return;
-            }
-            if (stored) queryClient.setQueryData(['record', schema.name, id], stored);
-            onChanged();
-          }}
-        />
-      ))}
+      {buttons.map((action) => button(action))}
+      {overflow.length > 0 && (
+        <Popover.Root open={menuOpen} onOpenChange={setMenuOpen}>
+          <Popover.Trigger asChild>
+            <Button type="button" variant="outline" size="icon" aria-label={t('action.more')}>
+              <Ellipsis />
+            </Button>
+          </Popover.Trigger>
+          {/* Kept mounted while closed: an entry's confirmation dialog lives in its button. */}
+          <Popover.Portal forceMount>
+            <Popover.Content forceMount align="end" sideOffset={6} className="z-50 flex min-w-48 flex-col gap-0.5 rounded-[10px] border bg-popover p-1.5 shadow-lg data-[state=closed]:hidden" onClick={() => setMenuOpen(false)}>
+              {overflow.map((action) => button(action, { menuItem: true }))}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
+      {primary && button(primary, { primary: true })}
     </div>
   );
 }

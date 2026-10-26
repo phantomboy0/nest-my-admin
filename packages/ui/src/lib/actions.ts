@@ -2,11 +2,25 @@ import type { ActionResult, ActionSchema, AdminRecord, BulkResult, RecordPermiss
 
 /**
  * The record actions to offer on `record`: the schema's (already cut to what the user may run), narrowed by the
- * record's `_perm.actions`. A record without `_perm`, or a `_perm` without `actions`, allows every one of them.
+ * record's `_perm.actions`, each named as that record names it (a per-record label). A record without `_perm`, or a
+ * `_perm` without `actions`, allows every one of them.
  */
 export function recordActions(schema: ResourceSchema, record: AdminRecord | undefined): ActionSchema[] {
   const allowed = (record?._perm as RecordPermissions | undefined)?.actions;
-  return schema.actions.filter((action) => action.target === 'record' && (allowed === undefined || allowed.includes(action.name)));
+  return schema.actions
+    .filter((action) => action.target === 'record' && (allowed === undefined || typeof allowed[action.name] === 'string'))
+    .map((action) => (allowed?.[action.name] ? { ...action, label: allowed[action.name] as string } : action));
+}
+
+/** Buttons shown in the record's header before the rest go into the ⋯ menu. */
+export const HEADER_BUTTONS = 3;
+
+/** The record's header (the design's order page): up to three outline buttons, the rest in ⋯, and the primary last. */
+export function headerActions(schema: ResourceSchema, record: AdminRecord | undefined): { primary?: ActionSchema; buttons: ActionSchema[]; overflow: ActionSchema[] } {
+  const actions = recordActions(schema, record);
+  const primary = actions.find((action) => action.primary);
+  const rest = actions.filter((action) => action !== primary);
+  return { ...(primary ? { primary } : {}), buttons: rest.slice(0, HEADER_BUTTONS), overflow: rest.slice(HEADER_BUTTONS) };
 }
 
 /**
@@ -17,7 +31,7 @@ export function recordActions(schema: ResourceSchema, record: AdminRecord | unde
 export function bulkActions(schema: ResourceSchema, records: AdminRecord[]): ActionSchema[] {
   const bulk = schema.actions.filter((action) => action.target === 'record' && action.bulk);
   if (records.length === 0) return bulk;
-  return bulk.filter((action) => records.some((record) => recordActions(schema, record).includes(action)));
+  return bulk.filter((action) => records.some((record) => recordActions(schema, record).some((offered) => offered.name === action.name)));
 }
 
 /** The actions of the list toolbar: they run once, without records. */

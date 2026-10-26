@@ -13,6 +13,9 @@ import { ProductsService } from '../src/catalog/products.service.js';
 import { OrderAdmin } from '../src/sales/order.admin.js';
 import { Order } from '../src/sales/order.entity.js';
 
+/** The record actions `_perm.actions` lets run (its names whose value is a label, not false). */
+const offered = (actions: Record<string, string | false> | undefined) => Object.entries(actions ?? {}).flatMap(([name, label]) => (label === false ? [] : [name]));
+
 let app: INestApplication;
 let db: TestDatabase;
 /** Uploads of this run (the demo's own `var/uploads` is never touched). */
@@ -309,7 +312,7 @@ describe('the catalog-editor role (editor)', () => {
     const schema = (await editor.get('/admin/api/meta/resources/order')).body;
     expect(schema.actions.map((action: { name: string }) => action.name)).toEqual(['ship']);
     const draft = (await agent.post(orders).send({ number: 'ED-ORDER-1', customer: 'Ada', total: '5.00' })).body;
-    expect((await editor.get(`${orders}/${draft._id}`)).body._perm.actions).toEqual(['ship']);
+    expect(offered((await editor.get(`${orders}/${draft._id}`)).body._perm.actions)).toEqual(['ship']);
     for (const action of ['cancel', 'markPaid', 'cancelStaleDrafts']) {
       expect((await editor.post(`${orders}/actions/${action}`).send(action === 'cancelStaleDrafts' ? {} : { ids: [draft._id] })).status).toBe(403);
     }
@@ -364,6 +367,7 @@ describe('orders (actions)', () => {
       ['markPaid', 'record', false],
       ['ship', 'record', true],
       ['cancel', 'record', false],
+      ['advanceNext', 'record', false],
       ['cancelStaleDrafts', 'resource', false],
     ]);
     const order = await make('ACT-1');
@@ -372,15 +376,19 @@ describe('orders (actions)', () => {
 
   test('rules take actions away from records; the method says why it refuses', async () => {
     const order = await make('ACT-2');
-    expect((await agent.get(`${orders}/${order._id}`)).body._perm.actions).toEqual(['markPaid', 'ship', 'cancel']);
+    expect(offered((await agent.get(`${orders}/${order._id}`)).body._perm.actions)).toEqual(['markPaid', 'ship', 'cancel', 'advanceNext']);
     // Not paid yet: the host's refusal, with its message.
     const early = await run('ship', { ids: [order._id], input: { tracking: 'TRK-EARLY' } });
     expect(early.status).toBe(409);
     expect(early.body).toMatchObject({ code: 'CONFLICT', message: 'Order ACT-2 is not paid yet: mark it paid first' });
-    expect((await run('markPaid', { ids: [order._id] })).body).toMatchObject({ message: 'Order ACT-2 is paid', record: { status: 'paid', _perm: { actions: ['ship'] } } });
+    const paid = (await run('markPaid', { ids: [order._id] })).body;
+    expect(paid).toMatchObject({ message: 'Order ACT-2 is paid', record: { status: 'paid' } });
+    expect(offered(paid.record._perm.actions)).toEqual(['ship', 'advanceNext']);
     expect((await run('cancel', { ids: [order._id] })).status).toBe(403); // drafts only
     expect((await run('ship', { ids: [order._id], input: { tracking: 'x' } })).body).toMatchObject({ code: 'VALIDATION', fields: { tracking: expect.any(Array) } });
-    expect((await run('ship', { ids: [order._id], input: { tracking: 'TRK-2' } })).body.record).toMatchObject({ status: 'shipped', tracking: 'TRK-2', _perm: { actions: [] } });
+    const shipped = (await run('ship', { ids: [order._id], input: { tracking: 'TRK-2' } })).body.record;
+    expect(shipped).toMatchObject({ status: 'shipped', tracking: 'TRK-2' });
+    expect(offered(shipped._perm.actions)).toEqual([]);
   });
 
   test('a selection is shipped record by record', async () => {

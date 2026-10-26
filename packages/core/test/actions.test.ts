@@ -26,6 +26,9 @@ import { ResourceRegistry } from '../src/registry/resource-registry.js';
 import { createTestApp } from './helpers/create-app.js';
 import { TEST_DB } from './helpers/test-db.js';
 
+/** The record actions `_perm.actions` lets run (its names whose value is a label, not false). */
+const offered = (actions: Record<string, string | false> | undefined) => Object.entries(actions ?? {}).flatMap(([name, label]) => (label === false ? [] : [name]));
+
 @Entity('act_order')
 class Order {
   @PrimaryGeneratedColumn() id: number;
@@ -253,7 +256,7 @@ describe(`running an action on one record (${TEST_DB})`, () => {
     expect(res.status).toBe(200);
     expect(res.body.message).toBe('Shipped');
     expect(res.body.record).toMatchObject({ _id: id, name: 'One', status: 'shipped', tracking: 'TRK-1' });
-    expect(res.body.record._perm.actions).toEqual(['ship', 'archive', 'handOver']); // no longer a draft: `cancel` is gone
+    expect(offered(res.body.record._perm.actions)).toEqual(['ship', 'archive', 'handOver']); // no longer a draft: `cancel` is gone
     expect(calls).toEqual([{ action: 'ship', id: Number(id), input: { tracking: 'TRK-1', notify: true }, inTransaction: true }]);
     expect((await run('u1', 'ship', { ids: [id], input: { tracking: 'TRK-2' } }, { 'Accept-Language': 'fa' })).status).toBe(409);
   });
@@ -519,7 +522,7 @@ describe(`_perm.actions (${TEST_DB})`, () => {
     const theirs = await order({ name: 'P-theirs', ownerId: 'u2' });
     const permsOf = async (user: string) => {
       const list = await api(user).get('/resources/order?pageSize=100');
-      return Object.fromEntries((list.body.items as Array<{ _id: string; _perm?: { actions?: string[] } }>).map((item) => [item._id, item._perm?.actions]));
+      return Object.fromEntries((list.body.items as Array<{ _id: string; _perm?: { actions?: Record<string, string | false> } }>).map((item) => [item._id, item._perm?.actions && offered(item._perm.actions)]));
     };
     const mine = await permsOf('u1');
     expect(mine[draft]).toEqual(['ship', 'cancel', 'archive', 'handOver']);
@@ -531,7 +534,8 @@ describe(`_perm.actions (${TEST_DB})`, () => {
     expect(root[shipped]).toEqual(['ship', 'archive', 'handOver']);
     expect(root[theirs]).toEqual(['ship', 'cancel', 'archive', 'handOver']);
     expect((await permsOf('editor'))[draft]).toEqual([]);
-    expect((await api('u1').get(`/resources/order/${cancelled}`)).body._perm).toEqual({ update: true, delete: false, actions: ['archive', 'handOver'] });
+    // Each record action by name: its label where it may run, false where it may not.
+    expect((await api('u1').get(`/resources/order/${cancelled}`)).body._perm).toEqual({ update: true, delete: false, actions: { ship: false, cancel: false, archive: 'Archive', handOver: 'Hand over' } });
   });
 });
 
@@ -573,7 +577,7 @@ describe(`action permissions in the catalog (${TEST_DB})`, () => {
     expect(clerk.actions.find((action) => action.name === 'ship')).toEqual({ name: 'ship', label: 'Mark shipped', target: 'record', allowed: true, grantedBy: [{ role: 'clerk', pattern: 'order.action.ship' }] });
     expect(clerk.actions.find((action) => action.name === 'recount')).toMatchObject({ allowed: false, grantedBy: [] });
     expect(clerk.record!.actions).toEqual(['archive', 'handOver']);
-    expect((await api('u1').get(`/resources/order/${cancelled}`)).body._perm.actions).toEqual(clerk.record!.actions!);
+    expect(offered((await api('u1').get(`/resources/order/${cancelled}`)).body._perm.actions)).toEqual(clerk.record!.actions!);
     // Granted, but a record action also needs `order.update`.
     expect((await explain('shipper')).actions.find((action) => action.name === 'ship')).toEqual({
       name: 'ship', label: 'Mark shipped', target: 'record', allowed: false, needsUpdate: true, grantedBy: [{ role: 'shipper', pattern: 'order.action.ship' }],

@@ -479,7 +479,9 @@ export class AdminPolicy implements OnApplicationBootstrap {
     const target = entry.resource.constructor;
     const recordActions = [...entry.actions.values()].filter((action) => action.target === 'record');
     const hasRules = ['update', 'delete', ...recordActions.map((action) => action.name)].some((name) => getCanRules(target, name).length > 0);
-    if (perms.superuser && !hasRules) return undefined;
+    // Per-record labels are computed for everyone, superusers too.
+    if (perms.superuser && !hasRules && !recordActions.some((action) => action.labelFor)) return undefined;
+    const locale = ctx.locale ?? this.options.locale;
     const keys = entry.schema.primaryKeys;
     const ids = entities.map((entity) => (keys.length === 1 ? (entity as Record<string, unknown>)[keys[0]!] : Object.fromEntries(keys.map((key) => [key, (entity as Record<string, unknown>)[key]])))) as RecordId[];
     const result = new Map<string, RecordPermissions>();
@@ -495,7 +497,16 @@ export class AdminPolicy implements OnApplicationBootstrap {
         update: updatable && this.recordRule(entry, 'update', entity, ctx),
         delete: allowed.delete?.has(id) === true && this.recordRule(entry, 'delete', entity, ctx),
         // An action has its own rules: a shipped order may be closed to edits and still be cancellable.
-        ...(recordActions.length > 0 ? { actions: updatable ? offered.filter((action) => this.recordRule(entry, action.name, entity, ctx)).map((action) => action.name) : [] } : {}),
+        ...(recordActions.length > 0
+          ? {
+              actions: Object.fromEntries(
+                offered.map((action) => {
+                  const label = actionLabel(action, entity, locale, this.options.locale);
+                  return [action.name, updatable && label !== null && this.recordRule(entry, action.name, entity, ctx) ? label : false];
+                }),
+              ),
+            }
+          : {}),
       });
     }
     return result;
@@ -567,3 +578,10 @@ export function topLevelFields(schema: ResourceSchema): FieldSchema[] {
   return schema.fields.filter((field) => !field.name.includes('.'));
 }
 
+
+/** An action's label on one record: `label.for(record)` in `locale` (`null` hides it there), else its label. */
+export function actionLabel(action: RegisteredAction, record: object, locale: string, defaultLocale: string): string | null {
+  if (!action.labelFor) return resolveText(action.label, locale, defaultLocale);
+  const label = action.labelFor(record);
+  return label === null ? null : resolveText(label, locale, defaultLocale);
+}

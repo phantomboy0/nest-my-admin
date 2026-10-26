@@ -43,3 +43,16 @@ test('the palette offers records, actions and places, never a nav: false resourc
   await palette.getByRole('combobox').press('Enter');
   await expect(page.locator('html')).toHaveClass(/dark/);
 });
+
+test('the order header: the primary next step names itself, runs in one click, and is gone when there is none (Task 8)', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the header row is the same on phones');
+  const res = await page.request.get('/admin/api/resources/order?filter%5Bstatus%5D%5Beq%5D=draft&pageSize=1');
+  const draft = (await res.json()).items[0];
+  await page.goto(`/admin/order/${encodeURIComponent(draft._id)}`);
+  const next = page.getByRole('button', { name: 'Move to «paid»' });
+  await expect(next).toBeVisible();
+  // Last in the header row, and filled (the primary look).
+  await expect(page.getByRole('group', { name: 'Actions' }).getByRole('button').last()).toHaveText(/Move to «paid»/);
+  await next.click();
+  await expect(page.getByRole('button', { name: 'Move to «shipped»' })).toBeVisible();
+});

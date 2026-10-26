@@ -53,10 +53,10 @@ describe('resolveActions', () => {
     const actions = resolve(ChildAdmin);
     const approve = actions.get('approve')!;
     expect({ ...approve, form: undefined }).toEqual({
-      name: 'approve', label: { en: 'Approve', fa: 'تایید' }, target: 'record', bulk: true, atomic: false, confirm: true, variant: 'default', icon: 'check', input: NoteDto, form: undefined,
+      name: 'approve', label: { en: 'Approve', fa: 'تایید' }, primary: false, target: 'record', bulk: true, atomic: false, confirm: true, variant: 'default', icon: 'check', input: NoteDto, form: undefined,
     });
     expect(approve.form!.required).toEqual(['note']);
-    expect(actions.get('wipeAll')).toEqual({ name: 'wipeAll', label: 'Wipe all', target: 'resource', bulk: false, atomic: false, variant: 'destructive' });
+    expect(actions.get('wipeAll')).toEqual({ name: 'wipeAll', label: 'Wipe all', primary: false, target: 'resource', bulk: false, atomic: false, variant: 'destructive' });
   });
 
   test('toActionSchema resolves the texts for one language', () => {

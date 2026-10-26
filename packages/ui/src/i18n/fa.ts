@@ -96,6 +96,7 @@ export const fa: Messages = {
   'action.doneGone': '«{action}» انجام شد. این رکورد دیگر در دسترس شما نیست.',
   'action.bulkDone': '{action}: {count} مورد انجام شد',
   'action.saveFirst': 'ابتدا تغییرات را ذخیره یا لغو کنید.',
+  'action.more': 'کارهای بیشتر',
 
   'toast.region': 'اعلان‌ها',
   'toast.dismiss': 'بستن',

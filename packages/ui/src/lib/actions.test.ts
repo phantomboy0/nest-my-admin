@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { ActionSchema, ResourceSchema } from '@nest-my-admin/core/contract';
-import { actionOutcome, actionQuestion, bulkActions, recordActions, resourceActions, runsAtOnce, selectionResult } from './actions';
+import { actionOutcome, actionQuestion, bulkActions, headerActions, recordActions, resourceActions, runsAtOnce, selectionResult } from './actions';
 import { en } from '../i18n/en';
 import { fa } from '../i18n/fa';
 
@@ -18,17 +18,33 @@ describe('actions', () => {
   });
 
   test('_perm.actions narrows them, in schema order; an empty list leaves none', () => {
-    expect(names(recordActions(schema, { _perm: { update: true, delete: false, actions: ['cancel', 'ship'] } }))).toEqual(['ship', 'cancel']);
-    expect(recordActions(schema, { _perm: { update: false, delete: false, actions: [] } })).toEqual([]);
+    expect(names(recordActions(schema, { _perm: { update: true, delete: false, actions: { markPaid: false, cancel: 'cancel', ship: 'ship' } } }))).toEqual(['ship', 'cancel']);
+    expect(recordActions(schema, { _perm: { update: false, delete: false, actions: {} } })).toEqual([]);
     // A name the schema no longer has (cut by the policy) is not offered.
-    expect(names(recordActions(schema, { _perm: { update: true, delete: true, actions: ['archive', 'ship'] } }))).toEqual(['ship']);
+    expect(names(recordActions(schema, { _perm: { update: true, delete: true, actions: { archive: 'archive', ship: 'ship' } } }))).toEqual(['ship']);
+  });
+
+  test('each record names its actions (a per-record label)', () => {
+    const offered = recordActions(schema, { _perm: { update: true, delete: true, actions: { markPaid: 'Mark #1042 paid', ship: false, cancel: 'cancel' } } });
+    expect(offered.map((item) => item.label)).toEqual(['Mark #1042 paid', 'cancel']);
+  });
+
+  test('the header: up to three buttons, the rest in ⋯, the primary last and filled', () => {
+    const many = { actions: ['a', 'b', 'c', 'd', 'e'].map((name) => action(name)).concat(action('next', { primary: true })) } as ResourceSchema;
+    const header = headerActions(many, { _perm: { update: true, delete: true, actions: { a: 'a', b: 'b', c: 'c', d: 'd', e: 'e', next: 'Move to «ready to ship»' } } });
+    expect(header.primary).toMatchObject({ name: 'next', label: 'Move to «ready to ship»' });
+    expect(names(header.buttons)).toEqual(['a', 'b', 'c']);
+    expect(names(header.overflow)).toEqual(['d', 'e']);
+    expect(headerActions(many, { _perm: { update: true, delete: true, actions: { a: 'a', next: false } } })).toEqual({ buttons: [many.actions[0]!], overflow: [] });
+    // A primary action without input or confirm runs on the click.
+    expect(runsAtOnce(action('next', { primary: true }))).toBe(true);
   });
 
   test('the list toolbar gets resource actions, the selection bar bulk ones', () => {
     expect(names(resourceActions(schema))).toEqual(['recount']);
     expect(names(bulkActions(schema, []))).toEqual(['ship']);
-    const refused = { _perm: { update: true, delete: true, actions: ['markPaid'] } };
-    const allowed = { _perm: { update: true, delete: true, actions: ['ship'] } };
+    const refused = { _perm: { update: true, delete: true, actions: { markPaid: 'markPaid', ship: false } } };
+    const allowed = { _perm: { update: true, delete: true, actions: { ship: 'ship' } } };
     expect(bulkActions(schema, [refused])).toEqual([]);
     expect(names(bulkActions(schema, [refused, allowed]))).toEqual(['ship']);
   });

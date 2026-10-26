@@ -9,8 +9,15 @@ import { didYouMean } from '../schema/suggest.js';
 import { getCanRuleNames } from './admin-scope.js';
 
 export interface AdminActionOptions {
-  /** `'Mark shipped'` or `{ en: 'Mark shipped', fa: 'ارسال شد' }`. Defaults to the humanized method name. */
-  label?: LocalizedText;
+  /**
+   * `'Mark shipped'` or `{ en: 'Mark shipped', fa: 'ارسال شد' }`. Defaults to the humanized method name. A label per
+   * record: `{ static, for }`, where `for(record)` names the action for that record («انتقال به آماده ارسال») or
+   * returns `null` to hide it there (a run is then refused too); `static` names it where no record is at hand (bulk
+   * menus, the role editor, the audit log).
+   */
+  label?: LocalizedText | { static: LocalizedText; for: (record: any) => LocalizedText | null };
+  /** The record's next step: a filled button, last in the record's header. One per resource, record actions without `input`. */
+  primary?: boolean;
   /**
    * `record` (default): the method is `(record, input, ctx)` and runs on a record the user may view and update
    * (the detail page; a list selection too with `bulk`). `resource`: the method is `(input, ctx)` and runs once,
@@ -51,6 +58,9 @@ export interface ActionDefinition extends AdminActionOptions {
 export interface RegisteredAction {
   name: string;
   label: LocalizedText;
+  /** The per-record label (`label.for`): `null` hides the action on that record. */
+  labelFor?: (record: any) => LocalizedText | null;
+  primary: boolean;
   target: 'record' | 'resource';
   bulk: boolean;
   atomic: boolean;
@@ -110,7 +120,15 @@ export function resolveActions(resourceClass: Function, reserved: readonly strin
     if (atomic && !bulk) fail(`${where}: \`atomic\` needs \`bulk: true\``);
     const { confirm, input, icon, label } = definition;
     if (confirm !== undefined && typeof confirm !== 'boolean' && !isText(confirm)) fail(`${where}: confirm must be true, false or a text`);
-    if (label !== undefined && !isText(label)) fail(`${where}: label must be a text`);
+    const perRecord = typeof label === 'object' && label !== null && 'for' in label;
+    if (perRecord) {
+      const { static: fixed, for: labelFor } = label as { static?: LocalizedText; for: unknown };
+      if (typeof labelFor !== 'function') fail(`${where}: label.for must be a function (record) => text | null`);
+      if (fixed === undefined || !isText(fixed)) fail(`${where}: a per-record label needs \`static\`, the label where no record is at hand (bulk menus, roles, the audit log)`);
+    } else if (label !== undefined && !isText(label)) fail(`${where}: label must be a text`);
+    const primary = definition.primary === true;
+    if (primary && target !== 'record') fail(`${where}: \`primary\` is a record's next step; resource actions cannot be primary`);
+    if (primary && input !== undefined) fail(`${where}: a primary action runs in one click, so it takes no \`input\``);
     if (icon !== undefined && typeof icon !== 'string') fail(`${where}: icon must be an icon name`);
     let form: DtoForm | undefined;
     if (input !== undefined) {
@@ -123,7 +141,9 @@ export function resolveActions(resourceClass: Function, reserved: readonly strin
     }
     actions.set(name, {
       name,
-      label: label ?? humanize(name),
+      label: perRecord ? (label as { static: LocalizedText }).static : ((label as LocalizedText | undefined) ?? humanize(name)),
+      ...(perRecord ? { labelFor: (label as { for: (record: unknown) => LocalizedText | null }).for } : {}),
+      primary,
       target,
       bulk,
       atomic,
@@ -133,6 +153,8 @@ export function resolveActions(resourceClass: Function, reserved: readonly strin
       ...(input ? { input, form } : {}),
     });
   }
+  const primaries = [...actions.values()].filter((action) => action.primary);
+  if (primaries.length > 1) fail(`@AdminAction: only one action can be \`primary\` (${primaries.map((action) => action.name).join(', ')})`);
   // A rule under a name nothing checks would silently never apply.
   for (const rule of getCanRuleNames(resourceClass)) {
     if (rule === 'update' || rule === 'delete') continue;
@@ -159,6 +181,7 @@ export function toActionSchema(action: RegisteredAction, locale: string, default
     atomic: action.atomic,
     ...(confirm !== undefined ? { confirm: confirm === true ? true : resolveText(confirm, locale, defaultLocale) } : {}),
     variant: action.variant,
+    ...(action.primary ? { primary: true } : {}),
     ...(action.icon ? { icon: action.icon } : {}),
     ...(action.form ? { input: localizeDtoForm(action.form, locale, defaultLocale) } : {}),
   };

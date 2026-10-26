@@ -1,3 +1,4 @@
+import { actionLabel } from './admin-policy.service.js';
 import type { ExplainRoleSource, PermissionExplanation, ResourceSchema } from '../contract.js';
 import { parseRecordId, recordIdOf } from '../crud/record-id.js';
 import type { AdminUser } from '../auth/auth-adapter.js';
@@ -154,6 +155,7 @@ async function explainRecord(policy: AdminPolicy, entry: RegisteredResource, raw
   // As `_perm.actions`: the action's own rules decide, not the rule for update.
   const recordActions = [...entry.actions.values()].filter((action) => action.target === 'record');
   const updatable = update || reasons.update === 'rule';
-  const actions = recordActions.filter((action) => updatable && policy.canRunAction(entry, action, ctx) && policy.recordRule(entry, action.name, found!, ctx)).map((action) => action.name);
+  // A per-record label of `null` hides the action on that record, as in `_perm.actions`.
+  const actions = recordActions.filter((action) => updatable && policy.canRunAction(entry, action, ctx) && policy.recordRule(entry, action.name, found!, ctx) && actionLabel(action, found!, 'en', 'en') !== null).map((action) => action.name);
   return { id: key, exists, view, update, delete: del, ...(recordActions.length > 0 ? { actions } : {}), reasons };
 }

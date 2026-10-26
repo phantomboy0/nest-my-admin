@@ -248,6 +248,8 @@ export interface ActionSchema {
   /** Ask before running: `true` for the default question, or the question itself. */
   confirm?: string | true;
   variant: 'default' | 'destructive';
+  /** The record's next step: a filled button, last in the record's header (record actions without input, one per resource). */
+  primary?: true;
   icon?: string;
   /** The form to fill in before running; its values are sent as `input`. */
   input?: DtoFormSchema;
@@ -488,7 +490,8 @@ export type AdminRecord = Record<string, unknown>;
 export interface RecordPermissions {
   update: boolean;
   delete: boolean;
-  actions?: string[];
+  /** Record actions by name: the label to show on this record (`label.for`, else the action's label), or `false` when it may not run here. */
+  actions?: Record<string, string | false>;
 }
 
 /** `POST /resources/:resource/bulk-delete` with `{ ids }` (encoded record ids): each id succeeds or fails on its own. */

@@ -23,6 +23,9 @@ import { OrderLineAdmin } from './order-line.admin.js';
  * Two ways to say no: an `@AdminCan('<action>')` rule takes the button away from records it does not fit (and the
  * API answers 403), and an exception thrown by the method is shown to the user as the reason.
  */
+/** Applies a decorator only in the configured demo (not with `NMA_DEMO_PLAIN=1`). */
+const onlyOwner = (decorator: MethodDecorator): MethodDecorator => (process.env.NMA_DEMO_PLAIN === '1' ? () => undefined : decorator);
+
 @AdminResource(Order, { icon: 'cart', label: { en: 'Order', fa: 'سفارش' }, title: 'number' })
 export class OrderAdmin extends AdminResourceBase<Order> {
   list: ListConfig<Order> = {
@@ -89,6 +92,27 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   })
   async cancel(order: Order, _input: unknown, ctx: AdminContext): Promise<void> {
     await this.repositoryFor(ctx).update(order.id, { status: 'cancelled' });
+  }
+
+  /**
+   * The order's next step (the design's filled header button): its label names the step on each order, and on an
+   * order with no next step there is no button (`label.for` returns null) and a run is refused. Left out of the
+   * plain demo (`NMA_DEMO_PLAIN=1`), a host that sets none of the owner-admin options.
+   */
+  @onlyOwner(
+    AdminAction({
+      primary: true,
+      label: {
+        static: { en: 'Next step', fa: 'مرحله بعد' },
+        for: (order: Order) =>
+          order.status === 'draft' ? { en: 'Move to «paid»', fa: 'انتقال به «پرداخت‌شده»' } : order.status === 'paid' ? { en: 'Move to «shipped»', fa: 'انتقال به «ارسال‌شده»' } : null,
+      },
+    }),
+  )
+  async advanceNext(order: Order, _input: unknown, ctx: AdminContext): Promise<ActionOutcome> {
+    const next = order.status === 'draft' ? 'paid' : 'shipped';
+    await this.repositoryFor(ctx).update(order.id, { status: next });
+    return { message: { en: `Order ${order.number} is ${next}`, fa: `سفارش ${order.number}: ${next === 'paid' ? 'پرداخت‌شده' : 'ارسال‌شده'}` } };
   }
 
   /** Only drafts can be paid or cancelled: on other orders the buttons are not there (`_perm.actions`), and the API answers 403. */
