@@ -454,7 +454,8 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
           {t('inline.duplicateNote', { names: new Intl.ListFormat(locale).format(inlines.map((inline) => inline.label)) })}
         </p>
       )}
-      {!canUpdate && (
+      {/* A view-mode page already reads as text: the note would only repeat it. */}
+      {!canUpdate && schema.form.mode !== 'view' && (
         <p role="note" className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
           {t('form.viewOnly')}
         </p>
