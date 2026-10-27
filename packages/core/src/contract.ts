@@ -274,6 +274,14 @@ export interface ActionSchema {
   input?: DtoFormSchema;
 }
 
+/** A print template of a resource (`@AdminPrint`): a page the browser prints, for one record or (`bulk`) a selection. */
+export interface PrintSchema {
+  name: string;
+  label: string;
+  bulk: boolean;
+  icon?: string;
+}
+
 /** Body of `POST /resources/:resource/actions/:name`. Record actions need `ids` (encoded record ids); resource actions refuse them. */
 export interface ActionRequest {
   ids?: string[];
@@ -445,6 +453,8 @@ export interface ResourceSchema {
     tabs?: ListTabSchema[];
     /** Computed columns (`list.computed`) this viewer may see, by key; their values are each record's `_computed`. */
     computed?: Record<string, ComputedColumnSchema>;
+    /** `list.export`, for a viewer holding `<resource>.export`: `GET /resources/:resource/export` with the list's query. */
+    export?: { max: number };
   };
   /** False for the root of a single-table inheritance, or when the user may not create. */
   creatable: boolean;
@@ -457,6 +467,8 @@ export interface ResourceSchema {
    * per record by `_perm.actions`.
    */
   actions: ActionSchema[];
+  /** The print templates (`@AdminPrint`) the signed-in user may print: `GET /resources/:resource/print/:name?id=…`. */
+  prints: PrintSchema[];
   /**
    * Other resources whose relation fields point at this one (spec §9.4 Related): a record's related records are
    * `/<resource>?filter[<field>][<operator>]=<id>`.

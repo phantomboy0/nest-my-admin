@@ -196,9 +196,8 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
 - Database errors are mapped in `http/error-response.ts` using the resource's `dbNames` (column, unique constraint/index and FK names → properties). MySQL reports unique constraints as index names; SQLite's FK error names no column and no side (the request method decides).
 - In Bun 1.4.2, `expect(obj).toMatchObject({ x: expect.any(...) })` overwrites `obj.x` with the matcher — read values you need before such assertions.
 
-## Missing from the owner-admin design (remind the user)
+## Print and export (0.5)
 
-The approved design (`docs/superpowers/specs/assets/2026-10-25-owner-admin/design.html`, spec `docs/superpowers/specs/2026-10-25-owner-admin-design.md`) shows two generic features that the 0.4 milestone leaves out. **Whenever you plan or release nest-my-admin, or work on lists or record pages, and either is still missing, tell the user it is still missing.** Remove a line only when it is built. shop-nest's own missing items are listed in `~/Develop/shop-nest/CLAUDE.md`.
-
-- Printing a record (a printable view / PDF for an action, e.g. an invoice or a shipping label), with permissions and audit.
-- Exporting a list to Excel (respects the current filters, scopes and field permissions).
+- `@AdminPrint` (`decorators/admin-print.ts`, `resolvePrints` at registration, names may not collide with base methods or actions) → `AdminApiService.print` (`findOne` + `requireInScope` per id, host errors through `hostError`, audit `{r}.print.{name}` per record) → `print/print-page.ts` (the page, `@page` size, nonce CSP). `print/html.ts` is the escaping `html` tag. The route takes `?lang=` because a new tab cannot send the UI's `Accept-Language`. View-as drops `prints` (a new tab cannot carry `X-View-As`).
+- `list.export` → `RegisteredResource.export` (`checkExport` in the registry) → `AdminApiService.export` (the list query through `parseListQuery`, `findMany` in pages of 500, scope re-check for `findMany` overrides, `records()` for masking, `export/export-cells.ts` `toCell`, `export/xlsx.ts` the in-house writer: zip + CRC-32, inline strings). Codes `{r}.print.{name}` and `{r}.export` are resource custom codes in the catalog; `AdminPolicy.canPrint`/`canExport` cut `schema.prints`/`list.export`.
+- UI: `app/print-export.tsx` (`PrintButtons` in the record header and the selection bar, `ExportButton` on the list toolbar), `printUrl`/`api.exportList` in `lib/api.ts`.

@@ -22,7 +22,7 @@ describe('view-as', () => {
   });
 
   test('inline children lose every write too', () => {
-    const child = { creatable: true, permissions: { create: true, update: true, delete: true, purge: false }, list: { editable: [] }, actions: [], form: { create: ['qty'], update: ['qty'], requiredOnCreate: [], readonly: [] } };
+    const child = { creatable: true, permissions: { create: true, update: true, delete: true, purge: false }, list: { editable: [] }, actions: [], prints: [], form: { create: ['qty'], update: ['qty'], requiredOnCreate: [], readonly: [] } };
     const schema = { ...child, inlines: { line: child } } as unknown as ResourceSchema;
     const cut = readOnlySchema(schema).inlines!.line!;
     expect(cut.permissions).toEqual({ create: false, update: false, delete: false, purge: false });

@@ -19,6 +19,7 @@ import { createAdminContext, type AdminContext } from '../resource/admin-context
 import type { RecordId } from '../resource/admin-resource-base.js';
 import { AdminRbac } from '../rbac/rbac.service.js';
 import { buildCatalog, customCodes } from './catalog.js';
+import { printCode } from '../decorators/admin-print.js';
 import { EffectivePermissions, type FieldLevel } from './effective.js';
 import { explainPermissions } from './explain.js';
 import { RESOURCE_OPERATIONS, actionCode, checkRoles, type ResourceOperation, type RoleDefinition, type ScopedOperation } from './roles.js';
@@ -147,6 +148,18 @@ export class AdminPolicy implements OnApplicationBootstrap {
    * (`{resource}.*` covers it), and for a record action `{resource}.update` too, since it changes records. Records
    * narrow it (`_perm.actions`).
    */
+  /** Printing a template: the resource reached and viewable, and `<resource>.print.<name>`. */
+  canPrint(entry: RegisteredResource, name: string, ctx: AdminContext): boolean {
+    const perms = this.permissionsOf(ctx);
+    return entry.prints.has(name) && perms.canOn(entry.schema.name, 'view') && perms.can(printCode(entry.schema.name, name));
+  }
+
+  /** Exporting the list: `list.export` set, the resource viewable, and `<resource>.export`. */
+  canExport(entry: RegisteredResource, ctx: AdminContext): boolean {
+    const perms = this.permissionsOf(ctx);
+    return entry.export !== undefined && perms.canOn(entry.schema.name, 'view') && perms.can(`${entry.schema.name}.export`);
+  }
+
   canRunAction(entry: RegisteredResource, action: Pick<RegisteredAction, 'name' | 'target'>, ctx: AdminContext): boolean {
     const perms = this.permissionsOf(ctx);
     if (!perms.canReach(entry.schema.name) || !perms.can(actionCode(entry.schema.name, action.name))) return false;
@@ -261,8 +274,9 @@ export class AdminPolicy implements OnApplicationBootstrap {
       fields: schema.fields.filter((field) => visible(field.name)),
       related: schema.related.filter((related) => perms.canOn(related.resource, 'view')),
       actions: schema.actions.filter((action) => this.canRunAction(entry, action, ctx)),
+      prints: schema.prints.filter((print) => this.canPrint(entry, print.name, ctx)),
       list: {
-        ...schema.list,
+        ...withoutExport(schema.list, this.canExport(entry, ctx)),
         columns: keep(schema.list.columns, visible),
         sortable: keep(schema.list.sortable, visible),
         // Sorting by a hidden field would reveal its order.
@@ -623,4 +637,11 @@ export function actionLabel(action: RegisteredAction, record: object, locale: st
   if (!action.labelFor) return resolveText(action.label, locale, defaultLocale);
   const label = action.labelFor(record);
   return label === null ? null : resolveText(label, locale, defaultLocale);
+}
+
+/** The list without `export`, for a viewer who may not export. */
+function withoutExport<L extends { export?: unknown }>(list: L, keep: boolean): L {
+  if (keep || list.export === undefined) return list;
+  const { export: _export, ...rest } = list;
+  return rest as L;
 }

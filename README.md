@@ -488,6 +488,33 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 - **Files.** An action that hard-deletes a record, or changes a file column itself, does not release the files: the objects and their `nma_file` rows stay. Only the admin's own update, delete and purge do that for now.
 - **API.** `POST /api/resources/:resource/actions/:action` with `{ ids?, input? }`. One distinct id answers `{ message?, record }` (`record` is `null` when the action took it out of the user's view), several answer the bulk result, and a resource action answers `{ message? }`.
 
+### Printing records
+
+A print template is a resource method that returns the body of a printed page. The record page shows a button per template (the list selection too, with `bulk`); it opens a page in a new tab that is sized for the paper and prints itself. «Save as PDF» in the browser's print dialog is the PDF.
+
+```ts
+import { AdminPrint, html } from '@nest-my-admin/core';
+
+@AdminPrint({ label: { en: 'Invoice', fa: 'فاکتور' }, paper: 'A4', bulk: true, icon: 'receipt' })
+invoice(orders: Order[], ctx: AdminContext) {
+  return html`${orders.map((order) => html`<section class="nma-print-page"><h1>${order.number}</h1>…</section>`)}`;
+}
+```
+
+- `html` escapes every value it puts in; another `html` (or `raw('…')`, for trusted markup only) goes in as it is. Wrap each record in `<section class="nma-print-page">` to start it on a new sheet.
+- `paper`: `A4` (default), `A5`, `label` (100×150 mm) or any CSS `@page` size (`'80mm 200mm'`). The page has a 10 mm margin and the admin's language and direction.
+- Permissions: `{resource}.view`, the user's row scopes and `{resource}.print.{name}`. The method gets whole entities, like an action. Throw an `HttpException` to refuse a record (an unpaid order's label).
+- Each printed record is written to the audit log (`{resource}.print.{name}`).
+- API: `GET /api/resources/:resource/print/:name?id=…[&id=…]&lang=fa` answers the HTML page (up to 100 ids with `bulk`, else one).
+
+### Exporting a list to Excel
+
+```ts
+list: ListConfig<Order> = { columns: [...], export: true }; // or { columns: ['number', 'customer', 'total'], max: 50_000 }
+```
+
+«Export to Excel» on the list downloads the rows the list shows now (filters, search, tab, sort, row scopes) as an `.xlsx`, in `columns` (default: the list's field columns), up to `max` rows (default 10,000, at most 100,000; the UI says when it was cut). Fields the user may not see are left out. Numbers and money are numbers, dates are dates (on the exporter's clock), enums and relations show their labels and titles; the sheet is right to left in an RTL language. It needs `{resource}.export` and is written to the audit log. API: `GET /api/resources/:resource/export?<list query>&offset=<minutes east of UTC>`.
+
 ### Settings pages
 
 ```ts

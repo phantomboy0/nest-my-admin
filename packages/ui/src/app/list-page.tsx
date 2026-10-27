@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, ListChecks, Plus, RotateCcw, Trash2, X } from 'lucide-react';
 import type { AdminRecord, BulkResult, ComputedColumnSchema, FieldSchema, ResourceSchema } from '@nest-my-admin/core/contract';
 import { ActionButton } from '@/app/action-button';
+import { ExportButton, PrintButtons } from '@/app/print-export';
 import { ColumnMenu, ResizeHandle } from '@/app/column-menu';
 import { ComputedCell } from '@/app/computed-cell';
 import { EditableCell } from '@/app/editable-cell';
@@ -123,7 +124,7 @@ export function ListPage() {
   }
   // Selection serves bulk delete and bulk actions: without either there is nothing to select for.
   const can = s.permissions ?? { create: true, update: true, delete: true, purge: true };
-  const selectable = !trash && (can.delete || bulkActions(s, []).length > 0);
+  const selectable = !trash && (can.delete || bulkActions(s, []).length > 0 || (s.prints ?? []).some((print) => print.bulk));
   // Bulk actions at least one selected record allows (phone cards are not on this page's list: the server decides).
   const selectedActions = bulkActions(s, items.filter((item) => selected.has(String(item._id))));
   const recordPath = (item: AdminRecord) => `/${s.name}/${encodeURIComponent(String(item._id))}`;
@@ -147,6 +148,7 @@ export function ListPage() {
               : 'border-b bg-primary-soft px-3.5 py-2',
           )}>
           <span className={cn('font-semibold', mobile ? 'flex-1 text-sm' : 'pe-1.5 text-primary')}>{t('list.selected', { count: selected.size })}</span>
+          <PrintButtons schema={s} ids={[...selected]} bulkOnly size="sm" />
           {selectedActions.map((action) => (
             <ActionButton
               key={action.name}
@@ -226,6 +228,7 @@ export function ListPage() {
             </Button>
           )}
           {!trash && resourceActions(s).map((action) => <ActionButton key={action.name} resource={s.name} action={action} onDone={() => undefined} />)}
+          {!trash && <ExportButton schema={s} query={exportQuery(searchParams)} iconOnly={mobile} />}
           {s.creatable && !trash && (
             <Button asChild size={mobile ? 'icon' : 'default'} className={cn(mobile && 'size-10')}>
               <Link to={`/${s.name}/new`} aria-label={mobile ? t('list.new') : undefined}>
@@ -541,4 +544,11 @@ function BulkSummary({ title, result, items }: { title: string; result: BulkResu
       )}
     </div>
   );
+}
+
+/** The list query an export repeats: everything in the URL but the page position. */
+function exportQuery(params: URLSearchParams): URLSearchParams {
+  const query = new URLSearchParams(params);
+  for (const key of ['page', 'pageSize', 'after']) query.delete(key);
+  return query;
 }

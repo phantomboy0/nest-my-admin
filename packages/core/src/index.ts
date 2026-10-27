@@ -26,6 +26,8 @@ export type { RegisteredInline } from './inlines/inline-config.js';
 export { AdminContext } from './resource/admin-context.js';
 export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from './decorators/admin-scope.js';
 export { AdminAction, type ActionOutcome, type AdminActionOptions } from './decorators/admin-action.js';
+export { AdminPrint, type AdminPrintOptions } from './decorators/admin-print.js';
+export { html, raw, escapeHtml, HtmlString } from './print/html.js';
 export { AdminSettingsPage, type AdminSettingsPageOptions, type AdminSettingsSource } from './decorators/admin-settings-page.js';
 export type { FieldRule, ResourceOperation, RoleDefinition, ScopedOperation } from './policy/roles.js';
 export { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './rbac/entities.js';

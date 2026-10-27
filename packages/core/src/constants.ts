@@ -24,3 +24,4 @@ export const ADMIN_WIDGET_METADATA = 'nest-my-admin:widget';
 
 /** Reflect-metadata key holding the @AdminAction definitions of a resource class, by method name. */
 export const ADMIN_ACTIONS_METADATA = 'nest-my-admin:actions';
+export const ADMIN_PRINTS_METADATA = 'nest-my-admin:prints';

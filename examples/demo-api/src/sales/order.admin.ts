@@ -1,4 +1,6 @@
 import {
+  AdminPrint,
+  html,
   AdminAction,
   AdminCan,
   AdminResource,
@@ -77,6 +79,8 @@ export class OrderAdmin extends AdminResourceBase<Order> {
     filters: ['status'],
     mobile: { title: 'number', subtitle: 'customer', badge: 'status', meta: ['total', 'tracking'] },
     computed: { lineCount: { label: { en: 'items', fa: 'قلم کالا' }, kind: 'count', source: { aggregate: 'count', relation: 'lines' } } },
+    // «Export to Excel» in the configured demo: the list as filtered, as an .xlsx.
+    ...(plainDemo ? {} : { export: true }),
   };
   fields: FieldsConfig<Order> = {
     number: { label: { en: 'Number', fa: 'شماره' } },
@@ -168,6 +172,18 @@ export class OrderAdmin extends AdminResourceBase<Order> {
     const next = order.status === 'draft' ? 'paid' : 'shipped';
     await this.repositoryFor(ctx).update(order.id, { status: next });
     return { message: { en: `Order ${order.number} is ${next}`, fa: `سفارش ${order.number}: ${next === 'paid' ? 'پرداخت‌شده' : 'ارسال‌شده'}` } };
+  }
+
+  /** A printable invoice (configured demo): the record page's «Invoice» button, also on a list selection. */
+  @onlyOwner(AdminPrint({ label: { en: 'Invoice', fa: 'فاکتور' }, bulk: true }))
+  invoice(orders: Order[]) {
+    return html`${orders.map(
+      (order) => html`<section class="nma-print-page">
+        <h1>Invoice ${order.number}</h1>
+        <p>Customer: ${order.customer}</p>
+        <p>Total: ${order.total}</p>
+      </section>`,
+    )}`;
   }
 
   /** Only drafts can be paid or cancelled: on other orders the buttons are not there (`_perm.actions`), and the API answers 403. */

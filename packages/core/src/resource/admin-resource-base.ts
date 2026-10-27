@@ -99,6 +99,12 @@ export interface ListConfig<T> {
    */
   computed?: Record<string, ComputedColumn<T>>;
   /**
+   * «Export to Excel» on the list (`<resource>.export`): the rows the list shows now (filters, search, tab, sort,
+   * scopes) as an `.xlsx`, in `columns` (default: the list's field columns), at most `max` rows (default 10,000, up to
+   * 100,000). Columns the viewer may not see are left out.
+   */
+  export?: boolean | { columns?: Array<Extract<keyof T, string> | (string & {})>; max?: number };
+  /**
    * Tabs over the list (spec §5.5), at most 6, each with its count: «همه» (no filter), «فعال» (`filter`), «ناموجود»
    * (`where`, for what filters cannot say). `filter` holds `filter[...]` list parameters; `where` adds conditions
    * (`qb.alias`, like `query()`). Counts follow the viewer's scopes; `count: 'none'` shows no count.

@@ -223,6 +223,28 @@ export class AdminHttpServer implements OnModuleInit {
       .add('GET', '/api/resources/:resource/fields/:field/options', async ({ res, url, ctx }, p) =>
         sendJson(res, 200, await this.api.fieldOptions(p.resource, p.field, url.searchParams, ctx)),
       )
+      .add('GET', '/api/resources/:resource/export', async ({ res, url, ctx }, p) => {
+        const out = await this.api.export(p.resource!, url.searchParams, ctx);
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        if (out.truncated) res.setHeader('X-Export-Truncated', String(out.rows));
+        res.end(out.file);
+      })
+      .add('GET', '/api/resources/:resource/print/:print', async ({ res, url, ctx }, p) => {
+        // Opened in a new tab, the page cannot send the UI's Accept-Language: `lang` names the UI's language.
+        const lang = url.searchParams.get('lang');
+        if (lang !== null && this.options.locales.includes(lang)) ctx.locale = lang;
+        const page = await this.api.print(p.resource!, p.print!, url.searchParams.getAll('id'), ctx);
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('Content-Security-Policy', page.csp);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.end(page.html);
+      })
       .add('GET', '/api/resources/:resource/:id', async ({ res, ctx }, p) =>
         sendJson(res, 200, await this.api.get(p.resource, p.id, ctx)),
       )

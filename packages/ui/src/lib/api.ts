@@ -82,7 +82,36 @@ const enc = encodeURIComponent;
 const ifMatch = (version: unknown): Record<string, string> =>
   typeof version === 'number' || typeof version === 'string' ? { 'If-Match': `"${version}"` } : {};
 
+/** The URL of a print template's page for these records, in the UI's language (it opens in a new tab). */
+export function printUrl(resource: string, name: string, ids: string[]): string {
+  const query = new URLSearchParams([...ids.map((id) => ['id', id]), ['lang', activeLocale()]]);
+  return `${runtimeConfig.apiBase}/resources/${encodeURIComponent(resource)}/print/${encodeURIComponent(name)}?${query}`;
+}
+
+/**
+ * Downloads the list as an `.xlsx` for `query` (the list's own parameters), with the browser's clock offset so dates
+ * read as on screen. `truncated` is the row cap when the export was cut there.
+ */
+async function exportList(resource: string, query: URLSearchParams): Promise<{ blob: Blob; filename: string; truncated?: number }> {
+  const params = new URLSearchParams(query);
+  params.set('offset', String(-new Date().getTimezoneOffset()));
+  const viewAs = viewingAs();
+  const res = await fetch(`${runtimeConfig.apiBase}/resources/${encodeURIComponent(resource)}/export?${params}`, {
+    credentials: 'same-origin',
+    headers: { 'Accept-Language': activeLocale(), ...(viewAs ? { 'X-View-As': viewAs } : {}) },
+  });
+  if (res.status === 401) signedOut();
+  if (!res.ok) {
+    const data = (await res.json().catch(() => undefined)) as unknown;
+    throw new ApiError(res.status, isErrorBody(data) ? data : { code: 'INTERNAL', message: tr('common.requestFailed', { status: res.status }), correlationId: '' });
+  }
+  const filename = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? `${resource}.xlsx`;
+  const truncated = res.headers.get('X-Export-Truncated');
+  return { blob: await res.blob(), filename, ...(truncated ? { truncated: Number(truncated) } : {}) };
+}
+
 export const api = {
+  exportList,
   session: async () => readOnlySession(await request<SessionResponse>('/session')),
   login: (username: string, password: string, otp?: string) => request<SessionResponse>('/session', { method: 'POST', body: JSON.stringify({ username, password, ...(otp ? { otp } : {}) }) }),
   logout: () => request<void>('/session', { method: 'DELETE' }),
