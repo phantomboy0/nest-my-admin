@@ -51,3 +51,7 @@ Differences between the real admin and the approved design that are not fixed ye
 | order-detail (shop-nest) | Customer card shows the mobile only (no avatar, order count or wallet); the address card has no edit link and no copy button | relation cards show the related record's fields; an order's address is a snapshot | 17 |
 | order-detail (shop-nest) | Lines show a picture placeholder when the product has no media; no strikethrough regular price or variant subline | inline columns are plain fields plus computed cells | 17 |
 | order-detail (shop-nest) | Step labels follow shop-nest's seven `FULFILLMENT_STEPS` (the design has six) | accepted difference (spec §8b) | 17 |
+| dashboard-light/dark/phone (shop-nest) | Stat captions say «نسبت به دوره‌ی قبل» for every period (the design: «نسبت به دیروز» / «نسبت به ماه قبل»); units only on money | one caption per widget, the period is the UI's | 18 |
+| dashboard-light/dark/phone (shop-nest) | Low stock: product and a plain number (no SKU column, no «N عدد»/«ناموجود» badge); tickets: subject and status only (no customer, priority, waiting time) | widget tables as specified; per product, not per variant | 18 |
+| dashboard-phone (shop-nest) | Latest orders stay a four-column table on a phone (badges clip at the edge); the design turns rows into two-line items | table widgets have no phone layout | 18 |
+| dashboard (shop-nest) | The target ring is empty with «هدف فروش ماه تعیین نشده است» until `commerce.monthlySalesTarget` is set (Settings → فروش → داشبورد) | no target by default | 18 |
