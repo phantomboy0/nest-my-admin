@@ -6,6 +6,7 @@ import { ADMIN_OPTIONS } from '../constants.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { ResourceSchema } from '../contract.js';
 import { resolveActions, toActionSchema, type RegisteredAction } from '../decorators/admin-action.js';
+import { resolvePrints, toPrintSchema, type RegisteredPrint } from '../decorators/admin-print.js';
 import { getAdminGroupOptions } from '../decorators/admin-group.js';
 import { getAdminResourceDefinition, type AdminResourceDefinition } from '../decorators/admin-resource.js';
 import { AdminNotFoundError } from '../errors.js';
@@ -50,6 +51,10 @@ export interface RegisteredResource {
   fieldConfig: Map<string, FieldConfig>;
   /** The resource's `@AdminAction`s by name, in declaration order, texts in every language given. */
   actions: ReadonlyMap<string, RegisteredAction>;
+  /** The resource's `@AdminPrint` templates by name. */
+  prints: ReadonlyMap<string, RegisteredPrint>;
+  /** `list.export`, checked: the columns (field names) and the row cap; absent when the list has no export. */
+  export?: { columns: string[]; max: number };
   /** Where the resource stands among the resources of its group (`@AdminResource({ order })`, default 100). */
   order: number;
   /** Stepper fields with a history child: where their «reached at» times come from (spec §5.7). */
@@ -325,6 +330,14 @@ export class ResourceRegistry implements OnModuleInit {
     }
     // Texts in the first language given, like the fields; AdminApiService localizes per request.
     schema.actions = [...actions.values()].map((action) => toActionSchema(action, '', ''));
+    const prints = resolvePrints(resource.constructor, [...BASE_MEMBERS, ...actions.keys()], (message) => {
+      throw new Error(`${className}: ${message}`);
+    });
+    schema.prints = [...prints.values()].map((print) => toPrintSchema(print, '', ''));
+    const exported = checkExport(resource.list?.export, schema, (message) => {
+      throw new Error(`${className}: list.export: ${message}`);
+    });
+    if (exported) schema.list.export = { max: exported.max };
     const existing = this.resources.get(schema.name);
     if (existing) {
       throw new Error(
@@ -368,6 +381,8 @@ export class ResourceRegistry implements OnModuleInit {
         mergeFieldConfig([definition.entity, resource.form?.create, resource.form?.update ?? resource.form?.create], resource.fields as Record<string, FieldConfig | undefined>),
       ),
       actions,
+      prints,
+      ...(exported ? { export: exported } : {}),
       order,
       computed,
       steppers: new Map(),
@@ -471,4 +486,22 @@ function embeddedProtected(embedded: { type: Function | string; embeddeds: unkno
     if (deeper) return deeper;
   }
   return undefined;
+}
+
+/** Rows an export may hold by default, and at most. */
+const EXPORT_MAX = 10_000;
+const EXPORT_LIMIT = 100_000;
+
+/** `list.export` checked against the schema: field columns only (not computed ones), a sane row cap. */
+function checkExport(option: unknown, schema: ResourceSchema, fail: (message: string) => never): { columns: string[]; max: number } | undefined {
+  if (option === undefined || option === false) return undefined;
+  if (option !== true && (typeof option !== 'object' || option === null)) fail('use true or { columns?, max? }');
+  const config = option === true ? {} : (option as { columns?: unknown; max?: unknown });
+  const fields = new Set(schema.fields.map((field) => field.name));
+  const columns = config.columns ?? schema.list.columns.filter((name) => fields.has(name));
+  if (!Array.isArray(columns) || columns.length === 0) fail('columns must be a non-empty list of field names');
+  for (const name of columns as unknown[]) if (typeof name !== 'string' || !fields.has(name)) fail(`unknown field "${String(name)}"`);
+  const max = config.max ?? EXPORT_MAX;
+  if (typeof max !== 'number' || !Number.isInteger(max) || max < 1 || max > EXPORT_LIMIT) fail(`max must be an integer from 1 to ${EXPORT_LIMIT}`);
+  return { columns: columns as string[], max: max as number };
 }

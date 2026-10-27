@@ -6,8 +6,19 @@ import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
 import { InlineReader } from '../inlines/inline-reader.js';
 import { InlineWriter, type InlinePlan } from '../inlines/inline-writer.js';
 import { persianLike } from '../i18n/persian.js';
-import { toErrorResponse } from '../http/error-response.js';
+import { hostError, toErrorResponse } from '../http/error-response.js';
 import { toActionSchema } from '../decorators/admin-action.js';
+import { printCode, toPrintSchema } from '../decorators/admin-print.js';
+import { printPage } from '../print/print-page.js';
+import { toCell } from '../export/export-cells.js';
+import { workbook, type Cell } from '../export/xlsx.js';
+import { isRtlLocale } from '../i18n/localized-text.js';
+
+/** Rows read per query while exporting. */
+const EXPORT_PAGE = 500;
+
+/** Records one bulk print may hold. */
+const PRINT_MAX = 100;
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
 import { buildMenu, checkMenu } from './menu.js';
@@ -52,7 +63,7 @@ export class AdminApiService {
     private readonly policy: AdminPolicy,
     private readonly files: FilesService,
     private readonly pageRegistry: PageRegistry,
-    audit: AdminAudit,
+    private readonly audit: AdminAudit,
     private readonly dashboard: DashboardService,
     private readonly widgets: WidgetRegistry,
   ) {
@@ -260,12 +271,13 @@ export class AdminApiService {
     const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, locale, this.options.locale);
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
     const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
+    const prints = [...entry.prints.values()].map((print) => toPrintSchema(print, locale, this.options.locale));
     const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label) }]));
     const tabs = entry.schema.list.tabs?.map((tab, index) => ({ ...tab, label: text(entry.resource.list!.tabs![index]!.label) }));
     const list = { ...entry.schema.list, ...(computed ? { computed } : {}), ...(tabs ? { tabs } : {}) };
     const asideConfig = entry.resource.form?.layout && !Array.isArray(entry.resource.form.layout) ? entry.resource.form.layout.aside : undefined;
     const localizedForm = form.aside && asideConfig ? { ...form, aside: form.aside.map((card, index) => ({ ...card, title: text(asideConfig[index]!.title) })) } : form;
-    const localized = { ...entry.schema, label: text(entry.label), related, fields, form: localizedForm, actions, list };
+    const localized = { ...entry.schema, label: text(entry.label), related, fields, form: localizedForm, actions, prints, list };
     const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
     // The child schema of every inline left in the layout (the policy removed those the user may not view).
     const children = (schema.form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('inline' in node ? [node.inline] : []));
@@ -770,6 +782,95 @@ export class AdminApiService {
    */
   runAction(name: string, action: string, body: unknown, ctx: AdminContext): Promise<ActionResult> {
     return this.actions.run(this.registry.get(name), action, body, ctx);
+  }
+
+  /**
+   * `GET /resources/:name/print/:print?id=…`: an `@AdminPrint` template's page for one record (or up to 100 with
+   * `bulk`). Each record is read like `GET /resources/:name/:id` (view permission, scopes) and its printing is audited.
+   */
+  async print(name: string, printName: string, rawIds: string[], ctx: AdminContext): Promise<{ html: string; csp: string }> {
+    const entry = this.registry.get(name);
+    this.policy.require(entry, 'view', ctx);
+    const print = entry.prints.get(printName);
+    if (!print) throw new AdminNotFoundError(`${entry.schema.label} has no print template "${printName}"`);
+    if (!this.policy.canPrint(entry, printName, ctx)) throw new AdminForbiddenError(`You may not print "${resolveText(print.label, ctx.locale ?? this.options.locale, this.options.locale)}"`);
+    const ids = [...new Set(rawIds)];
+    if (ids.length === 0) throw new AdminBadRequestError('id is required');
+    if (ids.length > (print.bulk ? PRINT_MAX : 1)) throw new AdminBadRequestError(print.bulk ? `at most ${PRINT_MAX} records at once` : 'this template prints one record');
+    const entities: object[] = [];
+    for (const rawId of ids) {
+      const id = parseRecordId(rawId, entry.schema);
+      const entity = await entry.resource.findOne(id, ctx);
+      if (!entity) throw new AdminNotFoundError(`${entry.schema.label} "${rawId}" not found`);
+      await this.policy.requireInScope(entry, id, rawId, 'view', ctx);
+      entities.push(entity);
+    }
+    const method = (entry.resource as unknown as Record<string, (records: object[], ctx: AdminContext) => unknown>)[printName]!;
+    let body: unknown;
+    try {
+      body = await method.call(entry.resource, entities, ctx);
+    } catch (error) {
+      throw hostError(error);
+    }
+    const locale = ctx.locale ?? this.options.locale;
+    const label = resolveText(print.label, locale, this.options.locale);
+    for (const entity of entities) {
+      await this.audit.recordAfter({ event: printCode(entry.schema.name, printName), entry, recordId: recordIdOf(entity, entry.schema.primaryKeys), title: entry.title(entity) }, ctx);
+    }
+    const title = entities.length === 1 ? `${label} · ${entry.title(entities[0]!)}` : label;
+    return printPage({ title, body: String(body ?? ''), size: print.size, locale });
+  }
+
+  /**
+   * `GET /resources/:name/export?<list query>`: the rows the list shows for this query (filters, search, tab, sort and
+   * scopes, page and page size ignored) as an `.xlsx`, in the export's columns this user may see, up to `max` rows.
+   * `offset` (minutes east of UTC) puts date-times on the exporter's clock. The export is audited.
+   */
+  async export(name: string, query: URLSearchParams, ctx: AdminContext): Promise<{ file: Buffer; filename: string; rows: number; truncated: boolean }> {
+    const entry = this.registry.get(name);
+    this.policy.require(entry, 'view', ctx);
+    if (!entry.export) throw new AdminNotFoundError(`${entry.schema.label} has no export`);
+    if (!this.policy.canExport(entry, ctx)) throw new AdminForbiddenError(`You may not export ${entry.schema.label} records`);
+    const rest = new URLSearchParams(query);
+    const rawOffset = rest.get('offset');
+    const offset = rawOffset === null ? 0 : Number(rawOffset);
+    if (!Number.isInteger(offset) || Math.abs(offset) > 14 * 60) throw new AdminValidationError({ offset: ['must be minutes east of UTC, from -840 to 840'] });
+    for (const key of ['offset', 'page', 'pageSize', 'after']) rest.delete(key);
+    const schema = this.view(entry, ctx).schema;
+    const params = parseListQuery(rest, schema);
+    const sortPath = entry.sortPaths.get(params.sort.field);
+    if (sortPath) params.sort = { ...params.sort, field: sortPath };
+    const { max } = entry.export;
+    const scoped = entry.resource.findMany !== AdminResourceBase.prototype.findMany && this.policy.scoped(entry, 'view', ctx);
+    const items: object[] = [];
+    let truncated = false;
+    for (let page = 1; ; page++) {
+      const found = await entry.resource.findMany({ ...params, page, pageSize: EXPORT_PAGE, count: 'none', pagination: 'offset', after: undefined }, ctx);
+      let batch = found.items;
+      // A findMany override may ignore the scopes; rows outside them never leave (spec §6.4).
+      if (scoped) {
+        const allowed = await this.policy.allowedIds(entry, batch.map((item) => this.idOf(entry, item)), 'view', ctx);
+        batch = batch.filter((item) => allowed.has(recordIdOf(item, schema.primaryKeys)));
+      }
+      items.push(...batch);
+      if (items.length > max) {
+        items.length = max;
+        truncated = true;
+        break;
+      }
+      if (found.items.length < EXPORT_PAGE || found.hasMore === false) break;
+    }
+    const locale = ctx.locale ?? this.options.locale;
+    const localized = this.schema(name, locale, ctx);
+    const visible = new Map(localized.fields.map((field) => [field.name, field]));
+    const columns = entry.export.columns.flatMap((column) => (visible.has(column) ? [visible.get(column)!] : []));
+    const records = await this.records(entry, items, schema.fields.filter((field) => columns.some((column) => column.name === field.name) && isLoadedField(field)), ctx);
+    const rows: Cell[][] = records.map((record) => columns.map((field) => toCell(record[field.name], field, locale, offset)));
+    const label = localized.label;
+    const file = workbook({ sheet: label, header: columns.map((field) => field.label), rows, rtl: isRtlLocale(locale) });
+    await this.audit.recordAfter({ event: `${entry.schema.name}.export`, entry, meta: { query: rest.toString().slice(0, 2_000), rows: rows.length, ...(truncated ? { truncated: true as const } : {}) } }, ctx);
+    const day = new Date(Date.now() + offset * 60_000).toISOString().slice(0, 10);
+    return { file, filename: `${entry.schema.name}-${day}.xlsx`, rows: rows.length, truncated };
   }
 
   /** Every settings page with its group, labelled in `locale` (the roles catalog). */

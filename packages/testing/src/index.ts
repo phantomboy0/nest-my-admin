@@ -88,6 +88,14 @@ export class AdminClient {
     const params = { period: 'week', from: new Date(now - 7 * day).toISOString(), to: new Date(now).toISOString(), previousFrom: new Date(now - 14 * day).toISOString(), previousTo: new Date(now - 7 * day).toISOString(), ...period };
     return this.run((_api, ctx) => this.app.get(DashboardService, { strict: false }).load(name, new URLSearchParams(params), ctx));
   }
+  /** A print template's page for these records (`GET /api/resources/:resource/print/:name`): the whole HTML document. */
+  async print(resource: string, name: string, ids: Array<string | number>): Promise<string> {
+    return (await this.run((api, ctx) => api.print(resource, name, ids.map(String), ctx))).html;
+  }
+  /** The list exported as Excel (`GET /api/resources/:resource/export`), for a list query like `list()`'s. */
+  export(resource: string, query: Record<string, string> = {}): Promise<{ file: Buffer; filename: string; rows: number; truncated: boolean }> {
+    return this.run((api, ctx) => api.export(resource, new URLSearchParams(query), ctx));
+  }
   /** A list's tab counts (`GET /api/resources/:resource/tab-counts`). */
   tabCounts(resource: string): Promise<TabCounts> {
     return this.run((api, ctx) => api.tabCounts(resource, ctx));

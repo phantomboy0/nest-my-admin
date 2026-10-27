@@ -9,6 +9,8 @@ export function readOnlySchema(schema: ResourceSchema): ResourceSchema {
     ...schema,
     creatable: false,
     actions: [],
+    // A print page opens in its own tab, which cannot view as someone: it would print as the superuser.
+    prints: [],
     permissions: { create: false, update: false, delete: false, purge: false },
     list: { ...schema.list, editable: [] },
     form: { ...schema.form, create: [], update: [], requiredOnCreate: [], readonly: [...new Set([...schema.form.readonly, ...schema.form.update, ...schema.form.create])] },

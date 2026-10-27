@@ -3,6 +3,10 @@ import type { AuditChange } from './diff.js';
 
 /** What an entry says besides its changes. Never a password, a one-time code, a secret or a sensitive value. */
 export interface AuditMeta {
+  /** `{r}.export` entries: the list query exported (filters, search, tab, sort), the rows written, whether `max` cut them. */
+  query?: string;
+  rows?: number;
+  truncated?: true;
   /** `{r}.action.{name}` entries: the action's name. */
   action?: string;
   /** The action's validated input, without its sensitive keys. */

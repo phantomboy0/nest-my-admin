@@ -7,6 +7,7 @@ import { AsideCard } from '@/app/aside-card';
 import { Stepper } from '@/app/stepper';
 import { FieldInput, RichText } from '@/app/field-input';
 import { RecordActions } from '@/app/action-button';
+import { PrintButtons } from '@/app/print-export';
 import { LeaveBar, SaveBar, SaveKey, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
 import { FormLayout } from '@/app/form-layout';
 import { InlineSection } from '@/app/inline-section';
@@ -687,6 +688,7 @@ function DetailHeader({ schema, record, id, dirty, onGone, onChanged, extra, bad
       )}
       </div>
       <div className="ms-auto flex flex-wrap items-center gap-2">
+        {record && id !== undefined && <PrintButtons schema={schema} ids={[id]} />}
         {record && id !== undefined && <RecordActions schema={schema} record={record} id={id} dirty={dirty} onGone={onGone} onChanged={onChanged} />}
         {extra}
       </div>

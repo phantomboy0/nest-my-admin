@@ -24,7 +24,8 @@ export function buildCatalog(registry: ResourceRegistry, options: ResolvedAdminO
     resources.set(entry.schema.name, {
       fields,
       scopes: Object.keys(getScopes(entry.resource.constructor)),
-      custom: customCodes(entry),
+      // Print templates and the list export are codes of the resource, like its custom ones.
+      custom: [...customCodes(entry), ...[...entry.prints.keys()].map((name) => `print.${name}`), ...(entry.export ? ['export'] : [])],
       actions: [...entry.actions.keys()],
       restricted: fields.filter((name) => entry.fieldConfig.get(name)?.restricted === true),
     });

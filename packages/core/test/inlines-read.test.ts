@@ -494,7 +494,8 @@ describe(`a resource without inlines (${TEST_DB})`, () => {
     const record = await root.get(`/resources/note/${created.body._id}`);
     expect(record.body).toEqual({ _id: String(created.body.id), id: created.body.id, body: 'Hello', _title: `#${created.body.id}` });
     const schema = (await root.get('/meta/resources/note')).body;
-    expect(Object.keys(schema).sort()).toEqual(['actions', 'creatable', 'fields', 'form', 'group', 'label', 'list', 'name', 'permissions', 'primaryKeys', 'related', 'softDelete']);
+    // `prints` (0.5) is the one key added since: an empty list for a resource without print templates.
+    expect(Object.keys(schema).sort()).toEqual(['actions', 'creatable', 'fields', 'form', 'group', 'label', 'list', 'name', 'permissions', 'primaryKeys', 'prints', 'related', 'softDelete']);
     expect(Object.keys(schema.form).sort()).toEqual(['constraints', 'create', 'readonly', 'requiredOnCreate', 'update']);
   });
 });
