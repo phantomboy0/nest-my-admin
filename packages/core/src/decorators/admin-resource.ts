@@ -18,6 +18,13 @@ export interface AdminResourceOptions {
    */
   order?: number;
   /**
+   * Whether the resource has its own entry in the sidebar, home, group pages, palette and global search. Default
+   * `true`, except for a resource another resource edits inline (`{ inline: ThisAdmin }` in a form layout): those are
+   * edited on their parent's page and default to `false`. Either way the resource keeps its URLs, permissions,
+   * history and audit entries.
+   */
+  nav?: boolean;
+  /**
    * The record's display name in lists, pickers and headers: a column name, or a function of the entity.
    * Functions see columns (relations only when the loader joined them). Default: the first string column called
    * name, title, label, displayName, fullName, username, email, code or sku; else `#<id>`.

@@ -1,7 +1,9 @@
+import { WidgetRegistry } from '../dashboard/widget-registry.js';
+import { visibleTabs } from '../crud/list-tabs.js';
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { Brackets, type EntityManager, type SelectQueryBuilder, type WhereExpressionBuilder } from 'typeorm';
 import { ADMIN_OPTIONS, ADMIN_RESOURCE_METADATA } from '../constants.js';
-import type { AdminRecord, ExplainRoleSource, FieldSchema, FormLayoutInline, FormLayoutNode, FormLayoutSection, PermissionExplanation, RecordPermissions, ResourceSchema } from '../contract.js';
+import type { AdminRecord, ExplainRoleSource, FieldSchema, FormLayoutInline, FormLayoutNode, FormLayoutSection, FormLayoutSummary, PermissionExplanation, RecordPermissions, ResourceSchema } from '../contract.js';
 import { recordIdOf } from '../crud/record-id.js';
 import type { RegisteredAction } from '../decorators/admin-action.js';
 import { getCanRules, getScopes, type RecordOperation, type ScopeCondition } from '../decorators/admin-scope.js';
@@ -45,6 +47,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
     private readonly auth: AdminAuthService,
     private readonly rbac: AdminRbac,
     private readonly pages: PageRegistry,
+    private readonly widgets: WidgetRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
   ) {}
 
@@ -62,7 +65,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
       }
       entry.resource.attachScoper((qb, ctx) => this.applyScopes(qb, entry, 'view', ctx));
     }
-    checkRoles(this.options.roles, buildCatalog(this.registry, this.options, this.pages.list().map((page) => page.name)), (message) => {
+    checkRoles(this.options.roles, buildCatalog(this.registry, this.options, this.pages.list().map((page) => page.name), this.widgets.codes()), (message) => {
       throw new Error(`nest-my-admin: ${message}`);
     });
     if (this.auth.adapter && this.options.roles.length === 0 && !this.options.rbac) {
@@ -184,6 +187,31 @@ export class AdminPolicy implements OnApplicationBootstrap {
     return levels;
   }
 
+  /**
+   * The computed columns (`list.computed`) this user may see (spec §5.4, Review Focus 2): every field, path and child
+   * entity a column reads must be visible to them; a child with a resource needs its view permission and fields.
+   */
+  computedVisible(entry: RegisteredResource, ctx: AdminContext, levels = this.levels(entry, ctx)): Set<string> {
+    const perms = this.permissionsOf(ctx);
+    const shown = (name: string): boolean => {
+      if (name.includes('.')) return this.pathLevel(entry, name, levels, ctx) !== 'hidden';
+      const relationField = [...entry.relations.entries()].find(([, relation]) => relation.propertyName === name)?.[0];
+      return (levels.get(relationField ?? name) ?? 'hidden') !== 'hidden';
+    };
+    const visible = new Set<string>();
+    for (const [key, column] of entry.computed) {
+      const children = column.deps.children.every(({ entity, fields }) => {
+        const child = this.registry.forEntity(entity, entry.dataSource);
+        if (!child) return true;
+        if (!perms.canOn(child.schema.name, 'view')) return false;
+        const childLevels = this.levels(child, ctx);
+        return fields.every((field) => (childLevels.get(field) ?? 'hidden') !== 'hidden');
+      });
+      if (children && column.deps.own.every(shown)) visible.add(key);
+    }
+    return visible;
+  }
+
   /** A path (`category.name`) is shown only when its relation field is, and the user may see the column where it lives. */
   private pathLevel(entry: RegisteredResource, path: string, levels: Map<string, FieldLevel>, ctx: AdminContext): FieldLevel {
     const [head, ...rest] = path.split('.');
@@ -205,7 +233,8 @@ export class AdminPolicy implements OnApplicationBootstrap {
   view(entry: RegisteredResource, schema: ResourceSchema, ctx: AdminContext): ResourceView {
     const perms = this.permissionsOf(ctx);
     const levels = this.levels(entry, ctx);
-    const visible = (name: string) => RANK[levels.get(name) ?? 'hidden'] >= 1;
+    const computed = this.computedVisible(entry, ctx, levels);
+    const visible = (name: string) => (entry.computed.has(name) ? computed.has(name) : RANK[levels.get(name) ?? 'hidden'] >= 1);
     const editable = (name: string) => (levels.get(name) ?? 'hidden') === 'edit';
     const r = schema.name;
     const permissions = {
@@ -241,6 +270,16 @@ export class AdminPolicy implements OnApplicationBootstrap {
         filters: schema.list.filters.filter((filter) => visible(filter.field)),
         search: keep(schema.list.search, visible),
         editable: permissions.update ? keep(schema.list.editable, editable) : [],
+        ...(schema.list.computed
+          ? {
+              computed: Object.fromEntries(
+                Object.entries(schema.list.computed)
+                  .filter(([key]) => computed.has(key))
+                  // A toggle writes its field: only for whoever may edit it.
+                  .map(([key, column]) => [key, column.toggle && !(permissions.update && editable(column.toggle.field)) ? { ...column, toggle: undefined } : column]),
+              ),
+            }
+          : {}),
         ...(mobile
           ? {
               mobile: {
@@ -262,6 +301,34 @@ export class AdminPolicy implements OnApplicationBootstrap {
         ...(schema.form.layout ? { layout: this.cutLayout(schema.form.layout, visible, ctx) } : {}),
       },
     };
+    // A tab filtering on a field this user cannot see would reveal it through its count.
+    if (cut.list.tabs) cut.list.tabs = visibleTabs(cut);
+    // Aside cards and the header show only what this user may see; a card left empty is dropped.
+    if (schema.form.aside) {
+      const aside = schema.form.aside.flatMap((card) => {
+        if (!card.relation) {
+          const fields = card.fields.filter(visible);
+          return fields.length > 0 ? [{ ...card, fields }] : [];
+        }
+        const target = this.registry.find(card.relation.resource);
+        if (!visible(card.relation.field) || !target || !perms.canOn(target.schema.name, 'view')) return [];
+        const targetLevels = this.levels(target, ctx);
+        const fields = card.fields.filter((field) => (targetLevels.get(field) ?? 'hidden') !== 'hidden');
+        return fields.length > 0 ? [{ ...card, fields }] : [];
+      });
+      cut.form = { ...cut.form, aside };
+    }
+    if (schema.form.header) {
+      const { badges, subtitle, stepper } = schema.form.header;
+      cut.form = {
+        ...cut.form,
+        header: {
+          ...(badges ? { badges: badges.filter(visible) } : {}),
+          ...(subtitle ? { subtitle: subtitle.filter((item) => ('field' in item ? visible(item.field) : computed.has(item.computed))) } : {}),
+          ...(stepper && visible(stepper) ? { stepper } : {}),
+        },
+      };
+    }
     return { schema: cut, levels };
   }
 
@@ -281,7 +348,12 @@ export class AdminPolicy implements OnApplicationBootstrap {
    * reader then sorts by key too); a tab left without sections by that goes too.
    */
   private cutLayout(layout: FormLayoutNode[], visible: (name: string) => boolean, ctx: AdminContext): FormLayoutNode[] {
-    const cut = (node: FormLayoutSection | FormLayoutInline): FormLayoutSection | FormLayoutInline | undefined => {
+    const cut = (node: FormLayoutSection | FormLayoutInline | FormLayoutSummary): FormLayoutSection | FormLayoutInline | FormLayoutSummary | undefined => {
+      // A summary keeps the rows whose field or computed column the user may see (`visible` knows both).
+      if ('summary' in node) {
+        const rows = node.summary.filter((row) => visible('field' in row.value ? row.value.field : row.value.computed));
+        return rows.length > 0 ? { ...node, summary: rows } : undefined;
+      }
       if (!('inline' in node)) return { ...node, fields: node.fields.filter(visible) };
       const child = this.registry.find(node.inline);
       if (!child || !this.canSeeInline(child, node.link, ctx)) return undefined;
@@ -289,7 +361,13 @@ export class AdminPolicy implements OnApplicationBootstrap {
       const { order, ...rest } = node;
       // Rows sorted by a field the user cannot see would reveal its values: such an inline goes by key, unordered.
       const ordered = order !== undefined && RANK[levels.get(order) ?? 'hidden'] >= 1;
-      return { ...rest, ...(ordered ? { order } : {}), fields: node.fields.filter((name) => RANK[levels.get(name) ?? 'hidden'] >= 1) };
+      const computed = rest.computed && this.computedVisible(child, ctx, levels);
+      return {
+        ...rest,
+        ...(ordered ? { order } : {}),
+        fields: node.fields.filter((name) => RANK[levels.get(name) ?? 'hidden'] >= 1),
+        ...(rest.computed ? { computed: rest.computed.filter((key) => computed!.has(key)) } : {}),
+      };
     };
     const out: FormLayoutNode[] = [];
     for (const node of layout) {
@@ -440,7 +518,9 @@ export class AdminPolicy implements OnApplicationBootstrap {
     const target = entry.resource.constructor;
     const recordActions = [...entry.actions.values()].filter((action) => action.target === 'record');
     const hasRules = ['update', 'delete', ...recordActions.map((action) => action.name)].some((name) => getCanRules(target, name).length > 0);
-    if (perms.superuser && !hasRules) return undefined;
+    // Per-record labels are computed for everyone, superusers too.
+    if (perms.superuser && !hasRules && !recordActions.some((action) => action.labelFor)) return undefined;
+    const locale = ctx.locale ?? this.options.locale;
     const keys = entry.schema.primaryKeys;
     const ids = entities.map((entity) => (keys.length === 1 ? (entity as Record<string, unknown>)[keys[0]!] : Object.fromEntries(keys.map((key) => [key, (entity as Record<string, unknown>)[key]])))) as RecordId[];
     const result = new Map<string, RecordPermissions>();
@@ -456,7 +536,16 @@ export class AdminPolicy implements OnApplicationBootstrap {
         update: updatable && this.recordRule(entry, 'update', entity, ctx),
         delete: allowed.delete?.has(id) === true && this.recordRule(entry, 'delete', entity, ctx),
         // An action has its own rules: a shipped order may be closed to edits and still be cancellable.
-        ...(recordActions.length > 0 ? { actions: updatable ? offered.filter((action) => this.recordRule(entry, action.name, entity, ctx)).map((action) => action.name) : [] } : {}),
+        ...(recordActions.length > 0
+          ? {
+              actions: Object.fromEntries(
+                offered.map((action) => {
+                  const label = actionLabel(action, entity, locale, this.options.locale);
+                  return [action.name, updatable && label !== null && this.recordRule(entry, action.name, entity, ctx) ? label : false];
+                }),
+              ),
+            }
+          : {}),
       });
     }
     return result;
@@ -528,3 +617,10 @@ export function topLevelFields(schema: ResourceSchema): FieldSchema[] {
   return schema.fields.filter((field) => !field.name.includes('.'));
 }
 
+
+/** An action's label on one record: `label.for(record)` in `locale` (`null` hides it there), else its label. */
+export function actionLabel(action: RegisteredAction, record: object, locale: string, defaultLocale: string): string | null {
+  if (!action.labelFor) return resolveText(action.label, locale, defaultLocale);
+  const label = action.labelFor(record);
+  return label === null ? null : resolveText(label, locale, defaultLocale);
+}

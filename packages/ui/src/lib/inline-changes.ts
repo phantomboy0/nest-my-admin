@@ -111,7 +111,8 @@ export function inlinePayload(
   const errors: Record<string, InlineErrors> = {};
   for (const inline of inlines) {
     const child = schemas[inline.inline];
-    if (!child) continue;
+    // A read-only inline is shown, never written (the server refuses it too).
+    if (!child || inline.readonly) continue;
     const rows = current[inline.inline] ?? [];
     const found = inlineChangeSet(inline, child, initial[inline.inline] ?? [], rows);
     const message = found.changes ? countMessage(inline, rows.length) : null;

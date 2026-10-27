@@ -204,6 +204,10 @@ export class InlineWriter {
     const positions = new Map<string, number>();
     const moves = new Map<string, number>();
     const rows = new Map<string, object>();
+    // A read-only inline is shown, never written through its parent.
+    if (inline.readonly && (creates.length > 0 || updates.length > 0 || deletes.length > 0 || order !== undefined)) {
+      throw new AdminValidationError({ [at]: [`${label} rows are read-only here`] });
+    }
 
     if (!parentEntity || linkValue === null || linkValue === undefined) {
       // No children can be named: a new parent (or one whose referenced value is empty) has none.

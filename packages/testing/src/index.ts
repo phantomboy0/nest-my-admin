@@ -11,13 +11,18 @@ import {
   type AuditEntry,
   type AuditResponse,
   type ListResponse,
+  type DashboardResponse,
+  type MenuBadges,
+  type WidgetData,
+  type WidgetParams,
+  type TabCounts,
   type MetaResponse,
   type OptionsResponse,
   type PageResponse,
   type ResourceSchema,
   type SearchResponse,
 } from '@nest-my-admin/core';
-import { AdminApiService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
+import { ADMIN_OPTIONS, AdminApiService, DashboardService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, ResourceRegistry, createAdminContext, runInAdminContext, type ResolvedAdminOptions } from '@nest-my-admin/core/internal';
 
 /** Who a test acts as. With `roles`, exactly these roles (code or stored); without, the admin resolves them as for a request. */
 export interface TestUser extends Partial<Omit<AdminUser, 'id'>> {
@@ -71,6 +76,37 @@ export class AdminClient {
 
   meta(): Promise<MetaResponse> {
     return this.run((api, ctx) => api.meta(ctx.locale, ctx));
+  }
+  /** The dashboard's widgets this user sees (`GET /api/dashboard`). */
+  dashboard(): Promise<DashboardResponse> {
+    return this.run(async (_api, ctx) => this.app.get(DashboardService, { strict: false }).layout(ctx));
+  }
+  /** One widget's data for a period (the last seven days by default). */
+  widget(name: string, period: Partial<WidgetParams> = {}): Promise<WidgetData> {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const params = { period: 'week', from: new Date(now - 7 * day).toISOString(), to: new Date(now).toISOString(), previousFrom: new Date(now - 14 * day).toISOString(), previousTo: new Date(now - 7 * day).toISOString(), ...period };
+    return this.run((_api, ctx) => this.app.get(DashboardService, { strict: false }).load(name, new URLSearchParams(params), ctx));
+  }
+  /** A list's tab counts (`GET /api/resources/:resource/tab-counts`). */
+  tabCounts(resource: string): Promise<TabCounts> {
+    return this.run((api, ctx) => api.tabCounts(resource, ctx));
+  }
+  /** The menu's counts (`GET /api/menu/badges`). */
+  badges(): Promise<MenuBadges> {
+    return this.run((api, ctx) => api.badges(ctx));
+  }
+  /** The menu badges on a resource: their key and filters (from the `menu` option). */
+  badgeQueries(resource: string): Array<{ key: string; params: Record<string, string> }> {
+    const options = this.app.get<ResolvedAdminOptions>(ADMIN_OPTIONS, { strict: false });
+    return (options.menu?.sections ?? []).flatMap((section) =>
+      section.items.flatMap((item) => ('resource' in item && item.resource === resource && item.badge ? [{ key: `${section.key}.${resource}`, params: item.badge }] : [])),
+    );
+  }
+  /** Every resource the user may view, those without a navigation entry (`nav: false`) included. */
+  async resources(): Promise<string[]> {
+    const permissions = await this.permissions();
+    return this.app.get(ResourceRegistry, { strict: false }).list().map((entry) => entry.schema.name).filter((name) => permissions.canOn(name, 'view'));
   }
   schema(resource: string): Promise<ResourceSchema> {
     return this.run((api, ctx) => api.schema(resource, ctx.locale, ctx));
@@ -133,7 +169,7 @@ export class AdminClient {
 
 /** One thing a user saw that they should not have. */
 export interface Leak {
-  kind: 'hidden-value' | 'out-of-scope-record' | 'unreachable-resource';
+  kind: 'hidden-value' | 'out-of-scope-record' | 'unreachable-resource' | 'badge-count' | 'tab-count';
   resource: string;
   /** The record it belongs to (`_id`), when there is one. */
   record?: string;
@@ -230,18 +266,22 @@ export class AdminTesting {
       return result;
     };
 
-    // Not reachable: the resource is absent from meta and every call is "not found".
+    // Not reachable: the user may not view it, and every call is "not found". (Meta is no guide: it leaves out `nav: false` resources.)
     const meta = await call(() => user.meta());
-    const reachable = meta.groups.some((group) => group.resources.some((item) => item.name === resource));
+    const viewable = await user.resources();
+    const reachable = viewable.includes(resource);
     if (!reachable) {
       const probes: Array<[string, () => Promise<unknown>]> = [
         ['schema', () => user.schema(resource)],
+        ['tab-counts', () => user.tabCounts(resource)],
         ['list', () => user.list(resource)],
         ...all.slice(0, 5).map((record): [string, () => Promise<unknown>] => [`get ${idOf(record)}`, () => user.get(resource, idOf(record))]),
       ];
       for (const [label, probe] of probes) {
         if (!(await answersNotFound(() => call(probe)))) leaks.push({ kind: 'unreachable-resource', resource, where: label });
       }
+      const counted = await call(() => user.badges());
+      for (const { key } of user.badgeQueries(resource)) if (key in counted) leaks.push({ kind: 'unreachable-resource', resource, where: `menu badge ${key}` });
       return report([], all.length);
     }
 
@@ -311,7 +351,33 @@ export class AdminTesting {
     };
 
     scan('meta', meta, false);
+    // The dashboard: every widget this user sees, for the last week.
+    for (const widget of (await call(() => user.dashboard())).widgets) {
+      try {
+        scan(`dashboard ${widget.name}`, await call(() => user.widget(widget.name)), false);
+      } catch {
+        // A widget that fails shows its own error card; it reveals nothing.
+      }
+    }
     scan(`schema ${resource}`, schema, false);
+    // A tab counts no more than the user's own list on that tab shows.
+    if (schema.list.tabs?.length) {
+      const tabCounts = await call(() => user.tabCounts(resource));
+      for (const tab of schema.list.tabs) {
+        const counted = tabCounts[tab.key];
+        if (!counted || counted.estimate) continue;
+        const listed = await call(() => user.list(resource, new URLSearchParams({ ...tab.filter, ...(tab.where ? { tab: tab.key } : {}), pageSize: '1' })));
+        if (listed.total !== null && counted.count > listed.total) leaks.push({ kind: 'tab-count', resource, where: `tab ${tab.key}`, value: `${counted.count} > ${listed.total}` });
+      }
+    }
+    // A menu badge counts no more than the user's own list with the same filters shows.
+    const counted = await call(() => user.badges());
+    for (const { key, params } of user.badgeQueries(resource)) {
+      const badge = counted[key];
+      if (!badge || badge.estimate) continue;
+      const listed = await call(() => user.list(resource, new URLSearchParams({ ...params, pageSize: '1' })));
+      if (listed.total !== null && badge.count > listed.total) leaks.push({ kind: 'badge-count', resource, where: `menu badge ${key}`, value: `${badge.count} > ${listed.total}` });
+    }
     scan(`list ${resource}`, seen, true);
     for (const record of seen) scan(`get ${resource} ${idOf(record)}`, await call(() => user.get(resource, idOf(record))), true);
     for (const record of outside) {
@@ -340,7 +406,7 @@ export class AdminTesting {
       }
     }
     // Every other resource the user reaches: its titles and columns, and the relations pointing here (columns, pickers).
-    for (const other of meta.groups.flatMap((group) => group.resources.map((item) => item.name))) {
+    for (const other of viewable) {
       if (other === resource) continue;
       const otherSchema = await call(() => user.schema(other));
       const page = await call(() => user.list(other, { pageSize: 100 }));

@@ -1,12 +1,15 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Search } from 'lucide-react';
+import { Moon, Plus, Search } from 'lucide-react';
 import { Dialog } from 'radix-ui';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { api } from '@/lib/api';
 import { matches, navigationItems, type PaletteItem } from '@/lib/palette';
+import { flipTheme } from '@/lib/theme';
+import { iconFor } from '@/lib/icons';
+import { navGroups } from '@/lib/menu';
 import { useMeta, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
@@ -51,23 +54,30 @@ export function CommandPalette() {
   const searching = term.length >= 2 && (meta.data?.groups.some((group) => group.resources.some((resource) => resource.searchable)) ?? false);
   const records = useQuery({ queryKey: ['search', term], queryFn: () => api.search(term), enabled: open && searching, staleTime: 10_000 });
 
-  const navigation = meta.data ? navigationItems(meta.data, query, (name) => t('palette.new', { name })) : [];
+  // A record's icon is its resource's, else its section's.
+  const iconOf = (resource: string) => {
+    const group = meta.data ? navGroups(meta.data).find((candidate) => candidate.resources.some((entry) => entry.name === resource)) : undefined;
+    return group?.resources.find((entry) => entry.name === resource)?.icon ?? group?.icon;
+  };
+  const navigation = meta.data ? navigationItems(meta.data, query, (name) => t('palette.new', { name }), [{ id: 'theme', label: t('palette.toggleTheme') }]) : [];
+  // The design's order: records, actions, then places to go.
   const items: PaletteItem[] = [
-    ...navigation.filter((item) => item.section === 'go'),
-    // The audit page (also the way to it in an admin without sign-in, which has no user menu).
-    ...(session.data?.audit.view && matches(t('audit.title'), query) ? [{ id: 'audit', section: 'go' as const, label: t('audit.title'), to: '/-/audit' }] : []),
-    ...navigation.filter((item) => item.section !== 'go'),
     ...(searching && query.trim() === term
       ? (records.data?.groups ?? []).flatMap((group) =>
           group.items.map((item) => ({
             id: `record:${group.resource}:${item._id}`,
             section: 'records' as const,
+            ...(iconOf(group.resource) ? { icon: iconOf(group.resource) } : {}),
             label: item._title,
             detail: group.label,
             to: `/${group.resource}/${encodeURIComponent(item._id)}`,
           })),
         )
       : []),
+    ...navigation.filter((item) => item.section === 'actions'),
+    ...navigation.filter((item) => item.section === 'go'),
+    // The audit page (also the way to it in an admin without sign-in, which has no user menu).
+    ...(session.data?.audit.view && matches(t('audit.title'), query) ? [{ id: 'audit', section: 'go' as const, label: t('audit.title'), to: '/-/audit' }] : []),
   ];
   const current = Math.min(active, Math.max(0, items.length - 1));
 
@@ -79,7 +89,8 @@ export function CommandPalette() {
   function go(item: PaletteItem | undefined) {
     if (!item) return;
     setOpen(false);
-    navigate(item.to);
+    if (item.to) navigate(item.to);
+    else if (item.id === 'theme') flipTheme();
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -94,9 +105,9 @@ export function CommandPalette() {
   }
 
   const sections: Array<[PaletteItem['section'], string]> = [
-    ['go', t('palette.goTo')],
-    ['create', t('palette.create')],
     ['records', t('palette.records')],
+    ['actions', t('palette.actions')],
+    ['go', t('palette.goTo')],
   ];
   const optionId = (index: number) => `${listId}-${index}`;
   const status = searching && (records.isFetching || query.trim() !== term) ? t('palette.searching') : items.length === 0 ? t('palette.noResults') : '';
@@ -110,20 +121,21 @@ export function CommandPalette() {
       }}
     >
       <Dialog.Trigger asChild>
-        <Button variant="outline" size="sm" className="gap-2 text-muted-foreground" aria-keyshortcuts="Control+K Meta+K" aria-label={t('palette.open')}>
+        <Button variant="outline" className="w-9 justify-start px-0 font-normal text-muted-foreground max-sm:justify-center sm:w-[260px] sm:px-3.5" aria-keyshortcuts="Control+K Meta+K" aria-label={t('palette.open')}>
           <Search />
-          <span className="hidden lg:inline">{t('palette.open')}</span>
-          <kbd className="hidden rounded border bg-muted px-1 font-sans text-[0.7rem] lg:inline">⌘K</kbd>
+          {/* The text takes the room, so ⌘K sits at the far end (the left in RTL), as drawn. */}
+          <span className="hidden min-w-0 flex-1 truncate text-start sm:inline">{t('palette.placeholder')}</span>
+          <kbd className="hidden shrink-0 rounded-[5px] border border-border bg-muted px-[5px] py-px font-mono text-[11px] text-muted-foreground sm:inline" dir="ltr">⌘K</kbd>
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
         <Dialog.Content
           aria-describedby={undefined}
-          className="fixed inset-x-3 top-[12vh] z-50 mx-auto flex max-h-[70vh] max-w-xl flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-xl outline-none"
+          className="fixed inset-x-3 top-[12vh] z-50 mx-auto flex max-h-[70vh] max-w-[540px] flex-col overflow-hidden rounded-card border border-border bg-card text-card-foreground shadow-[0_24px_48px_rgba(0,0,0,.18)] outline-none"
         >
           <Dialog.Title className="sr-only">{t('palette.open')}</Dialog.Title>
-          <div className="flex items-center gap-2 border-b px-3">
+          <div className="flex items-center gap-2.5 border-b border-border px-4">
             <Search className="size-4 text-muted-foreground" aria-hidden />
             <input
               role="combobox"
@@ -133,19 +145,20 @@ export function CommandPalette() {
               aria-activedescendant={items.length > 0 ? optionId(current) : undefined}
               aria-label={t('palette.open')}
               placeholder={t('palette.placeholder')}
-              className="h-12 flex-1 bg-transparent text-sm outline-none"
+              className="h-[52px] flex-1 bg-transparent text-sm outline-none"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={onKeyDown}
             />
+            <kbd className="rounded-[5px] border border-border bg-muted px-[5px] py-px font-mono text-[11px] text-muted-foreground" dir="ltr">Esc</kbd>
           </div>
-          <ul ref={listRef} id={listId} role="listbox" aria-label={t('palette.results')} className="flex-1 overflow-y-auto p-1">
+          <ul ref={listRef} id={listId} role="listbox" aria-label={t('palette.results')} className="flex-1 overflow-y-auto p-1.5">
             {sections.map(([section, title]) => {
               const entries = items.map((item, index) => ({ item, index })).filter(({ item }) => item.section === section);
               if (entries.length === 0) return null;
               return (
                 <li key={section} role="presentation">
-                  <div className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground" aria-hidden>
+                  <div className="px-2.5 pt-2.5 pb-1 text-xs font-medium text-muted-foreground" aria-hidden>
                     {title}
                   </div>
                   <ul role="group" aria-label={title}>
@@ -156,12 +169,14 @@ export function CommandPalette() {
                         role="option"
                         aria-selected={index === current}
                         data-index={index}
-                        className={cn('flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-sm', index === current && 'bg-accent text-accent-foreground')}
+                        className={cn('flex h-10 cursor-pointer items-center gap-3 rounded-control px-2.5 text-[13.5px]', index === current && 'bg-muted')}
                         onMouseMove={() => setActive(index)}
                         onClick={() => go(item)}
                       >
-                        <span className="truncate">{item.label}</span>
-                        {item.detail && <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>}
+                        <PaletteIcon item={item} />
+                        {/* Places read «Section › Item», as in the design; records keep their resource at the end. */}
+                        <span className="flex-1 truncate">{item.section === 'go' && item.detail ? `${item.detail} › ${item.label}` : item.label}</span>
+                        {item.section === 'records' && item.detail && <span className="shrink-0 text-xs text-muted-foreground">{item.detail}</span>}
                       </li>
                     ))}
                   </ul>
@@ -169,11 +184,22 @@ export function CommandPalette() {
               );
             })}
           </ul>
-          <p role="status" className={cn('px-3 text-sm text-muted-foreground', status && 'border-t py-2')}>
+          <p role="status" className={cn('px-4 text-sm text-muted-foreground', status && 'border-t border-border py-2')}>
             {status}
           </p>
+          <div className="flex items-center gap-4 border-t border-border px-4 py-2.5 text-xs text-muted-foreground" aria-hidden>
+            <span className="flex items-center gap-1.5"><kbd className="rounded-[5px] border border-border bg-muted px-[5px] font-mono text-[11px]">↑↓</kbd>{t('palette.move')}</span>
+            <span className="flex items-center gap-1.5"><kbd className="rounded-[5px] border border-border bg-muted px-[5px] font-mono text-[11px]">↵</kbd>{t('palette.openItem')}</span>
+            <span className="ms-auto flex items-center gap-1.5"><kbd className="rounded-[5px] border border-border bg-muted px-[5px] font-mono text-[11px]" dir="ltr">⌘K</kbd>{t('palette.close')}</span>
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+/** The design's leading icon: + for create, the moon for the theme, else the item's own (resource or section). */
+function PaletteIcon({ item }: { item: PaletteItem }) {
+  const Icon = item.id.startsWith('new:') ? Plus : item.id === 'theme' ? Moon : iconFor(item.icon, item.section === 'records' ? 'resource' : 'group');
+  return <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />;
 }

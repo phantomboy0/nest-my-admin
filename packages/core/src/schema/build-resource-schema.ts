@@ -2,13 +2,14 @@ import type { FieldConstraints, FieldSchema, FilterSchema, ResourceSchema, SortD
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
-import { applyFieldConfig, checkFieldConfig, checkLayout, localizeLayout, mergeFieldConfig, type FieldConfig } from './field-config.js';
+import { applyFieldConfig, checkFieldConfig, checkLayout, localizeLayout, mainLayout, mergeFieldConfig, type FieldConfig } from './field-config.js';
 import { dtoObjectField, embeddedField, nestedTypeOf, topEmbedded, type EmbeddedLike } from './nested-fields.js';
 import { isToOne, pathField as toPathField, relationFields, resolvePath, type RelatedMetadataLike } from './relation-fields.js';
 import { dtoConstraints, hasDtoInitializer, isConditionalProperty } from './dto-constraints.js';
 import { dtoOnlyField, dtoPropertyNames, isDtoPropertyOptional, type DtoClass } from './dto-fields.js';
 import { humanize, kebabCase } from './humanize.js';
 import { didYouMean } from './suggest.js';
+import type { LocalizedText } from '../i18n/localized-text.js';
 import { SEARCHABLE_TYPES, operatorsFor } from './filter-operators.js';
 
 export const DEFAULT_PAGE_SIZE = 25;
@@ -152,7 +153,10 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       .filter((field) => field.type !== 'json' && field.type !== 'text' && field.type !== 'object' && field.relation?.kind !== 'to-many')
       .map((field) => field.name);
   if (columns.length === 0) fail('list.columns must name at least one column');
-  for (const column of columns) lookup('list.columns', column);
+  const computedConfig = resource.list?.computed ?? {};
+  const isComputed = (name: string) => Object.hasOwn(computedConfig, name);
+  for (const key of Object.keys(computedConfig)) if (byName.has(key)) fail(`list.computed.${key}: the name is a field's; give the column another name`);
+  for (const column of columns) if (!isComputed(column)) lookup('list.columns', column);
 
   const rawSort: string = resource.list?.sort ?? `-${primaryKeys[0]}`;
   const direction: SortDirection = rawSort.startsWith('-') ? 'desc' : 'asc';
@@ -177,8 +181,8 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       }
     : undefined;
   if (mobile) {
-    for (const key of ['title', 'subtitle', 'badge'] as const) if (mobile[key]) lookup(`list.mobile.${key}`, mobile[key]);
-    for (const name of mobile.meta) lookup('list.mobile.meta', name);
+    for (const key of ['title', 'subtitle', 'badge'] as const) if (mobile[key] && !isComputed(mobile[key])) lookup(`list.mobile.${key}`, mobile[key]);
+    for (const name of mobile.meta) if (!isComputed(name)) lookup('list.mobile.meta', name);
   }
   for (const [setting, names] of [['list.columns', columns], ['list.filters', resource.list?.filters ?? []], ['list.search', resource.list?.search ?? []], ['list.editable', editable]] as const) {
     const repeated = names.find((name, index) => names.indexOf(name) !== index);
@@ -216,7 +220,11 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   if (pagination === 'keyset') {
     if (!keysetSortable(sortField)) fail(`list.sort: keyset lists sort by a non-nullable column, not "${sortField}"`);
     sortable = sortable.filter(keysetSortable);
+    const sortedComputed = Object.keys(computedConfig).find((key) => computedConfig[key]!.sortable);
+    if (sortedComputed) fail(`list.computed.${sortedComputed}: keyset lists cannot sort by a computed column`);
   }
+  // Aggregates and first rows sort through a subquery (checkComputed allows `sortable` on those only).
+  sortable = [...sortable, ...Object.keys(computedConfig).filter((key) => computedConfig[key]!.sortable)];
 
   const entityConstraints = (name: string, field = byName.get(name), column = columnByName.get(name)): FieldConstraints => {
     if (!field) return {};
@@ -289,8 +297,42 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
   const readonlyNames = [...fieldConfig].filter(([, options]) => options.readonly).map(([name]) => name);
   const writableUpdate = update.filter((name) => !readonlyNames.includes(name));
   const formReadonly = readonlyNames.filter((name) => update.includes(name) || byName.has(name));
-  const layout = resource.form?.layout;
-  if (layout) checkLayout(layout, [...new Set([...create, ...update, ...formReadonly])], fail, { inlines: true });
+  const layout = mainLayout(resource.form?.layout);
+  if (layout) checkLayout(layout, [...new Set([...create, ...update, ...formReadonly])], fail, { inlines: true, summary: { fields: [...byName.keys()], computed: Object.keys(resource.list?.computed ?? {}) } });
+  // Aside cards and the header read fields; relation cards are checked by the registry once every resource is known.
+  const asideConfig = resource.form?.layout && !Array.isArray(resource.form.layout) ? resource.form.layout.aside : undefined;
+  if (asideConfig !== undefined && !Array.isArray(asideConfig)) fail('form.layout.aside must be a list of cards');
+  const ownField = (setting: string, name: string) => {
+    if (!byName.has(name)) fail(`${setting}: unknown field "${name}" on ${entityName}${didYouMean(name, [...byName.keys()])}`);
+  };
+  (asideConfig ?? []).forEach((card, index) => {
+    if (Array.isArray(card.fields)) for (const name of card.fields) ownField(`form.layout.aside[${index}]`, name);
+    else if (!card.fields || typeof card.fields.relation !== 'string' || !Array.isArray(card.fields.fields)) fail(`form.layout.aside[${index}]: fields is a list, or { relation, fields }`);
+    else {
+      const relationField = byName.get(card.fields.relation);
+      if (!relationField || relationField.type !== 'relation' || relationField.relation?.kind !== 'to-one') fail(`form.layout.aside[${index}]: "${card.fields.relation}" is not a to-one relation field of ${entityName}`);
+    }
+  });
+  const mode = resource.form?.mode;
+  if (mode !== undefined && mode !== 'edit' && mode !== 'view') fail('form.mode is edit or view');
+  const headerConfig = resource.form?.header;
+  for (const name of headerConfig?.badges ?? []) ownField('form.header.badges', name);
+  for (const item of headerConfig?.subtitle ?? []) {
+    if (typeof item === 'string') ownField('form.header.subtitle', item);
+    else if (!Object.hasOwn(resource.list?.computed ?? {}, item.computed)) fail(`form.header.subtitle: "${item.computed}" is not a list.computed column`);
+  }
+  if (headerConfig?.stepper !== undefined) {
+    const stepper = byName.get(headerConfig.stepper);
+    if (!stepper || stepper.type !== 'enum') fail(`form.header.stepper: "${headerConfig.stepper}" is not an enum field of ${entityName}`);
+  }
+  const text = (label: LocalizedText): string => (typeof label === 'string' ? label : (Object.values(label)[0] ?? ''));
+  const aside = asideConfig?.map((card) => ({
+    title: text(card.title),
+    ...(card.icon ? { icon: card.icon } : {}),
+    fields: Array.isArray(card.fields) ? [...card.fields] : [...card.fields.fields],
+    // `resource` is filled in by the registry once the target is known.
+    ...(Array.isArray(card.fields) ? {} : { relation: { field: card.fields.relation, resource: '', link: card.link === true } }),
+  }));
 
   const dedicatedUpdateDto = resource.form?.update;
   const constraints = {
@@ -324,6 +366,37 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       search,
       editable,
       ...(mobile ? { mobile } : {}),
+      ...(resource.list?.tabs
+        ? {
+            tabs: resource.list.tabs.map((tab) => ({
+              key: tab.key,
+              // The first language given; AdminApiService localizes per request.
+              label: typeof tab.label === 'string' ? tab.label : (Object.values(tab.label)[0] ?? tab.key),
+              filter: { ...(tab.filter ?? {}) },
+              where: typeof tab.where === 'function',
+              count: tab.count ?? 'exact',
+            })),
+          }
+        : {}),
+      ...(Object.keys(computedConfig).length > 0
+        ? {
+            computed: Object.fromEntries(
+              Object.entries(computedConfig).map(([key, column]) => {
+                const source = column.source as { toggle?: string; on?: string; off?: string };
+                return [
+                  key,
+                  {
+                    // The first language given; AdminApiService localizes per request.
+                    label: typeof column.label === 'string' ? column.label : (Object.values(column.label)[0] ?? key),
+                    kind: column.kind,
+                    sortable: column.sortable === true,
+                    ...(typeof source === 'object' && source.toggle ? { toggle: { field: source.toggle, on: source.on!, off: source.off! } } : {}),
+                  },
+                ];
+              }),
+            ),
+          }
+        : {}),
     },
     form: {
       create,
@@ -332,6 +405,17 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       readonly: formReadonly,
       constraints,
       ...(layout ? { layout: localizeLayout(layout, '', '') } : {}),
+      ...(aside ? { aside } : {}),
+      ...(mode === 'view' ? { mode: 'view' as const } : {}),
+      ...(headerConfig
+        ? {
+            header: {
+              ...(headerConfig.badges ? { badges: [...headerConfig.badges] } : {}),
+              ...(headerConfig.subtitle ? { subtitle: headerConfig.subtitle.map((item) => (typeof item === 'string' ? { field: item } : { computed: item.computed })) } : {}),
+              ...(headerConfig.stepper ? { stepper: headerConfig.stepper } : {}),
+            },
+          }
+        : {}),
     },
   };
 }

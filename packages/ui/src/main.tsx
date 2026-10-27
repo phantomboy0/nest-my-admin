@@ -1,4 +1,3 @@
-import '@fontsource-variable/geist';
 import '@fontsource-variable/vazirmatn';
 import './styles/globals.css';
 import { StrictMode } from 'react';
@@ -22,13 +21,17 @@ import { NotFound } from '@/app/not-found';
 import { SettingsPage } from '@/app/settings-page';
 import { LocaleProvider } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
-import { setSignedOutHandler } from '@/lib/session';
-import { applyBranding, applyTheme, followSystemTheme, readTheme } from '@/lib/theme';
+import { setGlobalCurrency } from '@/lib/money';
+import { routerPath, setSignedOutHandler } from '@/lib/session';
+import { applyAccent, applyBranding, applyTheme, followSystemTheme, readTheme } from '@/lib/theme';
 
 document.title = runtimeConfig.title;
 // Before the first render, so a dark or branded page never flashes light and unbranded.
 applyTheme(readTheme());
 applyBranding(runtimeConfig.branding);
+// This person's own accent (else the branding) before the first paint; the admin-wide one comes with the session.
+applyAccent({ branding: runtimeConfig.branding.primaryColor });
+setGlobalCurrency(runtimeConfig.currency);
 followSystemTheme(readTheme);
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } });
@@ -68,7 +71,9 @@ const router = createBrowserRouter(
 
 // A session that ends while the admin is open (expired, revoked elsewhere): drop what this user saw, then log in again.
 setSignedOutHandler(() => {
-  const { pathname, search } = router.state.location;
+  // The router's own location keeps the base path: strip it, or signing in would land on `/admin/admin/…`.
+  const pathname = routerPath(router.state.location.pathname, runtimeConfig.basePath);
+  const { search } = router.state.location;
   if (pathname === '/login') return;
   queryClient.clear();
   void router.navigate(`/login?${new URLSearchParams({ next: pathname + search })}`, { replace: true });

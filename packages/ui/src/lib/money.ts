@@ -1,3 +1,5 @@
+import type { CurrencyDisplay, LocalizedLabel } from '@nest-my-admin/core/contract';
+import { activeLocale, formatNumberText } from '@/i18n';
 import { toLatinNumber } from '@/lib/digits';
 
 const PLAIN = /^(-?)(\d+)(?:\.(\d*))?$/;
@@ -21,4 +23,45 @@ export function groupMoney(text: string, scale?: number): string {
 export function ungroupMoney(text: string): string {
   const trimmed = toLatinNumber(text).trim();
   return GROUPED.test(trimmed) ? trimmed.replace(/,/g, '') : trimmed;
+}
+
+/** The host's global unit (`currency` option), in every language it was given; set once from the runtime config. */
+let globalCurrency: { unit: LocalizedLabel; position: 'after' | 'before' } | undefined;
+
+export function setGlobalCurrency(currency: typeof globalCurrency): void {
+  globalCurrency = currency;
+}
+
+function globalUnit(): CurrencyDisplay | undefined {
+  if (!globalCurrency) return undefined;
+  const { unit, position } = globalCurrency;
+  const locale = activeLocale();
+  const text = typeof unit === 'string' ? unit : (unit[locale] ?? unit[locale.split('-')[0]!] ?? Object.values(unit)[0]);
+  return text ? { unit: text, position } : undefined;
+}
+
+export interface Money {
+  /** The amount in the chosen digits and separators: `۳٬۲۵۰٬۰۰۰`. */
+  main: string;
+  unit?: string;
+  position?: 'after' | 'before';
+  /** An earlier price (a sale's struck-through original), formatted the same way. */
+  previous?: string;
+}
+
+/** A money value for display: the field's unit, else the host's global one, else none (spec §4). Never rounded. */
+export function formatMoney(value: string, opts: { previous?: string; currency?: CurrencyDisplay; scale?: number } = {}): Money {
+  const currency = opts.currency ?? globalUnit();
+  const amount = (text: string) => formatNumberText(groupMoney(text, opts.scale));
+  return {
+    main: amount(value),
+    ...(currency ? { unit: currency.unit, position: currency.position } : {}),
+    ...(opts.previous !== undefined ? { previous: amount(opts.previous) } : {}),
+  };
+}
+
+/** "۳٬۲۵۰٬۰۰۰ تومان" / "$ 12.50" as one string (cells, chips, exports). */
+export function moneyText(money: Money): string {
+  if (!money.unit) return money.main;
+  return money.position === 'before' ? `${money.unit} ${money.main}` : `${money.main} ${money.unit}`;
 }

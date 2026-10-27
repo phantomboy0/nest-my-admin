@@ -36,7 +36,7 @@ export function GroupsPage() {
         {t('rbac.groups')}
       </PageTitle>
       {groups.data.items.length === 0 && <p className="text-sm text-muted-foreground">{t('rbac.noGroups')}</p>}
-      <ul aria-label={t('rbac.groups')} className="flex flex-col divide-y rounded-lg border empty:hidden">
+      <ul aria-label={t('rbac.groups')} className="flex flex-col divide-y rounded-card border bg-card shadow-card empty:hidden">
         {groups.data.items.map((group) => (
           <li key={group.id}>
             <Link to={`/-/groups/${group.id}`} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-muted/50">

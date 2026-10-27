@@ -16,8 +16,8 @@ export function customCodes(entry: RegisteredResource): string[] {
   return definition?.permissions ?? [];
 }
 
-/** Everything roles may name: resources with their fields, scopes, restricted fields, custom codes and actions; settings pages; global codes. */
-export function buildCatalog(registry: ResourceRegistry, options: ResolvedAdminOptions, pages: readonly string[] = []): PolicyCatalog {
+/** Everything roles may name: resources with their fields, scopes, restricted fields, custom codes and actions; settings pages; global codes (dashboard widgets' among them). */
+export function buildCatalog(registry: ResourceRegistry, options: ResolvedAdminOptions, pages: readonly string[] = [], widgetCodes: readonly string[] = []): PolicyCatalog {
   const resources: PolicyCatalog['resources'] = new Map();
   for (const entry of registry.list()) {
     const fields = entry.schema.fields.filter((field) => !field.name.includes('.')).map((field) => field.name);
@@ -29,5 +29,5 @@ export function buildCatalog(registry: ResourceRegistry, options: ResolvedAdminO
       restricted: fields.filter((name) => entry.fieldConfig.get(name)?.restricted === true),
     });
   }
-  return { resources, pages: [...pages], global: [...new Set([...options.permissions, ...(options.rbac ? RBAC_CODES : []), ...(options.audit ? AUDIT_CODES : [])])] };
+  return { resources, pages: [...pages], global: [...new Set([...options.permissions, ...(options.rbac ? RBAC_CODES : []), ...(options.audit ? AUDIT_CODES : []), ...(options.appearance ? ['appearance.manage'] : []), ...widgetCodes])] };
 }

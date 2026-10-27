@@ -2,7 +2,10 @@
   "name": "nest-my-admin",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "examples/*"],
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
   "scripts": {
     "build": "bun run --filter @nest-my-admin/ui build && bun run --filter @nest-my-admin/core build && bun run --filter @nest-my-admin/auth build && bun run --filter @nest-my-admin/testing build",
     "typecheck": "bun run --filter @nest-my-admin/core build && bun run --filter '*' typecheck",
@@ -14,7 +17,8 @@
     "db:down": "docker compose -f docker-compose.test.yml down",
     "test:postgres": "NMA_TEST_DB=postgres bun run test",
     "test:mysql": "NMA_TEST_DB=mysql bun run test",
-    "compat": "bun scripts/compat.ts"
+    "compat": "bun scripts/compat.ts",
+    "design:compare": "bun scripts/design-compare.ts"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

@@ -117,6 +117,12 @@ describe('inlinePayload', () => {
       errors: { 'order-line': { rows: {}, inline: ['at least 2 (1)'] } },
     });
   });
+
+  test('a read-only inline sends nothing, whatever its rows look like', () => {
+    const rows = start();
+    const readonly = { ...inline, readonly: true as const };
+    expect(inlinePayload([readonly], { 'order-line': child }, { 'order-line': rows }, { 'order-line': [rows[0]!] }, () => null)).toEqual({ changes: undefined, errors: {} });
+  });
 });
 
 describe('inlineErrorsOf', () => {

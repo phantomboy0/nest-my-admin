@@ -1,5 +1,5 @@
 export { AdminModule } from './admin.module.js';
-export type { AdminAuditOptions, AdminBranding, AdminFilesOptions, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
+export type { AdminAuditOptions, AdminBranding, AdminCurrency, AdminFilesOptions, AdminMenuItem, AdminMenuOptions, AdminMenuSection, AdminModuleOptions, ErrorMapper, GlobalScope } from './options.js';
 export type { LocalizedText } from './i18n/localized-text.js';
 export { ResourceRegistry, type RegisteredGroup, type RegisteredResource } from './registry/resource-registry.js';
 export type { DbNames } from './registry/db-names.js';
@@ -12,7 +12,10 @@ export {
   type FindManyResult,
   type CountMode,
   type FormConfig,
+  type ComputedColumn,
+  type ComputedSource,
   type ListConfig,
+  type ListTab,
   type ListParams,
   type RecordId,
   type RecordLinkConfig,
@@ -67,3 +70,5 @@ export {
 export { appendSetCookie, isSecureRequest, parseCookies, serializeCookie, type CookieOptions } from './http/cookies.js';
 export { AfterSave, BeforeDelete, BeforeSave, type DeleteMode, type HookKind, type SaveMode } from './decorators/hooks.js';
 export type * from './contract.js';
+export { AdminWidget, type AdminWidgetOptions, type AdminWidgetSource } from './decorators/admin-widget.js';
+export { ADMIN_SETTING_ENTITIES, NmaSetting } from './appearance/entities.js';

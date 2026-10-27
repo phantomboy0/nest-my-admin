@@ -42,7 +42,7 @@ export interface FieldSchema {
   help?: string;
   placeholder?: string;
   /** The widget chosen in the field config; the UI infers one from the type when absent. */
-  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url' | 'file' | 'image' | 'richtext';
+  widget?: 'text' | 'textarea' | 'number' | 'money' | 'switch' | 'checkbox' | 'select' | 'radio' | 'date' | 'datetime' | 'json' | 'color' | 'badge' | 'slug' | 'password' | 'email' | 'url' | 'file' | 'image' | 'richtext' | 'stepper';
   /** Display labels of enum values (values sent stay the raw ones). */
   enumLabels?: Record<string, string>;
   /** Badge colour per value. */
@@ -51,8 +51,15 @@ export interface FieldSchema {
   showIf?: Record<string, string | number | boolean | null | Array<string | number | boolean | null>>;
   /** The slug widget fills itself from this field until edited. */
   slugFrom?: string;
-  /** Currency code for the money widget (display only). */
-  currency?: string;
+  /**
+   * `stepper` widget: the steps in order, the values that are not steps (shown as a badge), and whether records carry
+   * `_steps` (when each step was reached, from the history child).
+   */
+  steps?: { values: string[]; exclude: string[]; history: boolean };
+  /** A soft warning shown under the input while it is empty; the save still goes through. */
+  warnIf?: { empty: true; message: string };
+  /** The money widget's unit in the request's language, and where it goes (display only). */
+  currency?: CurrencyDisplay;
   /** Set for `file` and `image` widgets: what may be uploaded to the field. */
   file?: { accept: string[]; maxBytes: number; many: boolean };
   /** Set for the `richtext` widget: whether the editor can upload images (`files` is configured) and their largest size. */
@@ -123,14 +130,26 @@ export interface FormLayoutInline {
   max: number;
   /** The child's field that points at the parent (set by the server). */
   link: string;
+  /** Shown, never edited in this form (writes are refused). */
+  readonly?: true;
+  /** The child's computed columns shown in the table (`_computed` on each row), cut to what this user may see. */
+  computed?: string[];
+  /** A marker on the first card by `order` («Main picture»). */
+  markFirst?: string;
+}
+
+/** Label and value rows in a card (an order's totals): a field of the record, or one of its computed columns (`_computed`). */
+export interface FormLayoutSummary {
+  title?: string;
+  summary: Array<{ label: string; value: { field: string } | { computed: string } }>;
 }
 
 export interface FormLayoutTab {
   tab: string;
-  sections: Array<FormLayoutSection | FormLayoutInline>;
+  sections: Array<FormLayoutSection | FormLayoutInline | FormLayoutSummary>;
 }
 
-export type FormLayoutNode = FormLayoutSection | FormLayoutTab | FormLayoutInline;
+export type FormLayoutNode = FormLayoutSection | FormLayoutTab | FormLayoutInline | FormLayoutSummary;
 
 /** One inline of a record (`_inlines[child]` on `GET /resources/:parent/:id`). */
 export interface InlineRows {
@@ -248,6 +267,8 @@ export interface ActionSchema {
   /** Ask before running: `true` for the default question, or the question itself. */
   confirm?: string | true;
   variant: 'default' | 'destructive';
+  /** The record's next step: a filled button, last in the record's header (record actions without input, one per resource). */
+  primary?: true;
   icon?: string;
   /** The form to fill in before running; its values are sent as `input`. */
   input?: DtoFormSchema;
@@ -349,7 +370,42 @@ export interface MetaResponse {
   /** Languages people can switch between. */
   locales: string[];
   groups: MetaGroup[];
+  /** This user may see at least one dashboard widget: the dashboard replaces the home page. */
+  dashboard?: boolean;
+  /** The host's curated menu (`menu` option), cut to what this user reaches; absent without one (groups are the menu). */
+  menu?: MetaMenu;
 }
+
+/** One entry of a menu section. */
+export type MetaMenuItem =
+  | {
+      kind: 'resource';
+      resource: string;
+      label: string;
+      icon?: string;
+      creatable: boolean;
+      searchable: boolean;
+      /** A count is served for it by `GET /api/menu/badges` (key `<section>.<resource>`). */
+      badge?: true;
+    }
+  | { kind: 'page'; page: string; label: string; icon?: string }
+  | { kind: 'link'; href: string; label: string };
+
+export interface MetaMenuSection {
+  key: string;
+  label: string;
+  icon?: string;
+  items: MetaMenuItem[];
+}
+
+export interface MetaMenu {
+  sections: MetaMenuSection[];
+  /** Everything visible that no section places (key `advanced`), collapsed by default. May be empty. */
+  advanced: MetaMenuSection;
+}
+
+/** `GET /api/menu/badges`: counts by `<section>.<resource>`, scoped to the viewer; a badge the viewer may not count is absent. */
+export type MenuBadges = Record<string, { count: number; estimate: boolean }>;
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -385,6 +441,10 @@ export interface ResourceSchema {
     editable: string[];
     /** Phone cards: fields (or paths) for the title, subtitle, badge and meta line. Without it, the title and the columns. */
     mobile?: { title?: string; subtitle?: string; badge?: string; meta: string[] };
+    /** Tabs over the list (`list.tabs`) this viewer may use: a tab writes `filter` to the URL, plus `tab=<key>` when `where`. */
+    tabs?: ListTabSchema[];
+    /** Computed columns (`list.computed`) this viewer may see, by key; their values are each record's `_computed`. */
+    computed?: Record<string, ComputedColumnSchema>;
   };
   /** False for the root of a single-table inheritance, or when the user may not create. */
   creatable: boolean;
@@ -418,8 +478,14 @@ export interface ResourceSchema {
     requiredOnCreate: string[];
     /** Shown on the update form but not writable (`readonly: true`); records add their own in `_readonly`. */
     readonly: string[];
-    /** Sections, inlines and tabs (`form.layout`); absent = one section in form order. */
+    /** Sections, inlines and tabs (`form.layout`, or its main column); absent = one section in form order. */
     layout?: FormLayoutNode[];
+    /** Read-only cards beside the main column (`form.layout.aside`), cut to what this user may see. */
+    aside?: AsideCardSchema[];
+    /** `view`: an existing record opens as text until «Edit». */
+    mode?: 'view';
+    /** The record's header: badge fields, and a subtitle of field values and computed columns (`_computed`). */
+    header?: { badges?: string[]; subtitle?: Array<{ field: string } | { computed: string }>; stepper?: string };
     constraints: { create: Record<string, FieldConstraints>; update: Record<string, FieldConstraints> };
   };
   /**
@@ -438,6 +504,8 @@ export interface ResourceSchema {
  * resources with such fields add `_files`: field name → `AdminFileRef` (`AdminFileRef[]` with `file.many`) for every
  * field that holds a file. `GET /resources/:resource/:id` of a resource with inlines adds `_inlines`: child resource
  * name → `InlineRows`, for each inline the user may see; so do the answers of its POST and PATCH, read after the save.
+ * List pages of a resource with `list.computed` add `_computed`: column key → `ComputedValue`, for the computed columns
+ * the user may see and the page shows.
  */
 export type AdminRecord = Record<string, unknown>;
 
@@ -449,7 +517,8 @@ export type AdminRecord = Record<string, unknown>;
 export interface RecordPermissions {
   update: boolean;
   delete: boolean;
-  actions?: string[];
+  /** Record actions by name: the label to show on this record (`label.for`, else the action's label), or `false` when it may not run here. */
+  actions?: Record<string, string | false>;
 }
 
 /** `POST /resources/:resource/bulk-delete` with `{ ids }` (encoded record ids): each id succeeds or fails on its own. */
@@ -528,6 +597,8 @@ export interface SessionResponse {
   rbac: { enabled: boolean; view: boolean; manage: boolean };
   /** The audit log (with `audit`): is it on (records have a history), and may this user read the audit page (`audit.view`). */
   audit: { enabled: boolean; view: boolean };
+  /** With `appearance`: the admin-wide accent colour (null: the host's branding), and whether this user may change it. */
+  appearance?: { accent: string | null; manage: boolean };
   /** Changes when roles or memberships change: refetch meta and schemas. */
   permissionsVersion: number;
   /** A superuser looking through another user's eyes (`X-View-As`): `user` is the target, `by` the superuser. Read-only. */
@@ -779,7 +850,116 @@ export interface AuditResponse {
 /** A label in one language, or per language (`{ en: 'Orders', fa: 'سفارش‌ها' }`). */
 export type LocalizedLabel = string | Record<string, string>;
 
+/** A status colour of the design (badges, computed cells, stat changes). */
+export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'primary';
+
+/**
+ * An aside card (spec §5.6). Own fields come from the record; a relation card's from `_aside[index]` (the related
+ * record's fields this user may see, with its `_id`, absent when they may not see it), linking to it when `link`.
+ */
+export interface AsideCardSchema {
+  title: string;
+  icon?: string;
+  fields: string[];
+  relation?: { field: string; resource: string; link: boolean };
+}
+
+/** Dashboard widgets (spec §5.8). */
+export type WidgetType = 'stat' | 'chart' | 'table' | 'progress' | 'list';
+
+/**
+ * The period a widget is asked for, computed by the UI in the browser's time zone (Jalali-aware): ISO instants, `to`
+ * excluded, and the window before it for comparisons. The server checks `from < to` and a span of at most 366 days.
+ */
+export interface WidgetParams {
+  period: 'day' | 'week' | 'month' | 'year' | 'range';
+  from: string;
+  to: string;
+  previousFrom: string;
+  previousTo: string;
+}
+
+/** `GET /api/dashboard`: the widgets this user may see, in order. */
+export interface DashboardResponse {
+  widgets: Array<{ name: string; type: WidgetType; title: string; size: 1 | 2 | 3 | 4 }>;
+}
+
+export interface StatWidgetData {
+  /** Already formatted by the host or a plain number as text (the UI formats digits). */
+  value: string;
+  unit?: string;
+  /** Percent against the previous period. */
+  change?: number;
+  previousLabel?: string;
+}
+export interface ChartWidgetData {
+  kind: 'bar' | 'line';
+  labels: string[];
+  series: Array<{ label: string; values: number[]; dashed?: boolean }>;
+  total?: string;
+  subtitle?: string;
+}
+export interface TableWidgetData {
+  columns: Array<{ key: string; label: string }>;
+  /** Cell values by column key; a `{ label, tone }` cell is a status badge. */
+  rows: Array<Record<string, string | number | { label: string; tone: Tone }>>;
+  /** «View all»: the list with this filter. */
+  link?: { resource: string; filter?: Record<string, string> };
+}
+export interface ProgressWidgetData {
+  percent: number;
+  value: string;
+  caption: string;
+}
+export interface ListWidgetData {
+  items: Array<{ icon?: string; text: string; status?: Tone; link?: string }>;
+}
+/** `GET /api/dashboard/:widget`: the data of the widget's type. */
+export type WidgetData = StatWidgetData | ChartWidgetData | TableWidgetData | ProgressWidgetData | ListWidgetData;
+
+/** A list tab (spec §5.5). */
+export interface ListTabSchema {
+  key: string;
+  label: string;
+  /** `filter[...]` list parameters the tab sets (none: «all»). */
+  filter: Record<string, string>;
+  /** The tab restricts the list beyond its filters: send `tab=<key>`. */
+  where: boolean;
+  count: 'exact' | 'estimate' | 'none';
+}
+
+/** `GET /api/resources/:resource/tab-counts`: each tab's count for the viewer, `null` for `count: 'none'`. */
+export type TabCounts = Record<string, { count: number; estimate: boolean } | null>;
+
+/** A computed list column (spec §5.4). */
+export interface ComputedColumnSchema {
+  label: string;
+  kind: 'image' | 'title' | 'money' | 'badge' | 'count' | 'toggle';
+  sortable: boolean;
+  /** `toggle`: the enum field a click writes (PATCH `{ [field]: on | off }`), when the viewer may edit it. */
+  toggle?: { field: string; on: string; off: string };
+}
+
+/**
+ * A computed cell's value (`AdminRecord._computed[key]`): `value` is the main one (an image is its URL, a toggle
+ * a boolean), `subline` and `previous` go with `title` and `money`, `label` and `tone` with `badge`.
+ */
+export interface ComputedValue {
+  value: unknown;
+  subline?: unknown;
+  previous?: unknown;
+  label?: string;
+  tone?: Tone;
+}
+
+/** A money unit as shown: `۳٬۲۵۰٬۰۰۰ تومان` (after) or `$12.50` (before). */
+export interface CurrencyDisplay {
+  unit: string;
+  position: 'after' | 'before';
+}
+
 /** Host branding (spec §9.5). Colours and lengths are validated by core before they reach the page. */
+
 export interface BrandingConfig {
   name?: LocalizedLabel;
   logo?: string;
@@ -798,4 +978,6 @@ export interface AdminRuntimeConfig {
   locale: string;
   locales: string[];
   branding: BrandingConfig;
+  /** The global money unit, in every configured language (the UI picks its own). */
+  currency?: { unit: LocalizedLabel; position: 'after' | 'before' };
 }

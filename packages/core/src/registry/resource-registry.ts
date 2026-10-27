@@ -23,6 +23,9 @@ import { humanize, kebabCase } from '../schema/humanize.js';
 import { dbNamesFor, type DbNames } from './db-names.js';
 import { hookWarnings } from './hook-warnings.js';
 import { resolveInlines, type RegisteredInline } from '../inlines/inline-config.js';
+import { checkTabs } from '../crud/list-tabs.js';
+import { addComputedSort, checkComputed, type ChildQuery, type CompiledComputed } from '../crud/computed-columns.js';
+import type { ComputedColumn } from '../resource/admin-resource-base.js';
 
 export interface RegisteredResource {
   schema: ResourceSchema;
@@ -49,6 +52,14 @@ export interface RegisteredResource {
   actions: ReadonlyMap<string, RegisteredAction>;
   /** Where the resource stands among the resources of its group (`@AdminResource({ order })`, default 100). */
   order: number;
+  /** Stepper fields with a history child: where their «reached at» times come from (spec §5.7). */
+  steppers: Map<string, { child: RegisteredResource; link: string; value: string; at: string; where: Record<string, string> }>;
+  /** `list.computed`, checked and compiled at boot (spec §5.4). */
+  computed: Map<string, CompiledComputed>;
+  /** Listed in navigation (sidebar, home, group pages, palette, global search): `nav`, else false for inline children. */
+  nav: boolean;
+  /** The `nav` option as set, before the inline-child default is applied. */
+  navOption?: boolean;
   /** The child resources its form edits inline (`{ inline: ChildAdmin }` in `form.layout`), in layout order. */
   inlines: RegisteredInline[];
 }
@@ -125,12 +136,65 @@ export class ResourceRegistry implements OnModuleInit {
     this.registerAutoResources(this.options.autoRegister);
     this.linkRelations();
     resolveInlines(this.list());
+    // Stepper histories: the child resource that logs the field's changes, linked to this resource.
+    for (const entry of this.list()) {
+      for (const [field, options] of entry.fieldConfig) {
+        if (options.widget !== 'stepper' || !options.history) continue;
+        const where = `${entry.className}: fields.${field}.history`;
+        const child = this.list().find((candidate) => candidate.resource.constructor === options.history!.inline);
+        if (!child) throw new Error(`${where}: inline is not a registered admin resource`);
+        const link = [...child.relations].find(([, relation]) => relation.inverseEntityMetadata.target === entry.entity)?.[1].propertyName;
+        if (!link) throw new Error(`${where}: ${child.schema.name} has no relation to ${entry.schema.name}`);
+        const { value, at } = options.history;
+        const whereFields = options.history.where ?? {};
+        for (const name of [value, at, ...Object.keys(whereFields)]) {
+          if (!child.schema.fields.some((candidate) => candidate.name === name)) throw new Error(`${where}: unknown field "${name}" on ${child.schema.name}`);
+        }
+        entry.steppers.set(field, { child, link, value, at, where: whereFields });
+      }
+    }
+    // Relation aside cards: the target resource and its fields, now that every resource is known.
+    for (const entry of this.list()) {
+      for (const [index, card] of (entry.schema.form.aside ?? []).entries()) {
+        if (!card.relation) continue;
+        const where = `${entry.className}: form.layout.aside[${index}]`;
+        const target = entry.schema.fields.find((field) => field.name === card.relation!.field)?.relation?.resource;
+        const targetEntry = target ? this.find(target) : undefined;
+        if (!targetEntry) throw new Error(`${where}: the relation "${card.relation.field}" points at an entity without an admin resource`);
+        card.relation.resource = targetEntry.schema.name;
+        for (const field of card.fields) {
+          if (!targetEntry.schema.fields.some((candidate) => candidate.name === field)) throw new Error(`${where}: unknown field "${field}" on ${targetEntry.schema.name}`);
+        }
+      }
+    }
+    // Sortable computed columns order by a subquery over the rows the viewer may read.
+    for (const entry of this.list()) {
+      if (![...entry.computed.values()].some((column) => column.column.sortable)) continue;
+      entry.resource.attachComputedSort((qb, field, ctx) => {
+        const column = entry.computed.get(field);
+        return column?.column.sortable ? addComputedSort(qb, column, entry.metadata, ctx, this.childQuery) : undefined;
+      });
+    }
+    // Inline children are edited on their parent's page: out of navigation unless they ask to stay.
+    for (const child of this.list().flatMap((entry) => entry.inlines.map((inline) => inline.child))) {
+      if (child.navOption === undefined) child.nav = false;
+    }
     // A parent and its inlines are saved together or not at all: a promise only a transaction can keep.
     const parent = this.list().find((entry) => entry.inlines.length > 0);
     if (parent && !this.options.transactions) {
       throw new Error(`${parent.className}: form.layout has inlines, which are saved with their parent in one transaction; the admin's transactions are off (\`transactions: false\`)`);
     }
   }
+
+  /** A child entity's rows as `ctx`'s user may read them: through its resource (query() and scopes) when it has one. */
+  readonly childQuery: ChildQuery = (entity, alias, ctx) => {
+    const child = this.list().find((entry) => entry.entity === entity);
+    if (child) return child.resource.readQuery(alias, ctx);
+    const owner = this.list().find((entry) => entry.dataSource.hasMetadata(entity));
+    const manager = ctx?.manager ?? owner?.dataSource.manager;
+    if (!manager) throw new Error(`nest-my-admin: no DataSource holds ${entity.name}`);
+    return manager.getRepository(entity).createQueryBuilder(alias);
+  };
 
   get(name: string): RegisteredResource {
     const entry = this.resources.get(name);
@@ -245,6 +309,12 @@ export class ResourceRegistry implements OnModuleInit {
       throw new Error(`${className}: ${message}`);
     });
     const schema = buildResourceSchema({ definition, resource, metadata, moduleGroup, className });
+    checkTabs(schema, resource.list?.tabs, (message) => {
+      throw new Error(`${className}: ${message}`);
+    });
+    const computed = checkComputed(resource.list?.computed as Record<string, ComputedColumn> | undefined, metadata, (name) => schema.fields.find((field) => field.name === name)?.enumValues, (message) => {
+      throw new Error(`${className}: ${message}`);
+    });
     const actions = resolveActions(resource.constructor, BASE_MEMBERS, (message) => {
       throw new Error(`${className}: ${message}`);
     });
@@ -299,6 +369,10 @@ export class ResourceRegistry implements OnModuleInit {
       ),
       actions,
       order,
+      computed,
+      steppers: new Map(),
+      nav: definition.nav ?? true,
+      ...(definition.nav !== undefined ? { navOption: definition.nav } : {}),
       inlines: [],
     });
   }

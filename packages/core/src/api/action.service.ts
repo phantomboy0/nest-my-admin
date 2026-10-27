@@ -121,6 +121,8 @@ export class ActionService {
     await policy.requireInScope(entry, id, rawId, 'update', tx);
     const record = await resource.findOne(id, tx);
     if (!record) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
+    // A per-record label of `null` means the action does not exist on this record (it is not offered there either).
+    if (action.labelFor && action.labelFor(record) === null) throw new AdminNotFoundError(`"${action.name}" does not apply to ${schema.label} "${rawId}"`);
     if (!policy.recordRule(entry, action.name, record, tx)) throw new AdminForbiddenError(`You may not run "${label}" on ${schema.label} "${rawId}"`);
     return { id, record };
   }

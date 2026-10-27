@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Eye, X } from 'lucide-react';
+import { Eye } from 'lucide-react';
 import { Header } from '@/app/header';
+import { AccentInput } from '@/app/preferences';
 import { Sidebar } from '@/app/sidebar';
+import { navGroups } from '@/lib/menu';
+import { applyAccent } from '@/lib/theme';
 import { Toaster } from '@/app/toaster';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
@@ -87,7 +90,15 @@ function Shell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const drawer = useRef<HTMLDivElement>(null);
 
-  const groups = meta.data?.groups ?? [];
+  const session = useSession();
+  const adminAccent = session.data?.appearance?.accent;
+  // The admin-wide accent (`appearance`), once the session says it; this person's own pick still wins.
+  useEffect(() => {
+    if (adminAccent !== undefined) applyAccent({ admin: adminAccent });
+  }, [adminAccent]);
+  // Memoized: the effect below closes the drawer whenever this changes.
+  const groups = useMemo(() => (meta.data ? navGroups(meta.data) : []), [meta.data]);
+  const menu = meta.data?.menu !== undefined;
   const title = labelIn(runtimeConfig.branding.name, locale) ?? meta.data?.title ?? runtimeConfig.title;
   const logo = runtimeConfig.branding.logo;
 
@@ -114,8 +125,10 @@ function Shell() {
 
   return (
     <div className="flex min-h-svh bg-background text-foreground">
-      <aside className={cn('sticky top-0 hidden h-svh shrink-0 border-e bg-sidebar text-sidebar-foreground md:block', nav.railCollapsed ? 'w-16' : 'w-64')}>
-        <Sidebar title={title} logo={logo} groups={groups} rail={nav.railCollapsed} />
+      {/* The custom accent's colour input: outside every menu, so the browser's colour window keeps working. */}
+      <AccentInput />
+      <aside className={cn('sticky top-0 hidden h-svh shrink-0 border-e border-sidebar-border bg-sidebar text-sidebar-foreground md:block', nav.railCollapsed ? 'w-16' : 'w-64')}>
+        <Sidebar title={title} logo={logo} groups={groups} menu={menu} rail={nav.railCollapsed} />
       </aside>
 
       {menuOpen && (
@@ -123,18 +136,13 @@ function Shell() {
           <div className="absolute inset-0 bg-black/40" aria-hidden onClick={() => setMenuOpen(false)} />
           {/* A link closes the menu at once: a form with unsaved changes may hold the navigation back to ask first. */}
           <aside
-            className="absolute inset-y-0 start-0 flex w-72 max-w-[85vw] flex-col border-e bg-sidebar text-sidebar-foreground shadow-xl"
+            className="absolute inset-y-0 start-0 flex w-[300px] max-w-[85vw] flex-col border-e border-sidebar-border bg-sidebar text-sidebar-foreground shadow-xl"
             onClick={(event) => {
               if ((event.target as HTMLElement).closest('a')) setMenuOpen(false);
             }}
           >
-            <div className="flex justify-end p-2">
-              <Button variant="ghost" size="icon" aria-label={t('shell.closeMenu')} onClick={() => setMenuOpen(false)}>
-                <X />
-              </Button>
-            </div>
             <div className="min-h-0 flex-1">
-              <Sidebar title={title} logo={logo} groups={groups} />
+              <Sidebar title={title} logo={logo} groups={groups} menu={menu} onClose={() => setMenuOpen(false)} />
             </div>
           </aside>
         </div>
@@ -147,8 +155,10 @@ function Shell() {
           <ViewAsBanner />
           <Header meta={meta.data} onOpenMenu={() => setMenuOpen(true)} />
         </div>
-        <main className="flex-1 p-4 md:p-6">
-          <Outlet />
+        <main className="flex-1 p-4 md:p-7">
+          <div className="mx-auto w-full max-w-[1400px]">
+            <Outlet />
+          </div>
         </main>
       </div>
       <Toaster />

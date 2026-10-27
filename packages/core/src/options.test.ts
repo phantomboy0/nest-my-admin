@@ -47,6 +47,18 @@ describe('locales and branding', () => {
   });
 });
 
+describe('currency', () => {
+  test('defaults to no unit; the unit is shown after the number unless said otherwise', () => {
+    expect(resolveAdminOptions({}).currency).toBeUndefined();
+    expect(resolveAdminOptions({ currency: { unit: { fa: 'تومان', en: 'Toman' } } }).currency).toEqual({ unit: { fa: 'تومان', en: 'Toman' }, position: 'after' });
+    expect(resolveAdminOptions({ currency: { unit: '$', position: 'before' } }).currency).toEqual({ unit: '$', position: 'before' });
+  });
+  test('refuses an empty unit or an unknown position', () => {
+    expect(() => resolveAdminOptions({ currency: { unit: ' ' } })).toThrow('currency.unit');
+    expect(() => resolveAdminOptions({ currency: { unit: 'T', position: 'left' as 'after' } })).toThrow('currency.position');
+  });
+});
+
 describe('files', () => {
   const storage = { put: async () => undefined, get: async () => null, delete: async () => undefined, publicUrl: () => undefined };
   test('maxBytes defaults to 10 MiB and must fit the nma_file.size column (int)', () => {

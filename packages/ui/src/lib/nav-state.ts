@@ -5,12 +5,14 @@ export interface NavState {
   pinned: string[];
   recent: string[];
   collapsedGroups: string[];
+  /** Sections opened although they start collapsed (a curated menu's, «advanced»). */
+  expandedGroups: string[];
   railCollapsed: boolean;
 }
 
 const STORAGE_KEY = 'nma.nav';
 export const MAX_RECENT = 5;
-const EMPTY: NavState = { pinned: [], recent: [], collapsedGroups: [], railCollapsed: false };
+const EMPTY: NavState = { pinned: [], recent: [], collapsedGroups: [], expandedGroups: [], railCollapsed: false };
 
 /** localStorage when it works, memory when it does not (private mode, blocked storage). */
 export function createNavStore(storage: Pick<Storage, 'getItem' | 'setItem'> | undefined) {
@@ -43,7 +45,12 @@ export function createNavStore(storage: Pick<Storage, 'getItem' | 'setItem'> | u
       if (state.recent[0] === resource) return;
       set({ ...state, recent: [resource, ...state.recent.filter((entry) => entry !== resource)].slice(0, MAX_RECENT) });
     },
-    toggleGroup: (group: string) => set({ ...state, collapsedGroups: toggle(state.collapsedGroups, group) }),
+    /** Opens or closes a section; `byDefault` is whether it starts collapsed (see `sectionCollapsed`). */
+    toggleGroup: (group: string, byDefault = false) => {
+      const collapsed = sectionCollapsed(state, group, byDefault);
+      const without = (list: string[]) => list.filter((entry) => entry !== group);
+      set({ ...state, collapsedGroups: collapsed ? without(state.collapsedGroups) : [...without(state.collapsedGroups), group], expandedGroups: collapsed ? [...without(state.expandedGroups), group] : without(state.expandedGroups) });
+    },
     toggleRail: () => set({ ...state, railCollapsed: !state.railCollapsed }),
   };
 }
@@ -67,4 +74,11 @@ export function useNavState(): NavState {
 /** Keeps only resources that still exist (a pinned resource may have been removed from the admin). */
 export function known(names: string[], resources: Set<string>): string[] {
   return names.filter((name) => resources.has(name));
+}
+
+/** Whether a section is collapsed: the person's last choice for it, else `byDefault`. */
+export function sectionCollapsed(state: NavState, key: string, byDefault: boolean): boolean {
+  if (state.collapsedGroups.includes(key)) return true;
+  if (state.expandedGroups.includes(key)) return false;
+  return byDefault;
 }

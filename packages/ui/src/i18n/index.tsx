@@ -55,6 +55,11 @@ export function formatDateTime(value: Date, locale = active): string {
   return new Intl.DateTimeFormat(`${locale}${extensions(display)}`, { dateStyle: 'medium', timeStyle: 'short' }).format(value);
 }
 
+/** The time of day (`۱۰:۴۲`), in the browser's time zone and the chosen digits. */
+export function formatTime(value: Date, locale = active): string {
+  return new Intl.DateTimeFormat(`${locale}${extensions(display)}`, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(value);
+}
+
 /** A `date` value (`YYYY-MM-DD`) in the chosen calendar and digits; formatted in UTC, so it is never shifted a day. */
 export function formatDate(iso: string, locale = active): string {
   const time = Date.parse(`${iso}T00:00:00Z`);
@@ -77,6 +82,7 @@ export function formatRelative(value: Date, now = new Date(), locale = active): 
 /** Applies a locale to the page: `<html lang dir>`, and the module state used outside React. */
 export function applyLocale(locale: string): void {
   active = locale;
+  if (typeof document === 'undefined') return; // unit tests: module state only
   document.documentElement.lang = locale;
   document.documentElement.dir = isRtl(locale) ? 'rtl' : 'ltr';
 }

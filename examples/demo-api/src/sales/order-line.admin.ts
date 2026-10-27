@@ -5,7 +5,12 @@ import { OrderLine } from './order-line.entity.js';
 /** Order lines have their own resource (permissions `order-line.*`); people mostly edit them inside an order. */
 @AdminResource(OrderLine, { name: 'order-line', icon: 'list', label: { en: 'Order line', fa: 'ردیف سفارش' }, title: 'description' })
 export class OrderLineAdmin extends AdminResourceBase<OrderLine> {
-  list: ListConfig<OrderLine> = { columns: ['id', 'orderId', 'description', 'quantity', 'unitPrice'], filters: ['orderId'] };
+  list: ListConfig<OrderLine> = {
+    columns: ['id', 'orderId', 'description', 'quantity', 'unitPrice'],
+    filters: ['orderId'],
+    // The product's picture, shown in the order's lines table (the order page's inline).
+    computed: { thumb: { label: { en: 'Picture', fa: 'تصویر' }, kind: 'image', source: 'product.image' } },
+  };
   fields: FieldsConfig<OrderLine> = {
     productId: { label: { en: 'Product', fa: 'محصول' } },
     description: { label: { en: 'Description', fa: 'شرح' } },

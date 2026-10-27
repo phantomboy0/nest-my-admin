@@ -1,3 +1,5 @@
+import { ProductMediaAdmin } from './product-media.admin.js';
+import { ProductMedia } from './product-media.entity.js';
 import { ProductSpecAdmin } from './product-spec.admin.js';
 import { ProductSpec } from './product-spec.entity.js';
 import { AdminGroup } from '@nest-my-admin/core';
@@ -14,7 +16,7 @@ import { CategoryAdmin, StockMoveAdmin, SupplierAdmin, TagAdmin } from './taxono
 
 @AdminGroup({ label: { en: 'Catalog', fa: 'کاتالوگ' }, icon: 'boxes' })
 @Module({
-  imports: [TypeOrmModule.forFeature([Product, ProductSpec, Category, Tag, Supplier, StockMove])],
-  providers: [ProductsService, ProductAdmin, ProductSpecAdmin, CategoryAdmin, TagAdmin, SupplierAdmin, StockMoveAdmin],
+  imports: [TypeOrmModule.forFeature([Product, ProductSpec, ProductMedia, Category, Tag, Supplier, StockMove])],
+  providers: [ProductsService, ProductAdmin, ProductSpecAdmin, ProductMediaAdmin, CategoryAdmin, TagAdmin, SupplierAdmin, StockMoveAdmin],
 })
 export class CatalogModule {}

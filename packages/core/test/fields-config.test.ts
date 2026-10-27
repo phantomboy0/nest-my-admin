@@ -92,7 +92,7 @@ describe(`field config (${TEST_DB})`, () => {
     const byName = (name: string) => fa.fields.find((f: { name: string }) => f.name === name);
     expect(byName('name')).toMatchObject({ label: 'نام', help: 'به مشتری نشان داده می‌شود', placeholder: 'Gadget name' });
     expect(byName('status')).toMatchObject({ widget: 'badge', colors: { active: 'green' }, enumLabels: { draft: 'پیش‌نویس', archived: 'Archived' }, enumValues: ['draft', 'active', 'archived'] });
-    expect(byName('price')).toMatchObject({ widget: 'money', currency: 'USD' });
+    expect(byName('price')).toMatchObject({ widget: 'money', currency: { unit: 'USD', position: 'after' } });
     expect(byName('slug')).toMatchObject({ widget: 'slug', slugFrom: 'name' });
     expect(fa.form.layout).toEqual([
       { title: 'جزئیات', fields: ['name', 'slug'], columns: 2 },

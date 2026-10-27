@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head>
+<meta charset="utf-8">
+<title>جزئیات سفارش</title>
+<script src="33df7c10-1e35-43fa-9626-e682195e304d"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("315e57bf-6e38-4fa9-a02c-2feb60e3bfaa") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("467fb70d-0cd8-45f3-977a-40616b4c66d5") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("315e57bf-6e38-4fa9-a02c-2feb60e3bfaa") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("467fb70d-0cd8-45f3-977a-40616b4c66d5") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("315e57bf-6e38-4fa9-a02c-2feb60e3bfaa") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("467fb70d-0cd8-45f3-977a-40616b4c66d5") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* arabic */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("315e57bf-6e38-4fa9-a02c-2feb60e3bfaa") format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC, U+102E0-102FB, U+10E60-10E7E, U+10EC2-10EC7, U+10EC9-10EEE, U+10EF0-10EFF, U+1EE00-1EE03, U+1EE05-1EE1F, U+1EE21-1EE22, U+1EE24, U+1EE27, U+1EE29-1EE32, U+1EE34-1EE37, U+1EE39, U+1EE3B, U+1EE42, U+1EE47, U+1EE49, U+1EE4B, U+1EE4D-1EE4F, U+1EE51-1EE52, U+1EE54, U+1EE57, U+1EE59, U+1EE5B, U+1EE5D, U+1EE5F, U+1EE61-1EE62, U+1EE64, U+1EE67-1EE6A, U+1EE6C-1EE72, U+1EE74-1EE77, U+1EE79-1EE7C, U+1EE7E, U+1EE80-1EE89, U+1EE8B-1EE9B, U+1EEA1-1EEA3, U+1EEA5-1EEA9, U+1EEAB-1EEBB, U+1EEF0-1EEF1;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/vazirmatn/v16/Dxxo8j6PP2D_kU2muijlE8WWIGroe7ll.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Vazirmatn';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("467fb70d-0cd8-45f3-977a-40616b4c66d5") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>
+body{margin:0}
+.app *{box-sizing:border-box}
+.th-light{--bg:#fafafa;--card:#ffffff;--fg:#0a0a0a;--muted:#f4f4f5;--mfg:#686868;--border:#e8e8e8;--input:#e0e0e0;--ok:#15803d;--okbg:#e7f6ec;--warn:#975a00;--warnbg:#fcf1d8;--bad:#c11f1f;--badbg:#fde8e8;--info:#3c42b0;--infobg:#eceefc;--pfg:#ffffff;--acc-text:var(--primary);--soft:color-mix(in oklab,var(--primary) 9%,transparent);--shadow:0 1px 2px rgba(0,0,0,.04)}
+.th-dark{--bg:#0a0a0a;--card:#151515;--fg:#f4f4f4;--muted:#222222;--mfg:#a3a3a3;--border:#ffffff1a;--input:#ffffff24;--ok:#4ade80;--okbg:#22c55e1f;--warn:#fbbf24;--warnbg:#f59e0b1f;--bad:#f87171;--badbg:#ef44441f;--info:#a5b4fc;--infobg:#6366f124;--pfg:#ffffff;--acc-text:color-mix(in oklab,var(--primary) 50%,white);--soft:color-mix(in oklab,var(--primary) 22%,transparent);--shadow:none}
+.app{direction:rtl;font-family:Vazirmatn,Tahoma,system-ui,sans-serif;background:var(--bg);color:var(--fg);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.app h1,.app h2,.app h3,.app p{margin:0}
+.app a{color:var(--acc-text);text-decoration:none}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.mut{color:var(--mfg)}
+.i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--input);background:var(--card);color:var(--fg);font:inherit;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--muted)}
+.btn-p{background:var(--primary);border-color:var(--primary);color:var(--pfg)}
+.btn-p:hover{background:var(--primary);opacity:.92}
+.btn-g{background:transparent;border-color:transparent}
+.btn-i{width:36px;padding:0}
+.btn-sm{height:32px;padding:0 10px;font-size:12.5px}
+.badge{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;line-height:1}
+.b-ok{background:var(--okbg);color:var(--ok)}.b-info{background:var(--infobg);color:var(--info)}.b-mut{background:var(--muted);color:var(--mfg)}
+.inp{height:36px;width:100%;border:1px solid var(--input);border-radius:8px;background:var(--card);color:var(--fg);font:inherit;font-size:13px;padding:0 12px}
+.sh{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border)}
+.sh h2{font-size:15px;font-weight:600}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}
+.tbl th{text-align:right;font-weight:500;color:var(--mfg);padding:10px 20px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:12.5px}
+.tbl td{padding:12px 20px;border-bottom:1px solid var(--border);white-space:nowrap;vertical-align:middle}
+.thumb{width:44px;height:44px;border-radius:8px;background:var(--muted);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--mfg);flex-shrink:0}
+.mono{font-family:ui-monospace,monospace;direction:ltr;unicode-bidi:isolate}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px;margin:0}
+.kv dt{color:var(--mfg)}.kv dd{margin:0;text-align:left}
+.step{flex:1 1 0;min-width:96px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;position:relative}
+.step::before{content:"";position:absolute;top:15px;right:50%;width:100%;height:2px;background:var(--border);z-index:0}
+.step:first-child::before{display:none}
+.step.done::before,.step.cur::before{background:var(--primary)}
+.sc{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;z-index:1;font-size:13px;font-weight:600;background:var(--card);border:2px solid var(--border);color:var(--mfg)}
+.step.done .sc{background:var(--primary);border-color:var(--primary);color:var(--pfg)}
+.step.cur .sc{border-color:var(--primary);color:var(--acc-text);box-shadow:0 0 0 4px var(--soft)}
+.tl{display:flex;gap:14px;position:relative;padding-bottom:20px}
+.tl:last-child{padding-bottom:0}
+.tl-dot{width:10px;height:10px;border-radius:50%;background:var(--card);border:2px solid var(--mfg);margin-top:6px;flex-shrink:0;position:relative;z-index:1}
+.tl-line{position:absolute;top:18px;bottom:0;right:4px;width:2px;background:var(--border)}
+.tl:last-child .tl-line{display:none}
+.sb{width:256px;flex:0 0 256px;background:var(--card);border-left:1px solid var(--border);display:flex;flex-direction:column;min-height:100vh}
+.sb-item{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:8px;color:var(--fg)!important;font-size:13.5px;border:0;background:transparent;font-family:inherit;width:100%;cursor:pointer;text-align:right}
+.sb-item:hover{background:var(--muted)}
+.sb-subs{margin:2px 18px 4px 0;padding-right:10px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:1px}
+.sb-sub{display:flex;align-items:center;height:32px;padding:0 10px;border-radius:7px;color:var(--mfg)!important;font-size:13px}
+.sb-sub.on{background:var(--soft);color:var(--acc-text)!important;font-weight:600}
+.cnt{margin-inline-start:auto;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--muted);color:var(--mfg);font-size:11px;display:inline-flex;align-items:center;justify-content:center}
+.kbd{font-family:ui-monospace,monospace;font-size:11px;border:1px solid var(--border);border-radius:5px;padding:1px 5px;background:var(--muted);color:var(--mfg);direction:ltr}
+.mob-only{display:none!important}
+@media (max-width:768px){.sb{display:none}.mob-only{display:inline-flex!important}.hide-sm{display:none!important}.pg{padding:16px!important}}
+</style>
+</helmet>
+<div class="app {{theme}}" style="--primary: {{accent}}; min-height: 100vh; display: flex; flex-wrap: wrap">
+
+<aside class="sb">
+<div style="display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 56px; border-bottom: 1px solid var(--border)">
+<div style="width: 30px; height: 30px; border-radius: 8px; background: var(--primary); color: var(--pfg); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">ف</div>
+<div style="line-height: 1.3"><div style="font-weight: 600; font-size: 14px">[نام فروشگاه]</div><div class="mut" style="font-size: 11.5px">پنل مدیریت</div></div>
+</div>
+<nav aria-label="منوی اصلی" style="flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 2px">
+<a class="sb-item" href="Main.dc.html"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>داشبورد</a>
+<button class="sb-item" aria-expanded="true"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"></circle><circle cx="19" cy="21" r="1"></circle><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"></path></svg>فروش<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m6 9 6 6 6-6"></path></svg></button>
+<div class="sb-subs"><a class="sb-sub on" href="#">سفارش‌ها<span class="cnt">۱۸</span></a><a class="sb-sub" href="#">پرداخت‌ها</a><a class="sb-sub" href="#">کدهای تخفیف</a></div>
+<button class="sb-item" aria-expanded="false"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"></path><path d="M12 22V12"></path><path d="m3.3 7 7.7 4.7a2 2 0 0 0 2 0L20.7 7"></path></svg>محصولات<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+<button class="sb-item" aria-expanded="false"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>مشتری‌ها<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+<button class="sb-item" aria-expanded="false"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>پشتیبانی<span class="cnt" style="background: var(--primary); color: var(--pfg)">۵</span><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+<button class="sb-item" aria-expanded="false"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>محتوا<svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+<a class="sb-item" href="#"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 7h-9"></path><path d="M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>تنظیمات</a>
+</nav>
+<div style="padding: 10px; border-top: 1px solid var(--border)">
+<button class="sb-item" aria-expanded="false" style="color: var(--mfg)!important"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14a9 3 0 0 0 18 0V5"></path><path d="M3 12a9 3 0 0 0 18 0"></path></svg>پیشرفته<svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="margin-inline-start: auto; width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg></button>
+</div>
+</aside>
+
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="height: 56px; display: flex; align-items: center; gap: 8px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--card)">
+<button class="btn btn-g btn-i mob-only" aria-label="باز کردن منو"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M4 6h16"></path><path d="M4 12h16"></path><path d="M4 18h16"></path></svg></button>
+<button class="btn btn-g btn-i hide-sm" aria-label="جمع کردن منو"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M15 3v18"></path></svg></button>
+<nav aria-label="مسیر" style="display: flex; align-items: center; gap: 6px; font-size: 13.5px"><span class="mut hide-sm">فروش</span><svg class="i mut hide-sm" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg><a href="#" class="mut" style="color: var(--mfg)">سفارش‌ها</a><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="m15 18-6-6 6-6"></path></svg><span style="font-weight: 500">#۱۰۴۲۸</span></nav>
+<div style="margin-inline-start: auto; display: flex; gap: 6px; align-items: center">
+<button class="btn hide-sm" style="width: 220px; justify-content: flex-start; color: var(--mfg); font-weight: 400"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>جستجو…<span class="kbd" style="margin-inline-start: auto">⌘K</span></button>
+<button class="btn btn-g btn-i" aria-label="اعلان‌ها"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"></path><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></button>
+</div>
+</header>
+
+<main class="pg" style="padding: 24px 28px 28px; display: flex; flex-direction: column; gap: 16px; width: 100%; max-width: 1320px; margin: 0 auto">
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px">
+<a class="btn btn-i" href="#" aria-label="بازگشت به سفارش‌ها" style="color: var(--fg)"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></a>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><h1 style="font-size: 20px; font-weight: 700">سفارش #۱۰۴۲۸</h1><span class="badge b-ok">پرداخت‌شده</span><span class="badge b-info">آماده‌سازی</span></div>
+<p class="mut" style="font-size: 12.5px">ثبت در ۱۴۰۵/۰۸/۰۳ ساعت ۱۰:۴۱ · ۳ قلم کالا</p>
+</div>
+<div style="margin-inline-start: auto; display: flex; gap: 8px; flex-wrap: wrap">
+<button class="btn"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"></path><rect x="6" y="14" width="12" height="8" rx="1"></rect></svg>چاپ فاکتور</button>
+<button class="btn">چاپ برچسب پستی</button>
+<button class="btn btn-i" aria-label="کارهای بیشتر"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg></button>
+<button class="btn btn-p">انتقال به «آماده ارسال»<svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></button>
+</div>
+</div>
+
+<section class="card" style="padding: 22px 16px 18px; overflow-x: auto" aria-label="مراحل ارسال">
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; min-width: 640px">
+<li class="step done"><span class="sc"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span><span style="font-size: 13px; font-weight: 600">در صف</span><span class="mut" style="font-size: 11.5px">۱۰:۴۲</span></li>
+<li class="step done"><span class="sc"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span><span style="font-size: 13px; font-weight: 600">تأیید</span><span class="mut" style="font-size: 11.5px">۱۰:۵۰</span></li>
+<li class="step cur" aria-current="step"><span class="sc">۳</span><span style="font-size: 13px; font-weight: 700; color: var(--acc-text)">آماده‌سازی</span><span class="mut" style="font-size: 11.5px">از ۱۱:۲۰</span></li>
+<li class="step"><span class="sc">۴</span><span class="mut" style="font-size: 13px">آماده ارسال</span><span class="mut" style="font-size: 11.5px">—</span></li>
+<li class="step"><span class="sc">۵</span><span class="mut" style="font-size: 13px">تحویل پست</span><span class="mut" style="font-size: 11.5px">—</span></li>
+<li class="step"><span class="sc">۶</span><span class="mut" style="font-size: 13px">تحویل شده</span><span class="mut" style="font-size: 11.5px">—</span></li>
+</ol>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+<div style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<section class="card" style="overflow: hidden">
+<div class="sh"><h2>اقلام سفارش</h2><span class="badge b-mut">۳</span></div>
+<div style="overflow-x: auto">
+<sc-raw-table class="tbl">
+<sc-raw-thead><sc-raw-tr><sc-raw-th>کالا</sc-raw-th><sc-raw-th>قیمت واحد</sc-raw-th><sc-raw-th>تعداد</sc-raw-th><sc-raw-th style="text-align: left">جمع (تومان)</sc-raw-th></sc-raw-tr></sc-raw-thead>
+<sc-raw-tbody>
+<sc-raw-tr><sc-raw-td><div style="display: flex; align-items: center; gap: 12px"><div class="thumb" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg></div><div style="line-height: 1.45"><a href="ProductEdit.dc.html" style="color: var(--fg); font-weight: 600">کتانی رانینگ آرس</a><div class="mut" style="font-size: 12px">مشکی، ۴۲ · <span class="mono">ARS-RN-001-B42</span></div></div></div></sc-raw-td><sc-raw-td>۲٬۸۹۰٬۰۰۰ <s class="mut" style="font-size: 12px">۳٬۲۵۰٬۰۰۰</s></sc-raw-td><sc-raw-td>۱</sc-raw-td><sc-raw-td style="text-align: left; font-weight: 600">۲٬۸۹۰٬۰۰۰</sc-raw-td></sc-raw-tr>
+<sc-raw-tr><sc-raw-td><div style="display: flex; align-items: center; gap: 12px"><div class="thumb" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg></div><div style="line-height: 1.45"><a href="#" style="color: var(--fg); font-weight: 600">جوراب ورزشی، بسته ۳ عددی</a><div class="mut" style="font-size: 12px">سفید، فری‌سایز · <span class="mono">SK-SPT-003-W</span></div></div></div></sc-raw-td><sc-raw-td>۲۸۰٬۰۰۰</sc-raw-td><sc-raw-td>۲</sc-raw-td><sc-raw-td style="text-align: left; font-weight: 600">۵۶۰٬۰۰۰</sc-raw-td></sc-raw-tr>
+<sc-raw-tr><sc-raw-td style="border-bottom: 0"><div style="display: flex; align-items: center; gap: 12px"><div class="thumb" aria-hidden="true"><svg class="i" sc-camel-view-box="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg></div><div style="line-height: 1.45"><a href="#" style="color: var(--fg); font-weight: 600">قمقمه استیل ۷۵۰ میلی‌لیتر</a><div class="mut" style="font-size: 12px">نقره‌ای · <span class="mono">BT-STL-750</span></div></div></div></sc-raw-td><sc-raw-td style="border-bottom: 0">۵۲۰٬۰۰۰</sc-raw-td><sc-raw-td style="border-bottom: 0">۱</sc-raw-td><sc-raw-td style="text-align: left; font-weight: 600; border-bottom: 0">۵۲۰٬۰۰۰</sc-raw-td></sc-raw-tr>
+</sc-raw-tbody>
+</sc-raw-table>
+</div>
+<div style="border-top: 1px solid var(--border); padding: 16px 20px; display: flex; justify-content: flex-end">
+<dl class="kv" style="width: 340px; max-width: 100%">
+<dt>جمع کالاها</dt><dd>۳٬۹۷۰٬۰۰۰ تومان</dd>
+<dt>تخفیف <span class="badge b-mut mono" style="height: 18px; font-size: 11px">AUTUMN10</span></dt><dd style="color: var(--ok)">−۳۹۷٬۰۰۰ تومان</dd>
+<dt>ارسال (پست پیشتاز)</dt><dd>۹۵٬۰۰۰ تومان</dd>
+<dt style="color: var(--fg); font-weight: 700; font-size: 14px; padding-top: 8px; border-top: 1px solid var(--border)">مبلغ نهایی</dt><dd style="font-weight: 700; font-size: 15px; padding-top: 8px; border-top: 1px solid var(--border)">۳٬۶۶۸٬۰۰۰ تومان</dd>
+</dl>
+</div>
+</section>
+
+<section class="card">
+<div class="sh"><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"></path><path d="M15 18H9"></path><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"></path><circle cx="17" cy="18" r="2"></circle><circle cx="7" cy="18" r="2"></circle></svg><h2>ارسال</h2><span class="mut" style="font-size: 13px; margin-inline-start: auto">پست پیشتاز</span></div>
+<div style="padding: 18px 20px; display: flex; flex-direction: column; gap: 8px">
+<label for="trk" style="font-size: 13px; font-weight: 500">کد رهگیری پستی</label>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<input id="trk" class="inp mono" placeholder="۲۴ رقم کد رهگیری" style="flex: 1 1 260px; text-align: left; letter-spacing: .04em">
+<button class="btn">ثبت کد رهگیری</button>
+</div>
+<p class="mut" style="font-size: 12px">با ثبت کد، سفارش به مرحله «تحویل پست» می‌رود.</p>
+</div>
+</section>
+
+<section class="card">
+<div class="sh"><h2>تاریخچه وضعیت</h2></div>
+<div style="padding: 18px 20px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; gap: 8px"><label for="note" style="position: absolute; width: 1px; height: 1px; overflow: hidden">یادداشت داخلی</label><input id="note" class="inp" placeholder="یادداشت داخلی برای همکاران…"><button class="btn">افزودن</button></div>
+<div>
+<div class="tl"><span class="tl-dot" style="border-color: var(--primary); background: var(--primary)"></span><span class="tl-line"></span><div style="line-height: 1.55; flex: 1"><div style="font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><span class="badge b-info">آماده‌سازی</span><span>رضا (انبار) بسته‌بندی را شروع کرد</span></div><div class="mut" style="font-size: 12px">۱۴۰۵/۰۸/۰۳ · ۱۱:۲۰</div></div></div>
+<div class="tl"><span class="tl-dot"></span><span class="tl-line"></span><div style="line-height: 1.55; flex: 1"><div style="font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><span class="badge b-mut">یادداشت</span><span>مشتری درخواست کرده بسته بدون فاکتور کاغذی ارسال شود.</span></div><div class="mut" style="font-size: 12px">سارا (پشتیبانی) · ۱۴۰۵/۰۸/۰۳ · ۱۰:۵۲</div></div></div>
+<div class="tl"><span class="tl-dot"></span><span class="tl-line"></span><div style="line-height: 1.55; flex: 1"><div style="font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><span class="badge b-info">تأیید شده</span><span>سارا (پشتیبانی) سفارش را تأیید کرد</span></div><div class="mut" style="font-size: 12px">۱۴۰۵/۰۸/۰۳ · ۱۰:۵۰</div></div></div>
+<div class="tl"><span class="tl-dot"></span><span class="tl-line"></span><div style="line-height: 1.55; flex: 1"><div style="font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><span class="badge b-ok">پرداخت موفق</span><span>پرداخت از درگاه بانکی تأیید شد</span></div><div class="mut" style="font-size: 12px">سیستم · ۱۴۰۵/۰۸/۰۳ · ۱۰:۴۲</div></div></div>
+<div class="tl"><span class="tl-dot"></span><span class="tl-line"></span><div style="line-height: 1.55; flex: 1"><div style="font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><span class="badge b-mut">در صف</span><span>سفارش توسط مشتری ثبت شد</span></div><div class="mut" style="font-size: 12px">۱۴۰۵/۰۸/۰۳ · ۱۰:۴۱</div></div></div>
+</div>
+</div>
+</section>
+
+</div>
+
+<aside style="flex: 1 1 300px; max-width: 100%; display: flex; flex-direction: column; gap: 16px">
+<section class="card">
+<div class="sh"><h2>مشتری</h2><a href="#" style="margin-inline-start: auto; font-size: 13px; font-weight: 500">مشاهده پروفایل</a></div>
+<div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 12px"><div style="width: 40px; height: 40px; border-radius: 50%; background: var(--soft); color: var(--acc-text); display: flex; align-items: center; justify-content: center; font-weight: 700">س</div><div style="line-height: 1.45"><div style="font-weight: 600">سارا محمدی</div><div class="mut" style="font-size: 12.5px">۷ سفارش · مشتری از ۱۴۰۳</div></div></div>
+<dl class="kv"><dt>موبایل</dt><dd class="mono">۰۹۱۲ ۳۴۵ ۶۷۸۹</dd><dt>کیف پول</dt><dd>۱۲۰٬۰۰۰ تومان</dd></dl>
+</div>
+</section>
+<section class="card">
+<div class="sh"><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg><h2>آدرس ارسال</h2><button class="btn btn-g btn-i btn-sm" aria-label="کپی آدرس" style="margin-inline-start: auto; width: 32px"><svg class="i" sc-camel-view-box="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><rect x="8" y="8" width="14" height="14" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button></div>
+<div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.8">
+<div style="font-weight: 600">سارا محمدی</div>
+<div>تهران، [نشانی کامل گیرنده]</div>
+<div class="mut">کد پستی <span class="mono">۱۴۳۴۸-۷۶۵۴۳</span></div>
+<a href="#" style="font-size: 13px; font-weight: 500; margin-top: 4px">ویرایش آدرس</a>
+</div>
+</section>
+<section class="card">
+<div class="sh"><svg class="i mut" sc-camel-view-box="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"></rect><path d="M2 10h20"></path></svg><h2>پرداخت</h2><span class="badge b-ok" style="margin-inline-start: auto">پرداخت‌شده</span></div>
+<div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px">
+<dl class="kv">
+<dt>روش</dt><dd>درگاه بانکی</dd>
+<dt>مبلغ</dt><dd style="font-weight: 600">۳٬۶۶۸٬۰۰۰ تومان</dd>
+<dt>شماره پیگیری</dt><dd class="mono">۸۳۷۲۶۱۹۴۰۵</dd>
+<dt>زمان</dt><dd>۱۴۰۵/۰۸/۰۳ · ۱۰:۴۲</dd>
+</dl>
+<button class="btn btn-sm" style="align-self: flex-start">استرداد وجه</button>
+</div>
+</section>
+</aside>
+</div>
+
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#5B5BD6&quot;,&quot;options&quot;:[&quot;#5B5BD6&quot;,&quot;#2563EB&quot;,&quot;#0E7490&quot;,&quot;#9333EA&quot;],&quot;section&quot;:&quot;تم&quot;},&quot;dark&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;section&quot;:&quot;تم&quot;},&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1700}}">
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      accent: this.props.accent ?? '#5B5BD6',
+      theme: (this.props.dark ?? false) ? 'th-dark' : 'th-light'
+    };
+  }
+}
+</script>
+
+
+</body></html>

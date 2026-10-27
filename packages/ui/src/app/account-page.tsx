@@ -23,7 +23,7 @@ export function AccountPage() {
   return (
     <div className="flex max-w-2xl flex-col gap-8">
       <div>
-        <h1 className="text-xl font-semibold">{t('auth.account')}</h1>
+        <h1 className="text-[22px] font-bold">{t('auth.account')}</h1>
         <p className="text-sm text-muted-foreground">
           {user.displayName}
           {user.username ? ` · ${user.username}` : ''}
@@ -89,7 +89,7 @@ function PasswordForm() {
   );
 
   return (
-    <section aria-labelledby="password-title" className="flex flex-col gap-4 rounded-lg border p-4">
+    <section aria-labelledby="password-title" className="flex flex-col gap-4 rounded-card border bg-card shadow-card p-4">
       <h2 id="password-title" className="font-medium">
         {t('auth.changePassword')}
       </h2>
@@ -171,7 +171,7 @@ function TwoFactor() {
   const pending = setup.data;
 
   return (
-    <section aria-labelledby="two-factor-title" className="flex flex-col gap-3 rounded-lg border p-4">
+    <section aria-labelledby="two-factor-title" className="flex flex-col gap-3 rounded-card border bg-card shadow-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="two-factor-title" className="font-medium">
           {t('twoFactor.title')}
@@ -304,7 +304,7 @@ function Sessions({ revokeOthers }: { revokeOthers: boolean }) {
   const items: AccountSession[] = sessions.data?.items ?? [];
   const error = revoke.error ?? revokeAll.error ?? sessions.error;
   return (
-    <section aria-labelledby="sessions-title" className="flex flex-col gap-3 rounded-lg border p-4">
+    <section aria-labelledby="sessions-title" className="flex flex-col gap-3 rounded-card border bg-card shadow-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 id="sessions-title" className="font-medium">
           {t('auth.sessions')}

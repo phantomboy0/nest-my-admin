@@ -10,6 +10,7 @@ import { StockMove } from './catalog/stock-move.entity.js';
 import { Tag } from './catalog/tag.entity.js';
 import { Article } from './content/article.entity.js';
 import { Order } from './sales/order.entity.js';
+import { OrderStatusLog } from './sales/order-status-log.entity.js';
 import { OrderLine } from './sales/order-line.entity.js';
 import { ShopSetting } from './settings/shop-setting.entity.js';
 import { Employee } from './staff/employee.entity.js';
@@ -25,7 +26,7 @@ export async function seedProducts(app: INestApplication): Promise<void> {
     .get<Repository<Tag>>(getRepositoryToken(Tag))
     .save([{ name: 'Bestseller' }, { name: 'Eco' }, { name: 'Fragile' }, { name: 'هديه' }]);
   await products.save([
-    { name: 'Desk lamp', slug: 'desk-lamp', sku: 'DEMO-1', price: '24.90', stock: 12, status: 'active', releasedOn: '2024-03-01', category: lighting, tags: [bestseller, fragile] },
+    { name: 'Desk lamp', slug: 'desk-lamp', sku: 'DEMO-1', price: '24.90', compareAtPrice: '29.90', stock: 12, status: 'active', releasedOn: '2024-03-01', category: lighting, tags: [bestseller, fragile] },
     { name: 'Notebook', slug: 'notebook', sku: 'DEMO-2', price: '3.50', stock: 200, status: 'active', releasedOn: '2023-09-15', category: stationery, tags: [eco] },
     { name: 'Standing desk', slug: 'standing-desk', sku: 'DEMO-3', price: '499.00', stock: 0, status: 'draft', category: furniture, tags: [] },
     // Persian text typed on an Arabic keyboard (ي and ك): search with Persian letters still finds it.
@@ -58,8 +59,8 @@ export async function seedSales(app: INestApplication): Promise<void> {
   const orders = app.get<Repository<Order>>(getRepositoryToken(Order));
   if ((await orders.count()) > 0) return;
   await orders.save([
-    { number: 'SO-1001', customer: 'Ada Lovelace', total: '523.90', status: 'shipped', tracking: 'TRK-448120' },
-    { number: 'SO-1002', customer: 'Grace Hopper', total: '24.90', status: 'paid' },
+    { number: 'SO-1001', customer: 'Ada Lovelace', total: '523.90', status: 'shipped', tracking: 'TRK-448120', fulfillment: 'preparing' },
+    { number: 'SO-1002', customer: 'Grace Hopper', total: '24.90', status: 'paid', fulfillment: 'confirmed' },
     { number: 'SO-1003', customer: 'مریم میرزاخانی', total: '7.00', status: 'paid' },
     { number: 'SO-1004', customer: 'Alan Turing', total: '499.00', status: 'draft' },
     { number: 'SO-1005', customer: 'Katherine Johnson', total: '1299.00', status: 'cancelled' },
@@ -68,6 +69,14 @@ export async function seedSales(app: INestApplication): Promise<void> {
   await app.get<Repository<OrderLine>>(getRepositoryToken(OrderLine)).save([
     { orderId: first.id, description: 'Desk lamp', quantity: 2, unitPrice: '24.95', position: 0 },
     { orderId: first.id, description: 'Standing desk', quantity: 1, unitPrice: '474.00', position: 1 },
+  ]);
+  // When SO-1001 reached each step (the order page's stepper).
+  const today = new Date();
+  const at = (hour: number, minute: number) => new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, minute);
+  await app.get<Repository<OrderStatusLog>>(getRepositoryToken(OrderStatusLog)).save([
+    { orderId: first.id, field: 'fulfillment', value: 'queued', at: at(10, 42) },
+    { orderId: first.id, field: 'fulfillment', value: 'confirmed', at: at(10, 50) },
+    { orderId: first.id, field: 'fulfillment', value: 'preparing', at: at(11, 20) },
   ]);
 }
 
@@ -79,6 +88,9 @@ export async function seedStaff(app: INestApplication): Promise<void> {
     { name: 'Hedy Lamarr', position: 'Warehouse lead', salary: '4200.00', hiredOn: '2022-05-02' },
     { name: 'پروین اعتصامی', position: 'Support', salary: '3100.00', hiredOn: '2024-01-15' },
   ]);
+  // The shipped order is Hedy's (the order page's «Handled by» card).
+  const hedy = await employees.findOneByOrFail({ name: 'Hedy Lamarr' });
+  await app.get<Repository<Order>>(getRepositoryToken(Order)).update({ number: 'SO-1001' }, { handledById: hedy.id });
 }
 
 /** The shop's settings, without a payment key or a logo yet. */

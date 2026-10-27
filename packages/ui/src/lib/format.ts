@@ -1,6 +1,6 @@
 import type { FieldSchema } from '@nest-my-admin/core/contract';
 import { formatDate, formatDateTime, formatNumberText, translate as tr } from '@/i18n';
-import { groupMoney } from '@/lib/money';
+import { formatMoney, moneyText } from '@/lib/money';
 
 export function formatCell(value: unknown, field: FieldSchema): string {
   if (value === null || value === undefined) return '—';
@@ -12,7 +12,7 @@ export function formatCell(value: unknown, field: FieldSchema): string {
   if (field.widget === 'richtext') return richTextExcerpt(String(value)) || '—';
   if (field.type === 'boolean') return tr(value ? 'common.yes' : 'common.no');
   if (field.type === 'enum') return field.enumLabels?.[String(value)] ?? String(value);
-  if (field.widget === 'money') return `${formatNumberText(groupMoney(String(value), field.scale))}${field.currency ? ` ${field.currency}` : ''}`;
+  if (field.widget === 'money') return moneyText(formatMoney(String(value), { currency: field.currency, scale: field.scale }));
   if (field.type === 'number' || field.type === 'decimal' || field.type === 'bigint') return formatNumberText(String(value));
   if (field.type === 'date') return formatDate(String(value));
   if (field.type === 'json' || field.type === 'object') return JSON.stringify(value);

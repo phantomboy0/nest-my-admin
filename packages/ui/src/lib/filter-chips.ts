@@ -1,5 +1,6 @@
 import type { FieldSchema, FilterOperator, ResourceSchema } from '@nest-my-admin/core/contract';
 import { formatDate, formatDateTime, formatNumberText, translate as tr } from '@/i18n';
+import { activeTab } from '@/lib/list-state';
 
 /** One active filter as the chip row shows it. Relation chips carry ids; the chip looks their titles up. */
 export interface FilterChip {
@@ -33,8 +34,11 @@ export function filterChips(schema: ResourceSchema, params: URLSearchParams): Fi
   const search = params.get('search');
   if (search) chips.push({ key: 'search', label: tr('filters.search'), value: `“${search}”`, remove: ['search'] });
 
+  // The active tab's own filters are the tab, not chips.
+  const own = activeTabFilters(schema, params);
   const byField = new Map<string, Array<{ operator: FilterOperator; raw: string; key: string }>>();
   for (const [key, raw] of params) {
+    if (own[key] === raw) continue;
     const match = FILTER_KEY.exec(key);
     if (!match || raw === '') continue;
     const [, name, operator] = match;
@@ -90,4 +94,9 @@ export function filterChips(schema: ResourceSchema, params: URLSearchParams): Fi
     chips.push({ key: `filter:${name}`, label: field.label, value: parts.join('; '), ...(ref ? { ref } : {}), remove: conditions.map((condition) => condition.key) });
   }
   return chips;
+}
+
+/** The filters the URL's tab sets (none when no tab is active, or it filters nothing). */
+function activeTabFilters(schema: ResourceSchema, params: URLSearchParams): Record<string, string> {
+  return activeTab(schema.list?.tabs, params)?.filter ?? {};
 }

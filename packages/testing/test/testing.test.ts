@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { IsOptional, IsString } from 'class-validator';
 import {
+  AdminWidget,
   ADMIN_AUDIT_ENTITIES,
   AdminAction,
   AdminForbiddenError,
@@ -53,7 +54,12 @@ class Task {
 @Injectable()
 @AdminResource(Project, { title: 'name' })
 class ProjectAdmin extends AdminResourceBase<Project> {
-  list: ListConfig<Project> = { columns: ['id', 'name', 'ownerId', 'secret', 'budget'], search: ['name', 'secret'], filters: ['ownerId'] };
+  list: ListConfig<Project> = {
+    columns: ['id', 'name', 'ownerId', 'secret', 'budget'],
+    search: ['name', 'secret'],
+    filters: ['ownerId'],
+    tabs: [{ key: 'all', label: 'All' }, { key: 'u2', label: 'U2', filter: { 'filter[ownerId][eq]': 'u2' } }],
+  };
   fields: FieldsConfig<Project> = { budget: { restricted: true } };
   @AdminScope('own') own(ctx: AdminContext) {
     return { ownerId: ctx.user?.id };
@@ -64,6 +70,24 @@ class ProjectAdmin extends AdminResourceBase<Project> {
 @Injectable()
 @AdminResource(Project, { name: 'leaky-project', title: (project: Project) => `${project.name} (${project.secret})` })
 class LeakyProjectAdmin extends AdminResourceBase<Project> {}
+
+/** A dashboard widget that shows a hidden field's value: the crawler must catch it. */
+@AdminWidget('leaky', { type: 'stat', title: 'Leaky' })
+class LeakyWidget {
+  async load() {
+    return { value: 'TOPSECRET-1' };
+  }
+}
+
+/** A computed column that reads a hidden field but declares only `name`: the crawler must catch it in `_computed`. */
+@Injectable()
+@AdminResource(Project, { name: 'computed-project', title: 'name' })
+class ComputedProjectAdmin extends AdminResourceBase<Project> {
+  list: ListConfig<Project> = {
+    columns: ['name', 'shout'],
+    computed: { shout: { label: 'Shout', kind: 'count', source: { compute: async (rows: Project[]) => Object.fromEntries(rows.map((row) => [String(row.id), `${row.name}:${row.secret}`])), fields: ['name'] } } },
+  };
+}
 
 @Injectable()
 @AdminResource(Task, { title: 'name' })
@@ -142,7 +166,7 @@ class ShopPage implements AdminSettingsSource<ShopDto> {
   }
 }
 
-@Module({ providers: [ProjectAdmin, LeakyProjectAdmin, TaskAdmin, LeakyTaskAdmin, CodedTaskAdmin, BoardAdmin, ParcelAdmin, ShopPage] })
+@Module({ providers: [LeakyWidget, ProjectAdmin, LeakyProjectAdmin, ComputedProjectAdmin, TaskAdmin, LeakyTaskAdmin, CodedTaskAdmin, BoardAdmin, ParcelAdmin, ShopPage] })
 class AppModule {}
 
 let db: TestDatabase;
@@ -161,11 +185,15 @@ beforeAll(async () => {
           { name: 'member', permissions: ['project.view', 'project.create', 'project.update', 'task.view'], fields: { project: { secret: 'hidden' } }, scopes: { project: { view: 'own', update: 'own' } } },
           { name: 'nosy', permissions: ['project.view', 'leaky-task.view'], scopes: { project: { view: 'own' } } },
           { name: 'leaky', permissions: ['leaky-project.view'], fields: { 'leaky-project': { secret: 'hidden' } } },
+          { name: 'computer', permissions: ['computed-project.view'], fields: { 'computed-project': { secret: 'hidden' } } },
+          { name: 'dash', permissions: ['project.view', 'dashboard.leaky'], fields: { project: { secret: 'hidden' } }, scopes: { project: { view: 'own' } } },
           { name: 'editor', permissions: ['parcel.view', 'parcel.update', 'parcel.action.ship', 'page.shop', 'page.shop.update'] },
           { name: 'viewer', permissions: ['parcel.view', 'page.shop'] },
           { name: 'coder', permissions: ['coded-task.view', 'board.view'], fields: { 'coded-task': { code: 'hidden' } } },
         ],
         resolveRoles: (user) => (user.attrs?.roles as string[] | undefined) ?? [],
+        // A badge counting every project but nobody's: the crawl compares it with the user's own list.
+        menu: { sections: [{ key: 'work', label: 'Work', icon: 'box', items: [{ resource: 'project', badge: { 'filter[ownerId][ne]': 'nobody' } }] }] },
       }),
       AppModule,
     ],
@@ -360,6 +388,51 @@ describe(`@nest-my-admin/testing (${TEST_DB})`, () => {
     const { leaks } = (error as AdminLeakError).report;
     expect(leaks.some((leak) => leak.kind === 'hidden-value' && leak.field === 'secret' && leak.value === 'TOPSECRET-1' && leak.where.startsWith('list leaky-project'))).toBe(true);
     expect((error as Error).message).toContain('hidden field "secret" of leaky-project');
+  });
+
+  test('expectNoLeaks compares menu badges with the user’s own list', async () => {
+    const member = { as: { id: 'u1', roles: ['member'] } };
+    expect((await admin.expectNoLeaks('project', member)).leaks).toEqual([]);
+    expect(await admin.as(member.as).badges()).toEqual({ 'work.project': { count: 1, estimate: false } });
+    // A badge counting outside the user's scope would be caught.
+    const api = admin.app.get(AdminApiService, { strict: false });
+    const leaky = spyOn(api, 'badges').mockImplementation(async () => ({ 'work.project': { count: 2, estimate: false } }));
+    try {
+      const error = await admin.expectNoLeaks('project', member).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(AdminLeakError);
+      expect((error as AdminLeakError).report.leaks).toContainEqual({ kind: 'badge-count', resource: 'project', where: 'menu badge work.project', value: '2 > 1' });
+      // And so would one shown to a user who cannot reach the resource.
+      const outsider = await admin.expectNoLeaks('project', { as: { id: 'u9', roles: ['viewer'] } }).catch((caught: unknown) => caught);
+      expect((outsider as AdminLeakError).report.leaks).toContainEqual({ kind: 'unreachable-resource', resource: 'project', where: 'menu badge work.project' });
+    } finally {
+      leaky.mockRestore();
+    }
+  });
+
+  test('expectNoLeaks compares tab counts with the user’s own list', async () => {
+    const member = { as: { id: 'u1', roles: ['member'] } };
+    expect((await admin.expectNoLeaks('project', member)).leaks).toEqual([]);
+    expect(await admin.as(member.as).tabCounts('project')).toEqual({ all: { count: 1, estimate: false }, u2: { count: 0, estimate: false } });
+    const api = admin.app.get(AdminApiService, { strict: false });
+    const leaky = spyOn(api, 'tabCounts').mockImplementation(async () => ({ all: { count: 1, estimate: false }, u2: { count: 1, estimate: false } }));
+    try {
+      const error = await admin.expectNoLeaks('project', member).catch((caught: unknown) => caught);
+      expect((error as AdminLeakError).report.leaks).toContainEqual({ kind: 'tab-count', resource: 'project', where: 'tab u2', value: '1 > 0' });
+    } finally {
+      leaky.mockRestore();
+    }
+  });
+
+  test('expectNoLeaks crawls the dashboard', async () => {
+    const error = await admin.expectNoLeaks('project', { as: { id: 'u1', roles: ['dash'] } }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AdminLeakError);
+    expect((error as AdminLeakError).report.leaks.some((leak) => leak.kind === 'hidden-value' && leak.where.startsWith('dashboard leaky'))).toBe(true);
+  });
+
+  test('expectNoLeaks reads computed cells (`_computed`)', async () => {
+    const error = await admin.expectNoLeaks('computed-project', { as: { id: 'u1', roles: ['computer'] } }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AdminLeakError);
+    expect((error as AdminLeakError).report.leaks.some((leak) => leak.kind === 'hidden-value' && leak.field === 'secret' && leak.where.includes('._computed.shout.value'))).toBe(true);
   });
 
   test('expectNoLeaks reads the rows a parent lists inline (`_inlines`)', async () => {

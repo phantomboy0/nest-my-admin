@@ -2,7 +2,7 @@ import type { EntityMetadata } from 'typeorm';
 import type { FormLayoutInline } from '../contract.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import type { RegisteredResource, RelationMetadataLike } from '../registry/resource-registry.js';
-import { DEFAULT_INLINE_MAX, layoutInlines, localizeLayout, type LayoutInlineConfig } from '../schema/field-config.js';
+import { DEFAULT_INLINE_MAX, layoutInlines, localizeLayout, mainLayout, type LayoutInlineConfig } from '../schema/field-config.js';
 import { isToOne } from '../schema/relation-fields.js';
 import { didYouMean } from '../schema/suggest.js';
 
@@ -27,6 +27,9 @@ export interface RegisteredInline {
   label?: LocalizedText;
   /** The layout node it was declared by. */
   node: LayoutInlineConfig;
+  readonly: boolean;
+  /** The child's `list.computed` keys shown in the table. */
+  computed: string[];
 }
 
 /**
@@ -36,7 +39,7 @@ export interface RegisteredInline {
  */
 export function resolveInlines(entries: RegisteredResource[]): void {
   for (const entry of entries) {
-    const layout = entry.resource.form?.layout;
+    const layout = mainLayout(entry.resource.form?.layout);
     const nodes = layoutInlines(layout);
     if (!layout || nodes.length === 0) continue;
     const fail = (message: string): never => {
@@ -71,6 +74,9 @@ export function toLayoutInline(inline: RegisteredInline, label: string | undefin
     ...(inline.min !== undefined ? { min: inline.min } : {}),
     max: inline.max,
     link: inline.link,
+    ...(inline.readonly ? { readonly: true as const } : {}),
+    ...(inline.computed.length > 0 ? { computed: [...inline.computed] } : {}),
+    ...(inline.node.cards?.markFirst !== undefined ? { markFirst: resolveText(inline.node.cards.markFirst, locale, defaultLocale) } : {}),
   };
 }
 
@@ -81,7 +87,7 @@ function resolveInline(entry: RegisteredResource, node: LayoutInlineConfig, entr
   if (child.dataSource !== entry.dataSource) fail(`${where}: ${child.className} is on another DataSource; a parent and its inlines are saved in one transaction`);
   // A link holds one value: the parent's key (relations to composite keys are not fields either).
   if (entry.schema.primaryKeys.length !== 1) fail(`${where}: inlines need a parent with a single-column primary key`);
-  if (layoutInlines(child.resource.form?.layout).length > 0) fail(`${where}: ${child.className} declares inlines itself; inlines are one level deep`);
+  if (layoutInlines(mainLayout(child.resource.form?.layout)).length > 0) fail(`${where}: ${child.className} declares inlines itself; inlines are one level deep`);
   const childName = entityName(child.metadata);
   const parentName = entityName(entry.metadata);
 
@@ -114,6 +120,7 @@ function resolveInline(entry: RegisteredResource, node: LayoutInlineConfig, entr
     if (name === link) fail(`${where}: fields: "${name}" is the link field; the inline sets it`);
     if (!formNames.includes(name)) fail(`${where}: fields: "${name}" is not on the ${childName} form${didYouMean(name, formNames)}`);
   }
+  for (const key of node.computed ?? []) if (!child.computed.has(key)) fail(`${where}: computed: "${key}" is not a list.computed column of ${childName}${didYouMean(key, [...child.computed.keys()])}`);
   const referenced = (relation.joinColumns[0] as { referencedColumn?: { propertyName: string } }).referencedColumn?.propertyName ?? entry.schema.primaryKeys[0]!;
   return {
     name: child.schema.name,
@@ -128,6 +135,8 @@ function resolveInline(entry: RegisteredResource, node: LayoutInlineConfig, entr
     max: node.max ?? DEFAULT_INLINE_MAX,
     ...(node.section !== undefined ? { label: node.section } : {}),
     node,
+    readonly: node.readonly === true,
+    computed: [...(node.computed ?? [])],
   };
 }
 

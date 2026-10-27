@@ -29,7 +29,7 @@ interface AuditEntriesProps {
 export function AuditEntries({ entries, now, names, schemaOf, pageFieldsOf, titleOf, onActor, showSubject = false }: AuditEntriesProps) {
   const { t } = useLocale();
   return (
-    <ol aria-label={t('audit.entries')} className="flex flex-col divide-y rounded-lg border">
+    <ol aria-label={t('audit.entries')} className="flex flex-col divide-y rounded-card border bg-card shadow-card">
       {entries.map((entry) => (
         <Entry
           key={entry.id}

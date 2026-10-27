@@ -1,3 +1,4 @@
+import { openAccountMenu } from './shell.js';
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
 /** The session's CSRF token as a header, for writes through `page.request` (it shares the signed-in cookie). */
@@ -169,7 +170,7 @@ test('the audit page lists everything and filters by actor, kept in the URL (M4-
   }
 
   await page.goto('/admin');
-  await page.getByRole('button', { name: 'Account menu for Demo Admin' }).click();
+  await openAccountMenu(page); // Demo Admin
   await page.getByRole('link', { name: 'Audit log' }).click();
   await expect(page).toHaveURL(/\/admin\/-\/audit$/);
   await expect(page.getByRole('heading', { name: 'Audit log', level: 1 })).toBeVisible();
@@ -249,7 +250,7 @@ test.describe('as the editor', () => {
     const id = await asAdmin(browser, baseURL, (adminPage) => make(adminPage, 'order', { number, customer: 'Playwright', total: '10.00' }));
     await signInAsEditor(page);
 
-    await page.getByRole('button', { name: 'Account menu for Demo Editor' }).click();
+    await openAccountMenu(page); // Demo Editor
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Audit log' })).toHaveCount(0);
     await page.keyboard.press('Escape');

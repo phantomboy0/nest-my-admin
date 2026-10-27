@@ -6,7 +6,10 @@ import type { AdminContext } from './resource/admin-context.js';
 import type { AdminError } from './errors.js';
 import type { LocalizedText } from './i18n/localized-text.js';
 import type { AdminStorage } from './files/storage.js';
+import { checkCurrency, type AdminCurrency } from './schema/currency.js';
 import { DEFAULT_MAX_FILE_BYTES, MAX_FILE_BYTES } from './schema/field-config.js';
+
+export type { AdminCurrency } from './schema/currency.js';
 
 /** Host branding for the UI (spec §9.5): applied as CSS variables and shown in the sidebar. */
 export interface AdminBranding {
@@ -20,6 +23,26 @@ export interface AdminBranding {
   primaryForeground?: string;
   /** Corner radius, a CSS length such as `0.5rem`. */
   radius?: string;
+}
+
+/** One menu entry: a resource (with an optional count badge: `filter[...]` list parameters), a settings page, or a link. */
+export type AdminMenuItem =
+  | { resource: string; badge?: Record<string, string> }
+  | { page: string }
+  | { href: string; label: LocalizedText };
+
+export interface AdminMenuSection {
+  /** Unique; also the URL of the section's page (`/g/<key>`) and the badge key prefix. */
+  key: string;
+  label: LocalizedText;
+  icon: string;
+  items: AdminMenuItem[];
+}
+
+export interface AdminMenuOptions {
+  sections: AdminMenuSection[];
+  /** The last section holding everything not placed. Default label «Advanced». */
+  advanced?: { label?: LocalizedText };
 }
 
 /**
@@ -77,6 +100,20 @@ export interface AdminModuleOptions {
   locales?: string[];
   branding?: AdminBranding;
   /**
+   * The sidebar in the owner's words (spec §5.3): ordered sections listing resources, settings pages and links.
+   * Whatever is visible and not placed goes into a last «advanced» section, collapsed. Without it, Nest modules group
+   * the sidebar as before.
+   */
+  menu?: AdminMenuOptions;
+  /**
+   * Let the admin's look be changed in the admin: an accent colour for everyone, set by users with
+   * `appearance.manage` (each person may still pick their own). Stored in `nma_setting`: add `ADMIN_SETTING_ENTITIES`
+   * to the DataSource (`dataSource`, default the default one).
+   */
+  appearance?: { dataSource?: string };
+  /** The unit shown with every `money` field that sets none of its own. Display only: values are never converted. */
+  currency?: AdminCurrency;
+  /**
    * Give every entity without an @AdminResource a default resource: `true` for the default DataSource, or the names
    * of the DataSources to cover (`['default', 'reports']`). Default `false`.
    */
@@ -125,6 +162,9 @@ export interface ResolvedAdminOptions {
   locale: string;
   locales: string[];
   branding: AdminBranding;
+  menu?: AdminMenuOptions;
+  appearance?: { dataSource?: string };
+  currency?: Required<AdminCurrency>;
   /** DataSource names whose entities get default resources. */
   autoRegister: string[];
   transactions: boolean;
@@ -162,6 +202,9 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     locale,
     locales,
     branding: checkBranding(options.branding ?? {}),
+    currency: options.currency && checkCurrency(options.currency, 'currency'),
+    menu: options.menu && checkMenuShape(options.menu),
+    appearance: options.appearance,
     uiDistPath: options.uiDistPath,
     autoRegister: options.autoRegister === true ? ['default'] : Array.isArray(options.autoRegister) ? options.autoRegister : [],
     transactions: options.transactions ?? true,
@@ -175,6 +218,11 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     files: checkFiles(options.files),
     audit: checkAudit(options.audit),
   };
+}
+
+/** A plain CSS colour (hex, rgb(), hsl(), oklch()…): what may reach a style property. */
+export function isCssColor(value: string): boolean {
+  return CSS_COLOR.test(value.trim());
 }
 
 const CSS_COLOR = /^(#[0-9a-f]{3,8}|(rgb|rgba|hsl|hsla|oklch|oklab|lch|lab)\([0-9.,%\s/+-]+(deg|turn|rad)?[0-9.,%\s/+-]*\))$/i;
@@ -194,6 +242,24 @@ function checkBranding(branding: AdminBranding): AdminBranding {
     throw new Error('nest-my-admin: branding.logo must be an http(s) URL or a relative path');
   }
   return branding;
+}
+
+/** What can be checked before the resources exist: keys, items and links (references are checked at bootstrap). */
+function checkMenuShape(menu: AdminMenuOptions): AdminMenuOptions {
+  if (!Array.isArray(menu.sections)) throw new Error('nest-my-admin: menu.sections must be a list');
+  const keys = new Set<string>();
+  for (const section of menu.sections) {
+    const where = `nest-my-admin: menu.sections.${String(section.key)}`;
+    if (typeof section.key !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/i.test(section.key)) throw new Error(`nest-my-admin: menu section key "${String(section.key)}" must be letters, digits, - and _`);
+    if (section.key === 'advanced') throw new Error(`${where}: the key "advanced" is the last section's`);
+    if (keys.has(section.key)) throw new Error(`${where}: the key is used twice`);
+    keys.add(section.key);
+    if (!Array.isArray(section.items)) throw new Error(`${where}: items must be a list`);
+    for (const item of section.items) {
+      if ('href' in item && /^[a-z][a-z0-9+.-]*:/i.test(item.href.trim()) && !/^https?:\/\//i.test(item.href.trim())) throw new Error(`${where}: href must be an http(s) URL or a relative path`);
+    }
+  }
+  return menu;
 }
 
 function checkFiles(files: AdminFilesOptions | undefined): ResolvedAdminOptions['files'] {

@@ -22,10 +22,21 @@ export function signedOut(): void {
   onSignedOut?.();
 }
 
-/** Where to go after signing in: a path inside the admin, never another site (`//evil`, `https:`). */
-export function safeNext(next: string | null | undefined): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\') || next.startsWith('/login')) return '/';
-  return next;
+/**
+ * A browser path as the router knows it: without the admin's base path (`/admin/category` → `/category`). The data
+ * router's own location keeps the base, and a `next` that kept it would land on `/admin/admin/…` after signing in.
+ */
+export function routerPath(pathname: string, basePath: string): string {
+  const base = basePath.replace(/\/+$/, '');
+  if (base === '' || (pathname !== base && !pathname.startsWith(`${base}/`))) return pathname;
+  return pathname.slice(base.length) || '/';
+}
+
+/** Where to go after signing in: a path inside the admin, never another site (`//evil`, `https:`) nor the login page. */
+export function safeNext(next: string | null | undefined, basePath = ''): string {
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) return '/';
+  const path = routerPath(next, basePath);
+  return path.startsWith('/login') ? '/' : path;
 }
 
 const VIEW_AS_KEY = 'nma-view-as';

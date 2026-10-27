@@ -1,4 +1,4 @@
-import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, type Relation } from 'typeorm';
 import { Product } from '../catalog/product.entity.js';
 import { Order } from './order.entity.js';
 
@@ -7,7 +7,7 @@ import { Order } from './order.entity.js';
 export class OrderLine {
   @PrimaryGeneratedColumn() id: number;
   @Column() orderId: number;
-  @ManyToOne(() => Order, { onDelete: 'CASCADE' }) @JoinColumn({ name: 'orderId' }) order: Order;
+  @ManyToOne(() => Order, (order) => order.lines, { onDelete: 'CASCADE' }) @JoinColumn({ name: 'orderId' }) order: Relation<Order>;
   @Column({ type: 'int', nullable: true }) productId: number | null;
   @ManyToOne(() => Product, { nullable: true, onDelete: 'SET NULL' }) @JoinColumn({ name: 'productId' }) product: Product | null;
   @Column({ length: 120 }) description: string;

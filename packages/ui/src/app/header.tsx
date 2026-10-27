@@ -1,14 +1,14 @@
 import { Fragment } from 'react';
 import { Link, useLocation } from 'react-router';
-import { ChevronRight, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { ChevronLeft, Menu, PanelRight } from 'lucide-react';
 import type { MetaResponse } from '@nest-my-admin/core/contract';
 import { CommandPalette } from '@/app/command-palette';
-import { DisplayMenu, LocaleSwitch, ThemeSwitch } from '@/app/preferences';
-import { UserMenu } from '@/app/user-menu';
+import { ThemeToggle } from '@/app/preferences';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { navStore, useNavState } from '@/lib/nav-state';
-import { useRecord } from '@/lib/queries';
+import { navGroups } from '@/lib/menu';
+import { useRecord, useSchema } from '@/lib/queries';
 
 interface Crumb {
   label: string;
@@ -24,7 +24,11 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
     .map((part) => decodeURIComponent(part));
   const recordId = first && first !== 'g' && first !== 'p' && first !== '-' && second && second !== 'new' ? second : undefined;
   const record = useRecord(first ?? '', recordId);
-  const crumbs: Crumb[] = [{ label: t('shell.home'), to: '/' }];
+  // A resource with no navigation entry (`nav: false`) is named by its own schema (already loaded by its page).
+  const resourceRoute = Boolean(first) && !['g', 'p', '-', 'account'].includes(first!);
+  const schema = useSchema(first ?? '', resourceRoute && meta !== undefined && !navGroups(meta).some((group) => group.resources.some((resource) => resource.name === first)));
+  // With a dashboard, home is the dashboard.
+  const crumbs: Crumb[] = [{ label: t(meta?.dashboard ? 'shell.dashboard' : 'shell.home'), to: '/' }];
   if (first === 'account' && !second) return [...crumbs, { label: t('auth.account') }];
   if (first === '-' && (second === 'users' || second === 'groups' || second === 'roles' || second === 'debugger' || second === 'audit')) {
     const section = { users: t('rbac.users'), groups: t('rbac.groups'), roles: t('rbac.roles'), debugger: t('debugger.title'), audit: t('audit.title') }[second];
@@ -33,34 +37,41 @@ export function useCrumbs(meta: MetaResponse | undefined): Crumb[] {
     return crumbs;
   }
   if (!first || !meta) return crumbs;
+  const groups = navGroups(meta);
   if (first === 'g') {
-    const group = meta.groups.find((candidate) => candidate.key === second);
+    const group = groups.find((candidate) => candidate.key === second);
     if (group) crumbs.push({ label: group.label });
     return crumbs;
   }
   if (first === 'p') {
-    const group = meta.groups.find((candidate) => candidate.pages.some((page) => page.name === second));
+    const group = groups.find((candidate) => candidate.pages.some((page) => page.name === second));
     const page = group?.pages.find((candidate) => candidate.name === second);
     if (group && page) crumbs.push({ label: group.label, to: `/g/${group.key}` }, { label: page.label });
     return crumbs;
   }
-  const group = meta.groups.find((candidate) => candidate.resources.some((resource) => resource.name === first));
+  const group = groups.find((candidate) => candidate.resources.some((resource) => resource.name === first));
   const resource = group?.resources.find((candidate) => candidate.name === first);
-  if (!group || !resource) return crumbs;
+  if (!group || !resource) {
+    if (!schema.data) return crumbs;
+    crumbs.push({ label: schema.data.label, to: `/${first}` });
+    if (recordId) crumbs.push({ label: typeof record.data?._title === 'string' ? record.data._title : `#${recordId}` });
+    return crumbs;
+  }
   crumbs.push({ label: group.label, to: `/g/${group.key}` }, { label: resource.label, to: `/${resource.name}` });
   if (second === 'new') crumbs.push({ label: t('form.new', { name: resource.label }) });
   else if (recordId) crumbs.push({ label: typeof record.data?._title === 'string' ? record.data._title : `#${recordId}` });
   return crumbs;
 }
 
+/** The design's top bar: menu (phone) or sidebar toggle, a divider, breadcrumbs, then search (⌘K) and the theme. */
 export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; onOpenMenu: () => void }) {
   const { t } = useLocale();
   const nav = useNavState();
   const crumbs = useCrumbs(meta);
   const last = crumbs.length - 1;
   return (
-    <header className="flex h-14 items-center gap-2 border-b px-4">
-      <Button variant="ghost" size="icon" className="md:hidden" aria-label={t('shell.menu')} onClick={onOpenMenu}>
+    <header className="flex h-14 items-center gap-2 border-b border-border bg-card px-5">
+      <Button variant="ghost" size="icon" className="md:hidden" aria-label={t('shell.menu')} onClick={onOpenMenu} data-sidebar-toggle="">
         <Menu />
       </Button>
       <Button
@@ -70,14 +81,16 @@ export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; o
         aria-label={t(nav.railCollapsed ? 'shell.expandSidebar' : 'shell.collapseSidebar')}
         aria-pressed={nav.railCollapsed}
         onClick={() => navStore.toggleRail()}
+        data-sidebar-toggle=""
       >
-        {nav.railCollapsed ? <PanelLeftOpen className="rtl:-scale-x-100" /> : <PanelLeftClose className="rtl:-scale-x-100" />}
+        <PanelRight className="ltr:-scale-x-100" />
       </Button>
-      <nav aria-label={t('shell.breadcrumbs')} className="min-w-0 flex-1">
-        <ol className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground">
+      <div className="hidden h-5 w-px bg-border md:block" aria-hidden />
+      <nav aria-label={t('shell.breadcrumbs')} className="min-w-0 flex-1 ps-1">
+        <ol className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
           {crumbs.map((crumb, index) => (
             <Fragment key={`${index}:${crumb.label}`}>
-              {index > 0 && <ChevronRight className="size-3.5 shrink-0 rtl:rotate-180" aria-hidden />}
+              {index > 0 && <ChevronLeft className="size-3.5 shrink-0 ltr:rotate-180" aria-hidden />}
               <li className={index === last ? 'truncate font-medium text-foreground' : 'hidden truncate sm:block'}>
                 {crumb.to && index !== last ? (
                   <Link to={crumb.to} className="hover:text-foreground">
@@ -91,14 +104,9 @@ export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; o
           ))}
         </ol>
       </nav>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <CommandPalette />
-        <LocaleSwitch />
-        <DisplayMenu />
-        <UserMenu />
-        <div className="hidden sm:flex">
-          <ThemeSwitch />
-        </div>
+        <ThemeToggle />
       </div>
     </header>
   );

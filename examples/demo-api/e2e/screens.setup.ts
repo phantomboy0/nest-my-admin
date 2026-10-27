@@ -7,6 +7,8 @@ setup('sign in as the demo superuser', async ({ page }) => {
   await page.getByLabel('Username').fill('admin');
   await page.getByLabel('Password').fill('admin-demo-pass');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible();
-  await page.context().storageState({ path: 'e2e/.auth/screens.json' });
+  await expect(page.getByRole('heading', { level: 1, name: /^(Demo shop|Dashboard)$/ })).toBeVisible(); // home, or the dashboard
+  // One state per demo: the configured one (:3320) and the plain one (:3321).
+  const port = new URL(page.url()).port;
+  await page.context().storageState({ path: port === '3320' ? 'e2e/.auth/screens.json' : `e2e/.auth/screens-${port}.json` });
 });

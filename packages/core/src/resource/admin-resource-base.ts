@@ -4,7 +4,7 @@ import { encodeCursor } from '../crud/cursor.js';
 import { applyListParams } from '../crud/list-query-builder.js';
 import { toRelationReferences } from '../crud/relation-writes.js';
 import { toFileKeys } from '../files/admin-file.js';
-import type { FilterOperator, SortDirection } from '../contract.js';
+import type { FilterOperator, SortDirection, Tone } from '../contract.js';
 import { AdminNotFoundError } from '../errors.js';
 import type { DtoClass } from '../schema/dto-fields.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
@@ -38,6 +38,8 @@ export interface ListParams {
   pagination?: 'offset' | 'keyset';
   /** Soft-deletable resources: `only` lists the trash, `with` lists everything. */
   trashed?: 'only' | 'with';
+  /** A list tab (`list.tabs`): its `where` applies in `buildListQuery`. */
+  tab?: string;
 }
 
 export interface FindManyResult<T> {
@@ -70,8 +72,8 @@ export interface ListConfig<T> {
    * tables; it sorts only by non-nullable columns, and counts nothing unless `count` says so.
    */
   pagination?: 'offset' | 'keyset';
-  /** Default: every column except json and text, and every to-one relation. */
-  columns?: FieldPath<T>[];
+  /** Default: every column except json and text, and every to-one relation. May name `computed` columns. */
+  columns?: Array<FieldPath<T> | (string & {})>;
   /** `'name'` for ascending, `'-createdAt'` for descending. Defaults to `-<primary key>`. */
   sort?: FieldPath<T> | `-${FieldPath<T>}`;
   pageSize?: number;
@@ -88,15 +90,86 @@ export interface ListConfig<T> {
    * Cards on phones (spec §9.3): the title (default: the record title), a subtitle, a badge and a line of meta fields.
    * Fields or paths, like `columns`; without it a card shows the title, then the columns.
    */
-  mobile?: { title?: FieldPath<T>; subtitle?: FieldPath<T>; badge?: FieldPath<T>; meta?: FieldPath<T>[] };
+  mobile?: { title?: FieldPath<T> | (string & {}); subtitle?: FieldPath<T> | (string & {}); badge?: FieldPath<T> | (string & {}); meta?: Array<FieldPath<T> | (string & {})> };
+  /**
+   * Columns computed for each page of the list (spec §5.4): an image, a title with a subline, money with a previous
+   * price, a status badge, a count or an on/off toggle, from a field or path, an aggregate or first row of a one-to-many
+   * relation, an enum toggle, or your own batch function. Name them in `columns` (and `mobile`). A column is cut for a
+   * viewer who cannot see a field or relation it reads; aggregates and first rows count only the rows the viewer sees.
+   */
+  computed?: Record<string, ComputedColumn<T>>;
+  /**
+   * Tabs over the list (spec §5.5), at most 6, each with its count: «همه» (no filter), «فعال» (`filter`), «ناموجود»
+   * (`where`, for what filters cannot say). `filter` holds `filter[...]` list parameters; `where` adds conditions
+   * (`qb.alias`, like `query()`). Counts follow the viewer's scopes; `count: 'none'` shows no count.
+   */
+  tabs?: ListTab[];
+}
+
+export interface ListTab {
+  key: string;
+  label: LocalizedText;
+  filter?: Record<string, string>;
+  where?: (qb: SelectQueryBuilder<any>, ctx: AdminContext) => void;
+  count?: CountMode;
+}
+
+/** Where a computed column's value comes from. */
+export type ComputedSource<T = any> =
+  /** A field or a to-one path (`category.name`). */
+  | FieldPath<T>
+  | (string & {})
+  /** Over a one-to-many relation's rows (the viewer's rows only): `count` needs no field. */
+  | { aggregate: 'min' | 'max' | 'sum' | 'count'; relation: string; field?: string }
+  /** A field of the relation's first row by `by` (the first SKU, the first image). */
+  | { first: string; field: string; by: string }
+  /** An enum field shown as a switch: `on` is checked, a click writes `on` or `off` (a normal PATCH). */
+  | { toggle: string; on: string; off: string }
+  /** Your own values, called once per page with its rows: `{ [rowId]: value }`. `fields` are the fields it reads. */
+  | { compute: (rows: T[], ctx: AdminContext) => Promise<Record<string, unknown>>; fields: string[] };
+
+export interface ComputedColumn<T = any> {
+  label: LocalizedText;
+  kind: 'image' | 'title' | 'money' | 'badge' | 'count' | 'toggle';
+  source: ComputedSource<T>;
+  /** `title`: the muted line under it (a SKU). */
+  subline?: ComputedSource<T>;
+  /** `money`: the earlier price, struck through. */
+  previous?: ComputedSource<T>;
+  /** `badge`: the value's label and tone; receives the row too. */
+  map?: (value: unknown, row: T) => { label: LocalizedText; tone: Tone };
+  /** `aggregate` and `first` sources only. */
+  sortable?: boolean;
 }
 
 export interface FormConfig {
   create?: DtoClass;
   /** Defaults to `create`. Update bodies are always validated as partial: only the fields sent are checked. */
   update?: DtoClass;
-  /** Sections (with 1–3 columns), optionally grouped into tabs. Fields left out go into a last section. */
-  layout?: LayoutConfig;
+  /**
+   * Sections (with 1–3 columns), optionally grouped into tabs. Fields left out go into a last section. For the
+   * design's record page, `{ main, aside }`: the sections in a main column and read-only cards beside it (spec §5.6).
+   */
+  layout?: LayoutConfig | { main: LayoutConfig; aside: AsideCardConfig[] };
+  /** `view`: an existing record opens as text, and «Edit» turns its editable fields into inputs. Default `edit`. */
+  mode?: 'edit' | 'view';
+  /**
+   * The record's header: `badges` (fields shown as badges next to the title; default: every badge-widget field) and a
+   * `subtitle` line of field values and computed list columns (`{ computed: '<list.computed key>' }`), joined by «·».
+   * `stepper` names an enum field shown as the order's steps (Task 11).
+   */
+  header?: { badges?: string[]; subtitle?: Array<string | { computed: string }>; stepper?: string };
+}
+
+/**
+ * A read-only card beside the record's main column: some of its own fields, or fields of a to-one relation's record
+ * (`relation`: the relation field), with a link to it (`link`, «مشاهده پروفایل»).
+ */
+export interface AsideCardConfig {
+  title: LocalizedText;
+  icon?: string;
+  fields: string[] | { relation: string; fields: string[] };
+  link?: boolean;
 }
 
 /** An external link shown in the record's header (Django's `view_on_site`): http(s) or a relative URL. */
@@ -134,6 +207,19 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return this.#scoper ? this.#scoper(restricted, ctx) : restricted;
   }
 
+  #computedSort?: (qb: SelectQueryBuilder<any>, field: string, ctx: AdminContext | undefined) => string | undefined;
+
+
+  /** @internal Called once by the registry: sorts by a sortable computed column (`list.computed`). */
+  attachComputedSort(sorter: (qb: SelectQueryBuilder<any>, field: string, ctx: AdminContext | undefined) => string | undefined): void {
+    this.#computedSort = sorter;
+  }
+
+  /** @internal A query of this resource's rows as `ctx`'s user may read them (`query()` and scopes): computed columns of other resources aggregate over it. */
+  readQuery(alias: string, ctx: AdminContext | undefined): SelectQueryBuilder<T> {
+    return this.restrict((ctx ? this.repositoryFor(ctx) : this.repository).createQueryBuilder(alias), ctx);
+  }
+
   /** @internal Called once by the registry during bootstrap. */
   attachRepository(repository: Repository<T>): void {
     this.#repository = repository;
@@ -163,8 +249,12 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    */
   protected buildListQuery(params: ListParams, ctx?: AdminContext, alias = 'entity'): SelectQueryBuilder<T> {
     const repository = ctx ? this.repositoryFor(ctx) : this.repository;
-    const qb = this.restrict(repository.createQueryBuilder(alias), ctx ?? AdminContext.current());
-    return applyListParams(qb, params, repository.metadata);
+    const context = ctx ?? AdminContext.current();
+    const qb = this.restrict(repository.createQueryBuilder(alias), context);
+    const sorter = this.#computedSort;
+    // The tab's own restriction (a tab with `where`); its filters arrive as normal filter params.
+    if (params.tab) this.list?.tabs?.find((tab) => tab.key === params.tab)?.where?.(qb, context as AdminContext);
+    return applyListParams(qb, params, repository.metadata, sorter && ((query, field) => sorter(query, field, context)));
   }
 
   /**

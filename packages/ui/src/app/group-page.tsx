@@ -5,20 +5,21 @@ import { PageMessage } from '@/components/page-message';
 import { formatNumber, useLocale } from '@/i18n';
 import { api } from '@/lib/api';
 import { iconFor } from '@/lib/icons';
+import { navGroups } from '@/lib/menu';
 import { useMeta } from '@/lib/queries';
 
-/** A module landing page (spec §9.1): the group's resources with their record counts, and its settings pages. */
+/** A section's landing page (spec §9.1; a menu section, else a module group): its resources with their record counts, and its settings pages. */
 export function GroupPage() {
   const { t } = useLocale();
   const { group: key } = useParams();
   const meta = useMeta();
   if (meta.isPending) return <PageMessage>{t('common.loading')}</PageMessage>;
   if (meta.isError) return <PageMessage tone="error">{meta.error.message}</PageMessage>;
-  const group = meta.data.groups.find((candidate) => candidate.key === key);
+  const group = navGroups(meta.data).find((candidate) => candidate.key === key);
   if (!group) return <PageMessage>{t('common.pageNotFound')}</PageMessage>;
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold">{group.label}</h1>
+      <h1 className="text-[22px] font-bold">{group.label}</h1>
       <GroupCards group={group} />
     </div>
   );
@@ -52,7 +53,7 @@ function GroupCards({ group }: { group: MetaGroup }) {
   );
 }
 
-const cardClass = 'flex items-center gap-3 rounded-lg border p-4 hover:bg-muted/50';
+const cardClass = 'flex items-center gap-3 rounded-card border bg-card shadow-card p-4 hover:bg-muted/50';
 
 /** One card per settings page. */
 function PageCards({ pages }: { pages: MetaPageSummary[] }) {

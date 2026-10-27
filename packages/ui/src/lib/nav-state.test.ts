@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { MAX_RECENT, createNavStore, known } from './nav-state';
+import { MAX_RECENT, createNavStore, known, sectionCollapsed } from './nav-state';
 
 const memory = () => {
   const data = new Map<string, string>();
@@ -22,6 +22,18 @@ describe('nav state', () => {
     for (const name of ['a', 'b', 'c', 'a', 'd', 'e', 'f', 'g']) store.visit(name);
     expect(store.get().recent).toEqual(['g', 'f', 'e', 'd', 'a']);
     expect(store.get().recent).toHaveLength(MAX_RECENT);
+  });
+
+  test('a section collapsed by default opens when toggled, and the choice is kept either way', () => {
+    const store = createNavStore(memory());
+    expect(sectionCollapsed(store.get(), 'advanced', true)).toBe(true);
+    expect(sectionCollapsed(store.get(), 'sales', false)).toBe(false);
+    store.toggleGroup('advanced', true);
+    store.toggleGroup('sales', false);
+    expect(sectionCollapsed(store.get(), 'advanced', true)).toBe(false);
+    expect(sectionCollapsed(store.get(), 'sales', false)).toBe(true);
+    store.toggleGroup('advanced', false);
+    expect(sectionCollapsed(store.get(), 'advanced', true)).toBe(true);
   });
 
   test('collapsed groups and the rail', () => {

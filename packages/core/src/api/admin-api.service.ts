@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager } from 'typeorm';
-import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
-import { applyFieldConfig, localizeLayout } from '../schema/field-config.js';
+import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, TabCounts, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
+import { applyFieldConfig, localizeLayout, mainLayout } from '../schema/field-config.js';
 import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
 import { InlineReader } from '../inlines/inline-reader.js';
 import { InlineWriter, type InlinePlan } from '../inlines/inline-writer.js';
@@ -10,6 +10,11 @@ import { toErrorResponse } from '../http/error-response.js';
 import { toActionSchema } from '../decorators/admin-action.js';
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
+import { buildMenu, checkMenu } from './menu.js';
+import { DashboardService } from '../dashboard/dashboard.service.js';
+import { WidgetRegistry } from '../dashboard/widget-registry.js';
+import { loadComputed, type CompiledComputed } from '../crud/computed-columns.js';
+import { resourceFileOwner } from '../files/file-owner.js';
 import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { likePattern } from '../crud/list-query-builder.js';
 import { parseId } from '../crud/list-query.js';
@@ -46,14 +51,28 @@ export class AdminApiService {
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
     private readonly policy: AdminPolicy,
     private readonly files: FilesService,
-    pages: PageRegistry,
+    private readonly pageRegistry: PageRegistry,
     audit: AdminAudit,
+    private readonly dashboard: DashboardService,
+    private readonly widgets: WidgetRegistry,
   ) {
+    const pages = pageRegistry;
     // Without `audit` nothing is recorded: the audit log is not even a participant.
     this.writes = new WriteRunner(options, this.logger, [filesParticipant(files), ...(audit.enabled ? [auditParticipant(audit)] : [])]);
     this.pages = new PageService({ pages, policy, options, files, writes: this.writes });
     this.actions = new ActionService({ policy, options, logger: this.logger, writes: this.writes, record: (entry, entity, ctx) => this.record(entry, entity, ctx) });
-    this.inlines = new InlineReader({ policy, serialize: (entry, entities, ctx) => this.fullRecords(entry, entities, ctx) });
+    this.inlines = new InlineReader({
+      policy,
+      serialize: (entry, entities, ctx) => this.fullRecords(entry, entities, ctx),
+      computed: async (inline, entities, records, ctx) => {
+        const child = inline.child;
+        const visible = policy.computedVisible(child, ctx);
+        const columns = inline.computed.filter((key) => visible.has(key)).map((key) => child.computed.get(key)!);
+        if (columns.length === 0) return;
+        const values = await this.computedValues(child, columns, entities, ctx);
+        for (const record of records) record._computed = values.get(String(record._id)) ?? {};
+      },
+    });
     this.inlineWriter = new InlineWriter({
       policy,
       view: (entry, ctx) => this.view(entry, ctx),
@@ -94,7 +113,8 @@ export class AdminApiService {
   meta(locale = this.options.locale, ctx?: AdminContext): MetaResponse {
     const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
     // Only resources the user may view (spec §6.5: meta is filtered per user).
-    const resources = this.registry.list().filter((entry) => !ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view'));
+    // `nav: false` resources have no entry of their own (spec §5): reachable by URL, not listed.
+    const resources = this.registry.list().filter((entry) => entry.nav && (!ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view')));
     const pages = this.pages.summaries(locale, ctx);
     // Inside a group: `order` first (lower first), then the label in the request's language.
     const byOrder = (a: { order: number; summary: { label: string } }, b: { order: number; summary: { label: string } }) =>
@@ -130,7 +150,99 @@ export class AdminApiService {
         resources: items,
         pages: groupPages,
       }));
-    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups };
+    const menu = this.options.menu && buildMenu(this.options.menu, text, groups.flatMap((group) => group.resources), groups.flatMap((group) => group.pages));
+    // With widgets in the app, whether this user has a dashboard (it replaces the home page).
+    const dashboard = this.widgets.list().length > 0 ? { dashboard: ctx ? this.dashboard.has(ctx) : true } : {};
+    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups, ...dashboard, ...(menu ? { menu } : {}) };
+  }
+
+  /**
+   * Image cells hold a file key; the page gets its URL (the storage's public one, or the admin's download route, which
+   * checks the viewer again). A value that is already an http(s) or relative URL stays; anything else becomes null.
+   */
+  private async imageUrls(entry: RegisteredResource, computed: CompiledComputed[], values: Map<string, Record<string, ComputedValue>>, ctx: AdminContext): Promise<void> {
+    for (const column of computed) {
+      if (column.column.kind !== 'image') continue;
+      const source = column.source;
+      const holder = source.type === 'first' ? this.registry.forEntity(source.relation.inverseEntityMetadata.target as Function, entry.dataSource) : source.type === 'field' && !source.path.includes('.') ? entry : undefined;
+      const field = source.type === 'first' ? source.field : source.type === 'field' ? source.path : undefined;
+      const isFile = holder && field && ['file', 'image'].includes(holder.fieldConfig.get(field)?.widget ?? '');
+      const cells = [...values.values()].map((row) => row[column.key]).filter((cell): cell is ComputedValue => cell !== undefined);
+      const keys = cells.map((cell) => cell.value).filter((value): value is string => typeof value === 'string');
+      const urls = isFile && keys.length > 0 ? await this.files.refs(resourceFileOwner(holder!, this.policy), keys.map((key) => ({ [field!]: key })), [field!], ctx) : [];
+      const byKey = new Map(keys.map((key, index) => [key, (urls[index]?.[field!] as AdminFileRef | undefined)?.url]));
+      for (const cell of cells) {
+        const value = typeof cell.value === 'string' ? cell.value : undefined;
+        cell.value = value === undefined ? null : (byKey.get(value) ?? (/^(https?:\/\/|\/)/i.test(value) ? value : null));
+      }
+    }
+  }
+
+  /**
+   * A list's count for this user (menu badges, tab counts): through the resource's findMany, so `query()` and scopes
+   * apply; an overridden findMany may ignore scopes, so for a scoped user it goes through the scoped base path.
+   */
+  private async count(entry: RegisteredResource, params: ListParams, ctx: AdminContext): Promise<{ count: number; estimate: boolean } | undefined> {
+    const overridden = entry.resource.findMany !== AdminResourceBase.prototype.findMany;
+    const found = overridden && this.policy.scoped(entry, 'view', ctx) ? await AdminResourceBase.prototype.findMany.call(entry.resource, params, ctx) : await entry.resource.findMany(params, ctx);
+    return found.total === null || found.total === undefined ? undefined : { count: found.total, estimate: found.estimated === true };
+  }
+
+  /** `GET /api/resources/:resource/tab-counts`: each tab this user may use, counted in parallel (`null`: `count: 'none'`). */
+  async tabCounts(name: string, ctx: AdminContext): Promise<TabCounts> {
+    const entry = this.registry.get(name);
+    this.policy.require(entry, 'view', ctx);
+    const schema = this.view(entry, ctx).schema;
+    const counts = await Promise.all(
+      (schema.list.tabs ?? []).map(async (tab) => {
+        if (tab.count === 'none') return [tab.key, null] as const;
+        const params = parseListQuery(new URLSearchParams({ ...tab.filter, ...(tab.where ? { tab: tab.key } : {}), pageSize: '1' }), schema);
+        params.count = tab.count;
+        if (params.pagination === 'keyset') params.after = undefined;
+        return [tab.key, (await this.count(entry, params, ctx)) ?? null] as const;
+      }),
+    );
+    return Object.fromEntries(counts);
+  }
+
+  /** Computed columns of some rows of a resource, image cells as URLs. */
+  private async computedValues(entry: RegisteredResource, columns: CompiledComputed[], entities: object[], ctx: AdminContext): Promise<Map<string, Record<string, ComputedValue>>> {
+    const locale = ctx.locale ?? this.options.locale;
+    const values = await loadComputed(columns, entities, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (target, field) => this.registry.forEntity(target, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+    await this.imageUrls(entry, columns, values, ctx);
+    return values;
+  }
+
+  /** The menu's references are checked once every resource and settings page is registered. */
+  onApplicationBootstrap(): void {
+    if (this.options.menu) checkMenu(this.options.menu, this.registry, this.pageRegistry);
+  }
+
+  /**
+   * `GET /api/menu/badges`: each menu badge counted for this user through the list's own path (scopes and `query()`
+   * apply). A badge whose filters name a field this user cannot see, or on a resource they cannot view, is left out.
+   */
+  async badges(ctx: AdminContext): Promise<MenuBadges> {
+    const out: MenuBadges = {};
+    const perms = this.policy.permissionsOf(ctx);
+    for (const section of this.options.menu?.sections ?? []) {
+      for (const item of section.items) {
+        if (!('resource' in item) || !item.badge) continue;
+        const entry = this.registry.get(item.resource);
+        if (!perms.canOn(entry.schema.name, 'view')) continue;
+        let params: ListParams;
+        try {
+          params = parseListQuery(new URLSearchParams({ ...item.badge, pageSize: '1' }), this.view(entry, ctx).schema);
+        } catch {
+          continue; // a filter on a field this user cannot see: no count, so nothing to compare
+        }
+        // `none` lists are not counted page by page, but a badge is a count: estimate it instead.
+        params.count = params.count === 'none' ? 'estimate' : params.count;
+        const counted = await this.count(entry, params, ctx);
+        if (counted) out[`${section.key}.${item.resource}`] = counted;
+      }
+    }
+    return out;
   }
 
   /** A resource's schema with its labels in `locale`. */
@@ -144,11 +256,16 @@ export class AdminApiService {
       return { ...item, label: fieldLabel ? `${base} (${fieldLabel})` : base };
     });
     const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes, this.files.enabled));
-    const layout = entry.resource.form?.layout;
+    const layout = mainLayout(entry.resource.form?.layout);
     const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, locale, this.options.locale);
     const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
     const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
-    const localized = { ...entry.schema, label: text(entry.label), related, fields, form, actions };
+    const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label) }]));
+    const tabs = entry.schema.list.tabs?.map((tab, index) => ({ ...tab, label: text(entry.resource.list!.tabs![index]!.label) }));
+    const list = { ...entry.schema.list, ...(computed ? { computed } : {}), ...(tabs ? { tabs } : {}) };
+    const asideConfig = entry.resource.form?.layout && !Array.isArray(entry.resource.form.layout) ? entry.resource.form.layout.aside : undefined;
+    const localizedForm = form.aside && asideConfig ? { ...form, aside: form.aside.map((card, index) => ({ ...card, title: text(asideConfig[index]!.title) })) } : form;
+    const localized = { ...entry.schema, label: text(entry.label), related, fields, form: localizedForm, actions, list };
     const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
     // The child schema of every inline left in the layout (the policy removed those the user may not view).
     const children = (schema.form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('inline' in node ? [node.inline] : []));
@@ -176,8 +293,17 @@ export class AdminApiService {
     const mobile = schema.list.mobile;
     const shown = new Set([...schema.list.columns, ...(mobile ? [mobile.title, mobile.subtitle, mobile.badge, ...mobile.meta] : [])]);
     const loaded = schema.fields.filter((field) => isLoadedField(field) && shown.has(field.name));
+    const records = await this.records(entry, items, loaded, ctx);
+    // Computed columns the viewer sees (the schema kept only those) and the page shows: one batch for the page.
+    const computed = [...entry.computed.values()].filter((column) => schema.list.computed?.[column.key] && shown.has(column.key));
+    if (computed.length > 0) {
+      const locale = ctx.locale ?? this.options.locale;
+      const values = await loadComputed(computed, items, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (entity, field) => this.registry.forEntity(entity, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+      await this.imageUrls(entry, computed, values, ctx);
+      for (const record of records) record._computed = values.get(String(record._id)) ?? {};
+    }
     return {
-      items: await this.records(entry, items, loaded, ctx),
+      items: records,
       total: total ?? null,
       ...(estimated ? { estimated: true } : {}),
       ...(hasMore !== undefined ? { hasMore } : {}),
@@ -199,7 +325,7 @@ export class AdminApiService {
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new AdminValidationError({ limit: ['must be an integer from 1 to 20'] });
     const locale = ctx.locale ?? this.options.locale;
     const perms = this.policy.permissionsOf(ctx);
-    const searchable = this.registry.list().filter((entry) => perms.canOn(entry.schema.name, 'view') && this.view(entry, ctx).schema.list.search.length > 0);
+    const searchable = this.registry.list().filter((entry) => entry.nav && perms.canOn(entry.schema.name, 'view') && this.view(entry, ctx).schema.list.search.length > 0);
     const results = await Promise.all(
       searchable.map(async (entry) => {
         const schema = this.view(entry, ctx).schema;
@@ -244,7 +370,49 @@ export class AdminApiService {
     await this.policy.requireInScope(entry, id, rawId, 'view', ctx); // a findOne override may ignore scopes
     const record = await this.record(entry, entity, ctx);
     if (entry.inlines.length > 0) await this.inlines.readInto(record, entry, entity, ctx);
+    await this.recordPage(entry, entity, record, ctx);
     return record;
+  }
+
+  /**
+   * What the record page shows beside the form (spec §5.6): each relation aside card's record (`_aside`, read through
+   * the target's own GET, so its permissions and scopes apply; absent when this user may not see it) and the computed
+   * columns its header names (`_computed`).
+   */
+  private async recordPage(entry: RegisteredResource, entity: object, record: AdminRecord, ctx: AdminContext): Promise<void> {
+    const form = this.view(entry, ctx).schema.form;
+    const aside: Record<string, AdminRecord> = {};
+    for (const [index, card] of (form.aside ?? []).entries()) {
+      if (!card.relation) continue;
+      const value = record[card.relation.field];
+      const id = value && typeof value === 'object' ? (value as { id: unknown }).id : value;
+      if (id === null || id === undefined) continue;
+      try {
+        const related = await this.get(card.relation.resource, encodeRecordId([id]), ctx);
+        aside[String(index)] = { _id: related._id, _title: related._title, ...Object.fromEntries(card.fields.filter((field) => field in related).map((field) => [field, related[field]])) };
+      } catch (error) {
+        if (!(error instanceof AdminNotFoundError) && !(error instanceof AdminForbiddenError)) throw error;
+      }
+    }
+    if (Object.keys(aside).length > 0) record._aside = aside;
+    // Stepper fields: when each step was last reached, from the history child (its read path: query() and scopes),
+    // only when this user may see its value and time fields.
+    for (const field of this.view(entry, ctx).schema.fields) {
+      const history = field.steps?.history ? entry.steppers.get(field.name) : undefined;
+      if (!history) continue;
+      const { child } = history;
+      const levels = this.policy.levels(child, ctx);
+      if (!this.policy.permissionsOf(ctx).canOn(child.schema.name, 'view') || [history.value, history.at].some((name) => (levels.get(name) ?? 'hidden') === 'hidden')) continue;
+      const qb = child.resource.readQuery('nma_h', ctx).select(`nma_h.${history.value}`, 'v').addSelect(`MAX(nma_h.${history.at})`, 't');
+      qb.andWhere(`nma_h.${history.link} = :nmaParent`, { nmaParent: recordIdValue(entity, entry.schema.primaryKeys[0]!) });
+      Object.entries(history.where).forEach(([name, value], index) => qb.andWhere(`nma_h.${name} = :nmaWhere${index}`, { [`nmaWhere${index}`]: value }));
+      const rows = await qb.groupBy(`nma_h.${history.value}`).getRawMany<{ v: string; t: unknown }>();
+      record._steps = { ...((record._steps as object | undefined) ?? {}), ...Object.fromEntries(rows.map((row) => [row.v, isoTime(row.t)])) };
+    }
+    const summaries = (form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('summary' in node ? node.summary : []));
+    const keys = [...(form.header?.subtitle ?? []), ...summaries.map((row) => row.value)].flatMap((item) => ('computed' in item ? [item.computed] : []));
+    const computed = keys.flatMap((key) => (entry.computed.has(key) ? [entry.computed.get(key)!] : []));
+    if (computed.length > 0) record._computed = (await this.computedValues(entry, [...new Set(computed)], [entity], ctx)).get(String(record._id)) ?? {};
   }
 
   /** Serializes entities with their relation values and paths (`fields`) loaded and their titles. */
@@ -731,4 +899,18 @@ function parseValues(raw: string | null): Record<string, unknown> {
     throw new AdminValidationError({ values: ['must be a JSON object of at most 4096 characters'] });
   }
   return parsed as Record<string, unknown>;
+}
+
+/** The record's (single) key value. */
+function recordIdValue(entity: object, key: string): unknown {
+  return (entity as Record<string, unknown>)[key];
+}
+
+/** A time from MAX() as an ISO string: drivers answer a Date, or (SQLite) text in UTC without a zone. */
+function isoTime(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value);
+  const date = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(text) ? text : `${text.replace(' ', 'T')}Z`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }

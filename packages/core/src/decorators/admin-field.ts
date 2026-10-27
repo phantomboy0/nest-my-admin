@@ -1,11 +1,12 @@
 import 'reflect-metadata';
 import { ADMIN_FIELD_METADATA } from '../constants.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
+import type { AdminCurrency } from '../schema/currency.js';
 
 /** Inputs and displays the UI has (spec §5.6). */
 export const WIDGETS = [
   'text', 'textarea', 'number', 'money', 'switch', 'checkbox', 'select', 'radio', 'date', 'datetime', 'json', 'color',
-  'badge', 'slug', 'password', 'email', 'url', 'file', 'image', 'richtext',
+  'badge', 'slug', 'password', 'email', 'url', 'file', 'image', 'richtext', 'stepper',
 ] as const;
 export type WidgetName = (typeof WIDGETS)[number];
 
@@ -40,10 +41,21 @@ export interface AdminFieldOptions {
   showIf?: Record<string, ShowIfValue | ShowIfValue[]>;
   /** Shown on edit forms but never written by update. */
   readonly?: boolean;
+  /** `stepper`: the steps in order (default: the enum's order). */
+  steps?: string[];
+  /** `stepper`: values that are not steps (cancelled): shown as a badge, with no current step. */
+  exclude?: string[];
+  /**
+   * `stepper`: when each step was reached, from a child resource logging the changes (one row per change: `value` is
+   * the value reached, `at` when; `where` narrows to this field's rows when the log holds several fields).
+   */
+  history?: { inline: abstract new (...args: any[]) => unknown; value: string; at: string; where?: Record<string, string> };
+  /** A soft warning under the input while the field is empty (an image without alt text): it never stops a save. */
+  warnIf?: { empty: true; message: LocalizedText };
   /** The `slug` widget fills itself from this field until someone edits it. */
   slugFrom?: string;
-  /** Currency code shown with the `money` widget (display only). */
-  currency?: string;
+  /** The unit shown with the `money` widget (display only): a code such as `USD`, or a unit and its position. Wins over the global `currency`. */
+  currency?: string | AdminCurrency;
   /** `file` and `image` widgets: type, size and visibility limits; `richtext`: `maxBytes` and `visibility` of editor images. */
   file?: FileFieldOptions;
   /** `file` and `image` widgets on a json column: a list of files instead of one. */

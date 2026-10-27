@@ -7,6 +7,7 @@ import {
   type AdminContext,
   type FieldsConfig,
   type FormConfig,
+  type LayoutConfig,
   type ListConfig,
 } from '@nest-my-admin/core';
 import { ConflictException } from '@nestjs/common';
@@ -14,6 +15,7 @@ import { In } from 'typeorm';
 import { CreateOrderDto, ShipOrderDto, StaleDraftsDto, UpdateOrderDto } from './order.dto.js';
 import { Order } from './order.entity.js';
 import { OrderLineAdmin } from './order-line.admin.js';
+import { OrderStatusLogAdmin } from './order-status-log.admin.js';
 
 /**
  * Orders move through their statuses with actions, never through the form: Mark paid, Ship (asks for the tracking
@@ -23,6 +25,49 @@ import { OrderLineAdmin } from './order-line.admin.js';
  * Two ways to say no: an `@AdminCan('<action>')` rule takes the button away from records it does not fit (and the
  * API answers 403), and an exception thrown by the method is shown to the user as the reason.
  */
+/** Applies a decorator only in the configured demo (not with `NMA_DEMO_PLAIN=1`). */
+const onlyOwner = (decorator: MethodDecorator): MethodDecorator => (process.env.NMA_DEMO_PLAIN === '1' ? () => undefined : decorator);
+
+const plainDemo = process.env.NMA_DEMO_PLAIN === '1';
+
+/** The order form's sections: the order, then its lines inline (in the configured demo: read-only, with pictures, and totals). */
+const orderMain: LayoutConfig = [
+  { section: { en: 'Order', fa: 'سفارش' }, fields: ['number', 'customer', 'total', 'tracking'], columns: 2 },
+  // Saved with the order in one transaction; `position` is written 0, 1, 2… by drag and the arrows.
+  {
+    section: { en: 'Lines', fa: 'ردیف‌ها' },
+    inline: OrderLineAdmin,
+    display: 'table',
+    fields: ['productId', 'description', 'quantity', 'unitPrice'],
+    order: 'position',
+    max: 50,
+    ...(plainDemo ? {} : { readonly: true, computed: ['thumb'] }),
+  },
+  ...(plainDemo
+    ? []
+    : [
+        {
+          section: { en: 'Totals', fa: 'جمع' },
+          summary: [
+            { label: { en: 'Items', fa: 'اقلام' }, value: { computed: 'lineCount' } },
+            { label: { en: 'Total', fa: 'مبلغ نهایی' }, value: 'total' },
+          ],
+        },
+      ]),
+];
+
+/** In the configured demo, beside the sections: payment and «Handled by» cards (spec §5.6). */
+const orderLayout: FormConfig['layout'] =
+  process.env.NMA_DEMO_PLAIN === '1'
+    ? orderMain
+    : {
+        main: orderMain,
+        aside: [
+          { title: { en: 'Payment', fa: 'پرداخت' }, icon: 'credit-card', fields: ['status', 'total', 'tracking'] },
+          { title: { en: 'Handled by', fa: 'مسئول سفارش' }, icon: 'user', fields: { relation: 'handledById', fields: ['position'] }, link: true },
+        ],
+      };
+
 @AdminResource(Order, { icon: 'cart', label: { en: 'Order', fa: 'سفارش' }, title: 'number' })
 export class OrderAdmin extends AdminResourceBase<Order> {
   list: ListConfig<Order> = {
@@ -31,6 +76,7 @@ export class OrderAdmin extends AdminResourceBase<Order> {
     search: ['number', 'customer'],
     filters: ['status'],
     mobile: { title: 'number', subtitle: 'customer', badge: 'status', meta: ['total', 'tracking'] },
+    computed: { lineCount: { label: { en: 'items', fa: 'قلم کالا' }, kind: 'count', source: { aggregate: 'count', relation: 'lines' } } },
   };
   fields: FieldsConfig<Order> = {
     number: { label: { en: 'Number', fa: 'شماره' } },
@@ -48,23 +94,35 @@ export class OrderAdmin extends AdminResourceBase<Order> {
       },
     },
     tracking: { label: { en: 'Tracking code', fa: 'کد رهگیری' }, readonly: true },
+    handledById: { label: { en: 'Handled by', fa: 'مسئول' } },
+    fulfillment: {
+      label: { en: 'Fulfillment', fa: 'وضعیت ارسال' },
+      enumLabels: {
+        queued: { en: 'Queued', fa: 'در صف' },
+        confirmed: { en: 'Confirmed', fa: 'تأیید' },
+        preparing: { en: 'Preparing', fa: 'آماده‌سازی' },
+        ready: { en: 'Ready to ship', fa: 'آماده ارسال' },
+        posted: { en: 'Posted', fa: 'تحویل پست' },
+        delivered: { en: 'Delivered', fa: 'تحویل شده' },
+        cancelled: { en: 'Cancelled', fa: 'لغو شده' },
+      },
+      // The configured demo shows it as the order's steps, with the times from the status log.
+      ...(plainDemo ? {} : { widget: 'stepper' as const, exclude: ['cancelled'], history: { inline: OrderStatusLogAdmin, value: 'value', at: 'at', where: { field: 'fulfillment' } } }),
+    },
   };
   form: FormConfig = {
     create: CreateOrderDto,
     update: UpdateOrderDto,
-    layout: [
-      { section: { en: 'Order', fa: 'سفارش' }, fields: ['number', 'customer', 'total', 'tracking'], columns: 2 },
-      // Saved with the order in one transaction; `position` is written 0, 1, 2… by drag and the arrows.
-      {
-        section: { en: 'Lines', fa: 'ردیف‌ها' },
-        inline: OrderLineAdmin,
-        display: 'table',
-        fields: ['productId', 'description', 'quantity', 'unitPrice'],
-        order: 'position',
-        max: 50,
-      },
-    ],
+    // The design's order page (configured demo): the order opens as text, cards beside it.
+    ...(process.env.NMA_DEMO_PLAIN === '1'
+      ? {}
+      : {
+          mode: 'view' as const,
+          header: { badges: ['status'], subtitle: ['customer', 'createdAt', { computed: 'lineCount' }], stepper: 'fulfillment' },
+        }),
+    layout: orderLayout,
   };
+
 
   @AdminAction({ label: { en: 'Mark paid', fa: 'پرداخت شد' }, icon: 'credit-card' })
   async markPaid(order: Order, _input: unknown, ctx: AdminContext): Promise<ActionOutcome> {
@@ -89,6 +147,27 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   })
   async cancel(order: Order, _input: unknown, ctx: AdminContext): Promise<void> {
     await this.repositoryFor(ctx).update(order.id, { status: 'cancelled' });
+  }
+
+  /**
+   * The order's next step (the design's filled header button): its label names the step on each order, and on an
+   * order with no next step there is no button (`label.for` returns null) and a run is refused. Left out of the
+   * plain demo (`NMA_DEMO_PLAIN=1`), a host that sets none of the owner-admin options.
+   */
+  @onlyOwner(
+    AdminAction({
+      primary: true,
+      label: {
+        static: { en: 'Next step', fa: 'مرحله بعد' },
+        for: (order: Order) =>
+          order.status === 'draft' ? { en: 'Move to «paid»', fa: 'انتقال به «پرداخت‌شده»' } : order.status === 'paid' ? { en: 'Move to «shipped»', fa: 'انتقال به «ارسال‌شده»' } : null,
+      },
+    }),
+  )
+  async advanceNext(order: Order, _input: unknown, ctx: AdminContext): Promise<ActionOutcome> {
+    const next = order.status === 'draft' ? 'paid' : 'shipped';
+    await this.repositoryFor(ctx).update(order.id, { status: next });
+    return { message: { en: `Order ${order.number} is ${next}`, fa: `سفارش ${order.number}: ${next === 'paid' ? 'پرداخت‌شده' : 'ارسال‌شده'}` } };
   }
 
   /** Only drafts can be paid or cancelled: on other orders the buttons are not there (`_perm.actions`), and the API answers 403. */

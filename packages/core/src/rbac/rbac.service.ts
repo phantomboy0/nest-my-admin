@@ -1,3 +1,4 @@
+import { WidgetRegistry } from '../dashboard/widget-registry.js';
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { getDataSourceToken } from '@nestjs/typeorm';
@@ -59,6 +60,7 @@ export class AdminRbac implements OnApplicationBootstrap {
     private readonly moduleRef: ModuleRef,
     private readonly registry: ResourceRegistry,
     private readonly pages: PageRegistry,
+    private readonly widgets: WidgetRegistry,
     @Inject(ADMIN_OPTIONS) private readonly options: ResolvedAdminOptions,
     private readonly audit: AdminAudit,
   ) {}
@@ -96,7 +98,7 @@ export class AdminRbac implements OnApplicationBootstrap {
   }
 
   catalog(): PolicyCatalog {
-    return buildCatalog(this.registry, this.options, this.pages.list().map((page) => page.name));
+    return buildCatalog(this.registry, this.options, this.pages.list().map((page) => page.name), this.widgets.codes());
   }
 
   async onApplicationBootstrap(): Promise<void> {
