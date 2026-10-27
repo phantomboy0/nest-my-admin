@@ -597,4 +597,4 @@
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run `bun test`, then `bun run design:compare dashboard-light dashboard-dark dashboard-phone --base-url http://localhost:4000/admin`; fix or record every difference. Remind the user of the missing CRM widget.
 - [ ] **Step 5:** Commit: `feat(admin): owner dashboard`.
-- [ ] **Step 6: Checkpoint E.** Show the user all eight screens (eleven ids) side by side and `open-differences.md` for final approval.
+- [x] **Step 6: Checkpoint E.** Show the user all eight screens (eleven ids) side by side and `open-differences.md` for final approval.

@@ -122,6 +122,59 @@ Left out and listed in CLAUDE.md so they are not forgotten (the user is reminded
 Accepted differences from the design (the user's decisions):
 - **Stepper steps:** the order stepper shows all seven shop-nest fulfillment steps (در صف، تأیید، آماده‌سازی، آماده شده، آماده ارسال، تحویل پست، تحویل شده); the design draws six.
 
+Accepted at checkpoint E (2026-10-27), from the design comparison:
+- **dashboard-light (top bar):** No notification bell (nest-my-admin has no notifications feature; the bell is left out (not in spec §8b yet) — ask at checkpoint A).
+- **products-desktop:** Set filter chips have a small × to remove them; the design has none (removing one filter in one click (the chip row is the only place desktop shows active filters) — ask at checkpoint A).
+- **products-desktop:** Set chips stay in schema order; the design shows the set «دسته‌بندی» chip first (a chip that moves while set remounts and closes its popover mid-choice).
+- **products-desktop:** No tabs (همه/فعال/غیرفعال/ناموجود); no thumbnail, SKU line, sale price, stock badge, switch or ⋯ menu in rows; header subtitle is the count only (list tabs and computed columns).
+- **products-desktop:** Latin digits and «USD» prices (money and digits).
+- **products-desktop:** No «خروجی Excel» button (Excel export is out of scope (spec §8b)).
+- **products-phone:** Title and add button sit in the page under the top bar, not in the top bar itself; trash and select buttons are extra (the phone top bar is the shell's; select mode exists because cards are links).
+- **products-phone:** Cards have no checkbox outside select mode, no thumbnail, switch, price or badges row (card content comes from list.mobile; computed columns).
+- **products-phone:** The drawer's main button says «نمایش نتایج», not «نمایش ۹۶ محصول»; the switch row («فقط محصولات فعال») and the sort button are plain selects (the count needs a live query per change; boolean filters are a segmented control).
+- **products-phone:** Floating selection bar has no ⋯ menu; bulk actions show as labelled buttons (the demo has bulk actions with labels).
+- **product-edit, order-detail:** One column (max 4xl) instead of the design's main column + aside cards (status, record info, delete; customer, address, payment) (two-column layout and aside cards).
+- **product-edit:** Section anchors as a tab strip (اطلاعات اصلی، قیمت و موجودی، تصاویر…) with counts; we show the layout's own tabs (record tabs with counts come with the two-column layout).
+- **product-edit:** Header actions «پیش‌نمایش», «کپی», ⋯ and primary «انتشار»; header subtitle "last edited … by …" (per-record primary actions).
+- **product-edit:** Image grid with main-image badge and alt-text warning; variants table with inline toggles; questions, files, history cards on the same page (inline presentation).
+- **order-detail:** Status stepper at the top; items table with thumbnails and totals block; status history with notes (stepper and inline presentation).
+- **order-detail:** «چاپ فاکتور»، «چاپ برچسب پستی», tracking-code field, refund button (printing, tracking code and gateway refund are out of scope (spec §8b)).
+- **product-edit, order-detail:** Save bar shows a subtitle of what changed in the design («قیمت فروش ویژه، ۲ تنوع»); ours says only «تغییرات ذخیره نشده» (the list of changed fields is not tracked per field label).
+- **all fa screens:** Persian digits and ٬ separators are now the fa default; existing fa screenshot baselines change (release note) (spec §4).
+- **palette:** No key hints (G T, N) next to items; records show no status at the end; an empty query lists every place to go (the design shows a few) (keyboard shortcuts per item are not built).
+- **sidebar-expanded:** Menu content is the demo's (no مشتری‌ها/پشتیبانی); the support badge is filled primary in the design, ours are all muted (demo content; badge emphasis is not configurable).
+- **products-desktop:** No ⋯ row menu; the price header has no unit («قیمت (تومان)»); demo categories are Latin (row actions menu is Task 8; header units are not generated).
+- **products-phone:** Cards have no SKU · category line (only SKU); the price unit sits after, as in the design, but the struck price is under it (the card shows the title's subline only).
+- **order-detail:** Aside holds the demo's Payment and «Handled by» cards (no customer, address, wallet); the header subtitle has no item count (the demo order has no customer/address entities).
+- **order-detail:** View-mode fields are a two-column label/value grid in a card; the design shows the order as the items table and totals (inline presentation and totals).
+- **order-detail:** Totals show items and the order total only (no subtotal, discount, shipping rows); line totals per row are not shown (the demo order has no discount/shipping fields).
+- **product-edit:** Picture cards are stacked cards with a caption; the design shows a grid of thumbnails with drag handles and an upload tile (a grid presentation for image inlines is not built).
+- **dashboard-light/dark/phone:** No horizontal "orders by stage" bars (chart widgets are vertical bars or lines); no relative times («۱۰ دقیقه پیش») in the orders table; the date-range control is an icon, not a date button (widget types as specified (§5.8)).
+- **dashboard-light/dark/phone:** No «اتصال‌ها» (CRM) card (out of scope (spec §8b)).
+- **sidebar-expanded, phone-drawer (shop-nest):** Settings uses the gear, not the design's sliders; support uses MessageSquare (the design's is a round bubble) (neither icon is in the curated map (`lib/icons.ts`)).
+- **sidebar-expanded, phone-drawer (shop-nest):** Every badge is muted; the design fills the support badge with the accent (badge emphasis is not configurable (as on the demo)).
+- **sidebar-expanded (shop-nest):** The design captures the sidebar with «فروش» open on the orders page; the capture opens on the dashboard (the screen's URL, not the menu).
+- **palette (shop-nest):** The design shows a typed order number with matching orders; the capture's query is empty, so it lists actions and places (the screen script types nothing for shop-nest's numbers).
+- **sidebar (shop-nest):** Low-stock badge on «موجودی» is fixed at 5 (`commerce.lowStockThreshold`'s default) (a menu badge is a fixed list query, read at boot).
+- **products-desktop (shop-nest):** Title «محصول» (the resource's label) instead of «محصولات», and «جدید» instead of «افزودن محصول» (resources have no plural label or add-button text).
+- **products-desktop (shop-nest):** No row ⋯ menu, no «خروجی Excel», no change-category or bulk-price actions (out of scope (spec §8b)).
+- **product-edit (shop-nest):** No status card with publish settings beside the form; status is a field of «اطلاعات اصلی» (aside cards are read-only).
+- **product-edit (shop-nest):** «قیمت و موجودی» is a summary (lowest price, variant count), not inputs (price, sale price, SKU and stock live per variant in shop-nest; the variants table edits them).
+- **product-edit (shop-nest):** Questions are an editable cards inline (question and answer), not the design's answer/hide thread (shop-nest's FAQs are written by staff; answering customers' questions inline is out (spec §8b)).
+- **product-edit (shop-nest):** Variants: no colour/size columns, stock or active switch per row, no «ساخت خودکار از ویژگی‌ها» (variant auto-build is out (spec §8b); stock is changed only by «Adjust stock» (plan 3)).
+- **product-edit (shop-nest):** Section anchors under the header are the page's tabs (جزئیات، تاریخچه), not one per section with counts (record tabs per section are not built).
+- **product-edit (shop-nest):** A «مرتبط» row lists inline children (تنوع، تصویر محصول…) too (related links follow `schema.related`, which ignores `nav: false`).
+- **order-detail (shop-nest):** Status history is a table of raw values (`status`, `pending_payment`, `customer:2`), not the design's timeline of labelled events; no internal note box (one log table holds three kinds of value (status, fulfillment, attention), so no enum labels apply; notes need a writable inline).
+- **order-detail (shop-nest):** No tracking-code field in «ارسال»: the code is entered through «پیشبرد ارسال»; the next-step button stops at «آماده‌ی ارسال» (aside and sections are read-only; «تحویل پست» needs the code (spec §8b)).
+- **order-detail (shop-nest):** No «چاپ فاکتور»/«چاپ برچسب پستی», no «استرداد وجه» to the gateway (only «بازپرداخت به کیف پول»), no ⋯ menu (printing and gateway refunds are out of scope (spec §8b)).
+- **order-detail (shop-nest):** Customer card shows the mobile only (no avatar, order count or wallet); the address card has no edit link and no copy button (relation cards show the related record's fields; an order's address is a snapshot).
+- **order-detail (shop-nest):** Lines show a picture placeholder when the product has no media; no strikethrough regular price or variant subline (inline columns are plain fields plus computed cells).
+- **order-detail (shop-nest):** Step labels follow shop-nest's seven `FULFILLMENT_STEPS` (the design has six) (accepted difference (spec §8b)).
+- **dashboard-light/dark/phone (shop-nest):** Stat captions say «نسبت به دوره‌ی قبل» for every period (the design: «نسبت به دیروز» / «نسبت به ماه قبل»); units only on money (one caption per widget, the period is the UI's).
+- **dashboard-light/dark/phone (shop-nest):** Low stock: product and a plain number (no SKU column, no «N عدد»/«ناموجود» badge); tickets: subject and status only (no customer, priority, waiting time) (widget tables as specified; per product, not per variant).
+- **dashboard-phone (shop-nest):** Latest orders stay a four-column table on a phone (badges clip at the edge); the design turns rows into two-line items (table widgets have no phone layout).
+- **dashboard (shop-nest):** The target ring is empty with «هدف فروش ماه تعیین نشده است» until `commerce.monthlySalesTarget` is set (Settings → فروش → داشبورد) (no target by default).
+
 ## 9. Calls made by the spec author (check these)
 
 - **Approval (§7):** each affected screen is shown to the user as real-vs-design screenshots in chat (or a private artifact page); the user's yes in chat is the approval. Pages the design does not draw (users/roles/groups, audit, settings pages, login and 2FA, action dialog, quick view, inline cards, files UI) get the tokens and restyled primitives, are judged against the design's language by the reviewer, and are shown to the user as one batch at the end of step 1.
