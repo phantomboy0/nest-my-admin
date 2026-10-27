@@ -50,7 +50,7 @@ export function RelationInput({ id, resource, field, value, onChange, clearable,
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const search = useDebounced(text.trim(), 250);
-  const options = useOptions(resource, field.name, search, open, values, parent);
+  const options = useOptions(resource, field.optionsField ?? field.name, search, open, values, parent);
   const items = (options.data?.items ?? []).filter((item) => !selected.some((picked) => sameId(picked, item)));
   const listId = `${id}-options`;
   const optionId = (index: number) => `${id}-option-${index}`;

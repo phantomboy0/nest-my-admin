@@ -323,6 +323,17 @@ export class ResourceRegistry implements OnModuleInit {
     const actions = resolveActions(resource.constructor, BASE_MEMBERS, (message) => {
       throw new Error(`${className}: ${message}`);
     });
+    // Action inputs picked like one of the resource's relation fields (`@AdminField({ pickFrom })`).
+    for (const action of actions.values()) {
+      if (!action.form) continue;
+      action.form.fields = action.form.fields.map((field) => {
+        const from = action.form!.config.get(field.name)?.pickFrom;
+        if (from === undefined) return field;
+        const source = schema.fields.find((candidate) => candidate.name === from);
+        if (!source || source.type !== 'relation') throw new Error(`${className}: @AdminAction "${action.name}": input field "${field.name}": pickFrom "${from}" is not a relation field of ${schema.name}`);
+        return { ...field, type: 'relation', relation: source.relation, optionsField: from };
+      });
+    }
     // All-or-nothing is a promise only a transaction can keep.
     const atomic = [...actions.values()].find((action) => action.atomic);
     if (atomic && !this.options.transactions) {

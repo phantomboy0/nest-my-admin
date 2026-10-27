@@ -31,6 +31,11 @@ export interface AdminFieldOptions {
   label?: LocalizedText;
   /** A sentence under the input. */
   help?: LocalizedText;
+  /**
+   * On a property of an action's input DTO: pick the value like the resource's own relation field of this name (the
+   * same picker and options, `categoryId` → a category picker). The property receives the chosen record's id.
+   */
+  pickFrom?: string;
   placeholder?: LocalizedText;
   widget?: WidgetName;
   /** Labels of enum values (`{ draft: { en: 'Draft', fa: 'پیش‌نویس' } }`); the values sent stay the raw ones. */

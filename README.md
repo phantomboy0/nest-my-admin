@@ -479,6 +479,7 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 - **Selections.** A bulk action runs on up to 100 records.
   - By default each record gets its own transaction: the answer is `{ ok, failed: [{ id, code, message }], message? }`, and one failure does not stop the others. The list shows how many ran and why the others did not.
   - `atomic: true` runs them all in one transaction: every record is checked first, and one failure is the answer, with nothing applied. It needs the admin's transactions (boot fails with `transactions: false`). The confirmation says "all or nothing".
+- **Picking a record.** `@AdminField({ pickFrom: 'categoryId' })` on an input property shows the same picker as the resource's own relation field `categoryId`; the property receives the chosen id (validate it with `@IsInt()`, and check it exists in the method).
 - **Refusing.** Throw from the method:
   - an `HttpException` below 500 answers with its status and message (409 is `CONFLICT`, 400 is `BUSINESS_RULE`), and the UI shows the message;
   - a 401 from host code is answered as 400, because 401 means signed out to the admin: an action, a settings page's `load`/`save`, or a resource's `create`/`update`/`delete` (and their hooks) that rethrows a provider's `UnauthorizedException` gets a 400 `BUSINESS_RULE` with its message (an `errorMapper` sees that 400, with the original as its `cause`);
