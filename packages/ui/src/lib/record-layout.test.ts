@@ -72,17 +72,18 @@ describe('summaries and warnings', () => {
 });
 
 describe('fields beside the main column', () => {
-  test('read-only fields an aside card or a summary shows are not repeated; editable ones and relation cards are not counted', () => {
+  test('read-only fields shown beside the main sections are not repeated; editable ones are', () => {
     const page = {
       ...schema,
       form: {
         ...schema.form,
         update: ['notes', 'status'],
-        readonly: ['total', 'number'],
+        readonly: ['total', 'number', 'customerId', 'createdAt'],
+        header: { badges: ['status'], subtitle: [{ field: 'createdAt' }, { computed: 'lines' }] },
         layout: [{ fields: ['notes'], columns: 1 }, { title: 'Totals', summary: [{ label: 'Total', value: { field: 'total' } }, { label: 'Items', value: { computed: 'lines' } }] }],
         aside: [{ title: 'Status', fields: ['status', 'number'] }, { title: 'Customer', fields: ['name'], relation: { field: 'customerId', resource: 'customer', link: true } }],
       },
     } as unknown as ResourceSchema;
-    expect([...shownBesideMain(page)].sort()).toEqual(['number', 'total']);
+    expect([...shownBesideMain(page)].sort()).toEqual(['createdAt', 'customerId', 'number', 'total']);
   });
 });

@@ -11,15 +11,17 @@ export function layoutFields(schema: ResourceSchema): string[] {
 }
 
 /**
- * Read-only fields an aside card or a summary already shows: the form leaves them out of its last section of
- * «everything else», so they appear once. Fields the user may change still get their input there.
+ * Read-only fields the page already shows outside the main sections (aside cards, a relation card's relation,
+ * summaries, the header's badges and subtitle): the form leaves them out of its last section of «everything else»,
+ * so they appear once. Fields the user may change still get their input there.
  */
 export function shownBesideMain(schema: ResourceSchema): Set<string> {
   const sections = (schema.form.layout ?? []).flatMap((node: FormLayoutNode) => ('tab' in node ? node.sections : [node]));
   const summaries = sections.flatMap((node) => ('summary' in node ? node.summary.flatMap((row) => ('field' in row.value ? [row.value.field] : [])) : []));
-  const cards = (schema.form.aside ?? []).flatMap((card) => (card.relation ? [] : card.fields));
+  const cards = (schema.form.aside ?? []).flatMap((card) => (card.relation ? [card.relation.field] : card.fields));
+  const header = [...(schema.form.header?.badges ?? []), ...(schema.form.header?.subtitle ?? []).flatMap((item) => ('field' in item ? [item.field] : []))];
   const editable = new Set(schema.form.update);
-  return new Set([...summaries, ...cards].filter((name) => !editable.has(name)));
+  return new Set([...summaries, ...cards, ...header].filter((name) => !editable.has(name)));
 }
 
 /**
