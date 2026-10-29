@@ -32,6 +32,8 @@ export interface FieldSchema {
   scale?: number;
   /** Backed by a known integer column type (int, smallint, ...); `number` fields without it may be floats. */
   integer?: boolean;
+  /** An action input picked like this relation field of the resource (`@AdminField({ pickFrom })`): its options endpoint. */
+  optionsField?: string;
   /** Set when `type` is `relation`. */
   relation?: RelationSchema;
   /** Set when `type` is `object`: the group's fields, named relative to it (`city` in `address`). */
