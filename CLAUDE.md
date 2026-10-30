@@ -46,7 +46,7 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - `list.pagination: 'keyset'` goes through `crud/cursor.ts`: `after` is a base64url `{ s, v }`, and `applyKeyset` builds the WHERE clause.
   - `autoRegister` is a list of DataSource names.
   - `linkRelations` fills `schema.related`, adds the implied filters, and fills `sortPaths` (relation → title column).
-  - `relationOptions` takes a 4th `values` argument (`?values=` JSON, or the body/stored record on writes).
+  - `relationOptions` takes a 4th `values` argument (`?values=` JSON, or the body/stored record on writes) and may return a Promise (`optionsQuery` awaits it). Picker `values` and `values._parent` go through `normalizeRelationValues` (`crud/relation-writes.ts`) so relation ids have the key's type.
 - UI shell and i18n (M2-1):
   - Text lives in `packages/ui/src/i18n/{en,fa}.ts`. `fa` is typed as `Messages` from `en`, and a test checks keys, placeholders and physical Tailwind utilities.
   - React components use `useT()`; non-React code uses `translate()` (module locale from `applyLocale`).

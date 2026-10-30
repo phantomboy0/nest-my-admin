@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { DataSource, EntityManager } from 'typeorm';
+import type { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, TabCounts, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout, mainLayout } from '../schema/field-config.js';
 import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
@@ -30,7 +30,7 @@ import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js'
 import { likePattern } from '../crud/list-query-builder.js';
 import { parseId } from '../crud/list-query.js';
 import { isLoadedField, loadReferences, relationRef } from '../crud/references.js';
-import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
+import { normalizeRelationValues, relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
 import { auditParticipant } from '../audit/audit-participant.js';
@@ -639,7 +639,7 @@ export class AdminApiService {
    * A query for the records a relation field may point to (`option`), restricted by the target resource's query() and
    * this resource's relationOptions().
    */
-  private optionsQuery(entry: RegisteredResource, field: string, ctx: AdminContext, values: Record<string, unknown>) {
+  private async optionsQuery(entry: RegisteredResource, field: string, ctx: AdminContext, values: Record<string, unknown>): Promise<SelectQueryBuilder<any>> {
     const target = entry.relations.get(field)!.inverseEntityMetadata;
     const manager = ctx.manager ?? entry.dataSource.manager;
     const qb = manager.getRepository(target.target).createQueryBuilder('option');
@@ -665,7 +665,7 @@ export class AdminApiService {
       if (ids.length === 0) continue;
       const target = entry.relations.get(field)!.inverseEntityMetadata;
       const key = target.primaryColumns[0]!.propertyName;
-      const rows: Array<{ id: unknown }> = await this.optionsQuery(entry, field, ctx, values)
+      const rows: Array<{ id: unknown }> = await (await this.optionsQuery(entry, field, ctx, values))
         .andWhere(`option.${key} IN (:...nmaIds)`, { nmaIds: ids })
         .select(`option.${key}`, 'id')
         .getRawMany();
@@ -694,7 +694,7 @@ export class AdminApiService {
         throw new AdminValidationError({ [key]: [known.has(key) ? 'must be given once' : 'is not a supported parameter'] });
       }
     }
-    const values = this.parentValues(entry, parseValues(query.get('values')), query.get('parent'), ctx);
+    const values = this.parentValues(entry, normalizeRelationValues(parseValues(query.get('values')), entry.schema), query.get('parent'), ctx);
     const relation = entry.relations.get(fieldName)!;
     const target = relation.inverseEntityMetadata;
     const key = target.primaryColumns[0]!.propertyName;
@@ -704,7 +704,7 @@ export class AdminApiService {
     if (targetEntry && !this.policy.permissionsOf(ctx).canOn(targetEntry.schema.name, 'view')) {
       throw new AdminForbiddenError(`You may not view ${targetEntry.schema.label} records`);
     }
-    const qb = this.optionsQuery(entry, fieldName, ctx, values);
+    const qb = await this.optionsQuery(entry, fieldName, ctx, values);
 
     const rawIds = query.get('ids');
     const search = query.get('search')?.trim() ?? '';
@@ -747,7 +747,7 @@ export class AdminApiService {
     const sent = values._parent;
     if (typeof sent !== 'object' || sent === null || Array.isArray(sent)) throw new AdminValidationError({ values: ['_parent must be an object of the parent form\'s values'] });
     const own = Object.fromEntries(Object.entries(sent).filter(([key]) => !key.startsWith('_')));
-    return { ...values, _parent: { ...own, _resource: parent.schema.name } };
+    return { ...values, _parent: { ...normalizeRelationValues(own, parent.schema), _resource: parent.schema.name } };
   }
 
   /**

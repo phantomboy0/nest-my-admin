@@ -345,9 +345,11 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral,
    * update (a restricted id is a 422 on the field). `qb` selects the target entity as `option`; the target resource's
    * `query()` has already been applied. `values` are the record's values as the user sees them: the form's current
    * values in the picker, the body on create, the stored record with the body on top on update (relations as ids),
-   * so one field's options can depend on another (`city` on `province`). Default: all records.
+   * so one field's options can depend on another (`city` on `province`). Relation ids in `values` (and in
+   * `values._parent`) are in the target key's type. May be async: a lookup inside it should use `ctx.manager` when set,
+   * so a write's check sees its own transaction. Default: all records.
    */
-  relationOptions(_field: string, qb: SelectQueryBuilder<any>, _ctx: AdminContext, _values: Record<string, unknown>): SelectQueryBuilder<any> {
+  relationOptions(_field: string, qb: SelectQueryBuilder<any>, _ctx: AdminContext, _values: Record<string, unknown>): SelectQueryBuilder<any> | Promise<SelectQueryBuilder<any>> {
     return qb;
   }
 

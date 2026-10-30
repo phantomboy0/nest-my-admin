@@ -163,6 +163,12 @@ relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext, v
 }
 ```
 
+- It may be `async` when it needs to look something up first (use `ctx.manager` when it is set, so a check during a
+  write sees that write's transaction). An override that returns `super.relationOptions(...)` under an explicit
+  `: SelectQueryBuilder<any>` return type needs that annotation dropped (the base now answers either).
+- Relation ids in `values` and in `values._parent` arrive in the target key's type (a number for an integer key), as
+  in write bodies; an id that cannot be one is left out.
+
 ### Entity shapes
 
 - **Record ids.** Every record carries `_id`, the id used in URLs: key values in primary-key order, joined by `,`,

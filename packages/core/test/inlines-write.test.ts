@@ -770,6 +770,13 @@ describe(`Review Focus 4: dependent options see the parent's values (${TEST_DB})
     expect(all.body.items.map((item: { title: string }) => item.title).sort()).toEqual(['Legs', 'Seat']);
   });
 
+  test("_parent values arrive in the key type", async () => {
+    SpecAdmin.seen.length = 0;
+    const values = encodeURIComponent(JSON.stringify({ _parent: { name: 'New', categoryId: String(cats.chairs) } }));
+    expect((await root.get(`/resources/spec/fields/attributeId/options?values=${values}&parent=product`)).status).toBe(200);
+    expect(SpecAdmin.seen.at(-1)).toEqual({ _parent: { _resource: 'product', name: 'New', categoryId: cats.chairs } });
+  });
+
   test('the picker refuses a `parent` that does not inline the child, or one sent without `_parent`', async () => {
     const values = encodeURIComponent(JSON.stringify({ _parent: { categoryId: cats.chairs } }));
     expect((await root.get(`/resources/spec/fields/attributeId/options?parent=product`)).status).toBe(422);
