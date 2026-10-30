@@ -1,6 +1,6 @@
 {
   "name": "nest-my-admin",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "Django-admin-class admin panel for NestJS + TypeORM: @nest-my-admin/core, /auth and /testing under one name",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/phantomboy0/nest-my-admin.git", "directory": "packages/nest-my-admin" },

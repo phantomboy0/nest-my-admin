@@ -934,6 +934,10 @@ Things hosts tend to write by hand that the admin already does:
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
 
+## Upgrading to 0.7.3
+
+Nothing to change. Smaller packages: `@nest-my-admin/core`, `/auth` and `/testing` no longer ship source maps (they pointed at sources the packages do not include), so core is about 1.2 MB instead of 1.9 MB; core no longer asks for `rxjs` and `@nest-my-admin/testing` no longer asks for `@nestjs/core`, neither of which they import.
+
 ## Upgrading to 0.7.2
 
 Nothing to change. Fixed: 0.7 typed the context of `AdminSettingsSource.save` as `AdminWriteContext`, so code that calls a page's `save()` with an `AdminContext` stopped compiling; it takes an `AdminContext` again. Your own `save` may still declare `ctx: AdminWriteContext` to use `ctx.manager` without `!`.

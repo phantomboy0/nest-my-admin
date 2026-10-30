@@ -86,6 +86,16 @@ for (const file of ['index', 'auth', 'testing']) {
 // @nestjs/testing is the host's (a dev dependency): installing nest-my-admin must not require it.
 assert((JSON.parse(testingPackage) as { peerDependenciesMeta?: Record<string, { optional?: boolean }> }).peerDependenciesMeta?.['@nestjs/testing']?.optional === true, 'testing must mark @nestjs/testing an optional peer');
 
+// The server packages ship no source maps: they would point at src/, which is not in the package.
+for (const [name, tgz] of [['core', coreTgz], ['auth', authTgz], ['testing', testingTgz]] as const) {
+  const maps = (await $`tar -tzf ${tgz}`.text()).trim().split('\n').filter((entry) => entry.endsWith('.map'));
+  assert(maps.length === 0, `${name} tarball ships source maps (${maps.length}, e.g. ${maps[0]})`);
+}
+// Only what the code imports is asked of the host.
+const peersOf = (json: string) => Object.keys((JSON.parse(json) as { peerDependencies?: Record<string, string> }).peerDependencies ?? {});
+assert(!peersOf(corePackage).includes('rxjs'), 'core asks for rxjs, which it never imports');
+assert(!peersOf(testingPackage).includes('@nestjs/core'), 'testing asks for @nestjs/core, which it never imports');
+
 // 2. The ui tarball ships only the build (no React, no sources).
 const uiEntries = (await $`tar -tzf ${uiTgz}`.text()).trim().split('\n');
 assert(uiEntries.includes('package/dist/index.html'), 'ui tarball has no dist/index.html');
