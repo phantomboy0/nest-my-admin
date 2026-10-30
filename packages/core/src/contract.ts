@@ -533,6 +533,8 @@ export interface RecordPermissions {
   delete: boolean;
   /** Record actions by name: the label to show on this record (`label.for`, else the action's label), or `false` when it may not run here. */
   actions?: Record<string, string | false>;
+  /** Inline children with an `@AdminCan('create')` rule: whether a row may be added under this record. */
+  inlines?: Record<string, { create: boolean }>;
 }
 
 /** `POST /resources/:resource/bulk-delete` with `{ ids }` (encoded record ids): each id succeeds or fails on its own. */

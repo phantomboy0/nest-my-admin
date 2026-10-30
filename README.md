@@ -620,6 +620,19 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 
 **Permissions.** An inline never widens access: a user reads, adds, changes, removes or reorders a child through an inline only as they could through the child's own resource (`order-line.view`, `.create`, `.update`, `.delete`, its field levels and scopes, each row's `@AdminCan`), and only the children of this parent. A user without `<child>.view` does not see the inline at all; without `<child>.delete` there is no remove button, and a crafted delete is a 403 that saves nothing. Since children are saved with the parent, the save also needs `<parent>.create` (a new parent) or `<parent>.update`. View-as shows inlines read-only, like everything else.
 
+**Adding rows, per parent.** `@AdminCan('create')` on the child decides whether rows may be added under a given parent: it gets the parent record (as the parent resource reads it) and answers `true` to allow.
+
+```ts
+@AdminResource(OrderLine)
+class OrderLineAdmin extends AdminResourceBase<OrderLine> {
+  @AdminCan('create') notShipped(order: Order) {
+    return order.status !== 'shipped';
+  }
+}
+```
+
+The parent's records carry `_perm.inlines.<child>.create`, and the inline hides «Add» when it is `false`. A save that adds rows anyway is a 403 that writes nothing; so is a `POST` to the child's own endpoint whose link field names such a parent. A parent created in the same save is judged once it exists. A rule that throws says no (logged once). It may only be declared on an inline child (boot error otherwise).
+
 **Saving.** The form sends, next to the parent's fields, `_inlines: { <child>: { create, update, delete, order } }` (`InlineChanges` in the contract): new rows with a `_key`, changed fields of changed rows with their `_id` (and `_version` for a child with a version column), the ids to delete, and the new order. Inside the parent's write the parent is saved first (a save with only inline changes does not update the parent), then each inline in layout order: deletes, updates, creates, each through the child resource's own `delete`/`update`/`create` and its write participants (files, audit). Any error rolls back everything; errors name the row (`_inlines.order-line.create.2.quantity`, `_inlines.order-line.update.17.unitPrice`) and the form shows them on that row. At most 500 entries per inline per request.
 
 **Options that depend on the parent.** A child's `relationOptions(field, qb, ctx, values)` receives `values._parent`: the parent form's values as the user sees them (unsaved, in the picker; body over stored, on save), with `_parent._resource` naming the parent. Use it to narrow a picker to what the parent allows, such as the attributes of the product's category.

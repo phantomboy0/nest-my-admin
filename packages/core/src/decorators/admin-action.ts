@@ -158,9 +158,10 @@ export function resolveActions(resourceClass: Function, reserved: readonly strin
   if (primaries.length > 1) fail(`@AdminAction: only one action can be \`primary\` (${primaries.map((action) => action.name).join(', ')})`);
   // A rule under a name nothing checks would silently never apply.
   for (const rule of getCanRuleNames(resourceClass)) {
-    if (rule === 'update' || rule === 'delete') continue;
+    // `create` is an inline child's rule on its parent, checked once inlines are resolved (the registry).
+    if (rule === 'update' || rule === 'delete' || rule === 'create') continue;
     const action = actions.get(rule);
-    if (!action) fail(`@AdminCan("${rule}") names no record action${didYouMean(rule, ['update', 'delete', ...actions.keys()])}`);
+    if (!action) fail(`@AdminCan("${rule}") names no record action${didYouMean(rule, ['update', 'delete', 'create', ...actions.keys()])}`);
     if (action!.target === 'resource') fail(`@AdminCan("${rule}"): "${rule}" runs on the resource, not on a record`);
   }
   return actions;

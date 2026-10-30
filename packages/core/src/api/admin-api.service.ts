@@ -51,6 +51,7 @@ import { ActionService } from './action.service.js';
 import type { WriteChange } from './write-participant.js';
 import { SINGLE_CONNECTION_DRIVERS } from './write-queue.js';
 import { WriteRunner } from './write-runner.js';
+import { getCanRules } from '../decorators/admin-scope.js';
 
 @Injectable()
 export class AdminApiService {
@@ -510,6 +511,7 @@ export class AdminApiService {
     return this.write(entry, ctx, async (tx) => {
       // Every refusal the children can cause is decided before the parent is written.
       const checked = plan ? await this.inlineWriter.check(plan, undefined, tx) : undefined;
+      await this.checkParentRules(entry, dto as Record<string, unknown>, tx);
       const created = await this.change({ kind: 'create', target: entry, dto }, tx, async () => {
         await this.checkRelationsExist(entry, relationIds, tx, dto as Record<string, unknown>);
         const result: unknown = await resource.create(dto, tx);
@@ -521,6 +523,23 @@ export class AdminApiService {
       if (plan) await this.inlineWriter.apply(plan, checked!, created, tx);
       return this.withInlineRows(entry, created, tx);
     });
+  }
+
+  /**
+   * `@AdminCan('create')` of an inline child created through its own endpoint: each parent its link field names, as
+   * the user may view it, must allow the new row (403). Without a link value, or a parent the user cannot see, the rule
+   * has nothing to judge (the relation checks answer).
+   */
+  private async checkParentRules(entry: RegisteredResource, dto: Record<string, unknown>, ctx: AdminContext): Promise<void> {
+    if (getCanRules(entry.resource.constructor, 'create').length === 0) return;
+    for (const parent of this.registry.list()) {
+      for (const inline of parent.inlines) {
+        const value = inline.child === entry ? dto[inline.link] : undefined;
+        if (value === undefined || value === null) continue;
+        const found = await parent.resource.readQuery('nma_parent', ctx).andWhere(`nma_parent.${inline.referenced} = :nmaParent`, { nmaParent: value }).getOne();
+        if (found && !this.policy.createRule(entry, found, ctx)) throw new AdminForbiddenError(`You may not add ${entry.schema.label} rows here`);
+      }
+    }
   }
 
   async update(name: string, rawId: string, body: unknown, ctx: AdminContext, version?: number): Promise<AdminRecord> {

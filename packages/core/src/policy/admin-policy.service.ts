@@ -517,6 +517,14 @@ export class AdminPolicy implements OnApplicationBootstrap {
     return true;
   }
 
+  /**
+   * Whether a row of the inline `child` may be added under `parent` (the parent entity as its resource reads it): every
+   * `@AdminCan('create')` rule of the child agrees; a rule that throws says no. True for a child without one.
+   */
+  createRule(child: RegisteredResource, parent: object, ctx: AdminContext): boolean {
+    return this.recordRule(child, 'create', parent, ctx);
+  }
+
   /** 403 when `@AdminCan` says no for this record. */
   requireRecordRule(entry: RegisteredResource, operation: RecordOperation, entity: object, ctx: AdminContext): void {
     if (!this.recordRule(entry, operation, entity, ctx)) throw new AdminForbiddenError(`You may not ${operation} this ${entry.schema.label} record`);
@@ -532,7 +540,9 @@ export class AdminPolicy implements OnApplicationBootstrap {
     const perms = this.permissionsOf(ctx);
     const target = entry.resource.constructor;
     const recordActions = [...entry.actions.values()].filter((action) => action.target === 'record');
-    const hasRules = ['update', 'delete', ...recordActions.map((action) => action.name)].some((name) => getCanRules(target, name).length > 0);
+    // Inline children with a create rule: whether a row may be added under each record.
+    const ruledInlines = entry.inlines.filter((inline) => getCanRules(inline.child.resource.constructor, 'create').length > 0);
+    const hasRules = ruledInlines.length > 0 || ['update', 'delete', ...recordActions.map((action) => action.name)].some((name) => getCanRules(target, name).length > 0);
     // Per-record labels are computed for everyone, superusers too.
     if (perms.superuser && !hasRules && !recordActions.some((action) => action.labelFor)) return undefined;
     const locale = ctx.locale ?? this.options.locale;
@@ -562,6 +572,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
               ),
             }
           : {}),
+        ...(ruledInlines.length > 0 ? { inlines: Object.fromEntries(ruledInlines.map((inline) => [inline.name, { create: this.createRule(inline.child, entity, ctx) }])) } : {}),
       });
     }
     return result;
