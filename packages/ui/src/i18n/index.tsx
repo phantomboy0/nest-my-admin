@@ -28,9 +28,20 @@ export function activeLocale(): string {
   return active;
 }
 
-/** `{name}` placeholders filled from `params`. Unknown locales use English; a missing key would be a type error. */
+/** The host's rewordings of UI texts per locale (`translate` with `ui.<key>`, sent in the runtime config). */
+let overrides: Record<string, Record<string, string>> = {};
+
+/** Set once before render from the runtime config's `messages`. */
+export function applyMessageOverrides(messages: Record<string, Record<string, string>> | undefined): void {
+  overrides = messages ?? {};
+}
+
+/**
+ * `{name}` placeholders filled from `params`. The host's override for the locale first, then the locale's bundle, then
+ * English (also for locales without a bundle); a missing key would be a type error.
+ */
 export function translate(key: MessageKey, params: Record<string, string | number> = {}, locale = active): string {
-  const template = (BUNDLES[locale] ?? en)[key] ?? en[key];
+  const template = overrides[locale]?.[key] ?? (BUNDLES[locale] ?? en)[key] ?? en[key];
   return template.replace(/\{(\w+)\}/g, (match, name: string) => (name in params ? String(params[name]) : match));
 }
 

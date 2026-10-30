@@ -156,3 +156,30 @@ describe("the page is in the admin's default locale", () => {
     expect(asset.headers['vary']).toBeUndefined();
   });
 });
+
+describe('UI texts through translate', () => {
+  const config = (html: string) => JSON.parse(html.match(/<script type="application\/json" id="nma-config">(.*?)<\/script>/)![1]!);
+
+  test('translate rewords UI texts in the served config', async () => {
+    const app = await createTestApp({ admin: { locale: 'fa', locales: ['fa', 'en'], translate: ({ key, locale }) => (key === 'ui.form.save' && locale === 'fa' ? 'ثبت' : undefined) } });
+    try {
+      const html = (await request(app.getHttpServer()).get('/admin/')).text;
+      expect(config(html).messages).toEqual({ fa: { 'form.save': 'ثبت' } });
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('without rewordings the config has no messages', async () => {
+    const app = await createTestApp({ admin: { translate: () => undefined } });
+    try {
+      expect('messages' in config((await request(app.getHttpServer()).get('/admin/')).text)).toBe(false);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test('a placeholder mismatch fails boot', async () => {
+    await expect(createTestApp({ admin: { translate: ({ key }) => (key === 'ui.form.add' ? 'Add' : undefined) } })).rejects.toThrow('translate: ui.form.add (en) must keep the placeholders {name}');
+  });
+});

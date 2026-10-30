@@ -51,6 +51,7 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - Text lives in `packages/ui/src/i18n/{en,fa}.ts`. `fa` is typed as `Messages` from `en`, and a test checks keys, placeholders and physical Tailwind utilities.
   - React components use `useT()`; non-React code uses `translate()` (module locale from `applyLocale`).
   - Host texts on the server go through `options.texts` (`i18n/texts.ts` `createTexts`: the `translate` option, then `resolveText`), with keys from `scopedText(texts, locale, 'resource.<r>')`; field texts through `FieldText` paths, layout nodes through their optional `key`. Boot-time schemas use `bootText`/`bootFieldText`. `resolveText` stays only for the served page's title.
+  - UI texts: the UI build emits `dist/messages.json` (`i18n/messages-file.ts`, a Vite plugin); `AdminHttpServer.onModuleInit` reads it (`http/ui-messages.ts` `readUiMessages`, `uiOverrides`: `translate` with `ui.<key>` once per locale, placeholders checked) into `AdminRuntimeConfig.messages`; the UI's `translate()` looks up `applyMessageOverrides` first. Test apps' fixture `test/fixtures/ui-dist/messages.json` has two keys.
   - Core resolves `LocalizedText` labels per request (`pickLocale(Accept-Language)` in `AdminHttpServer.handle`, `meta(locale)`/`schema(locale)`), and sets `Content-Language` and `Vary`.
   - Theme and branding are applied in `main.tsx` before render (`lib/theme.ts`).
   - Sidebar state lives in `lib/nav-state.ts`, and icons come from a curated map (`lib/icons.ts`).

@@ -994,4 +994,6 @@ export interface AdminRuntimeConfig {
   branding: BrandingConfig;
   /** The global money unit, in every configured language (the UI picks its own). */
   currency?: { unit: LocalizedLabel; position: 'after' | 'before' };
+  /** UI texts the host rewords through `translate` (`ui.<key>`), per locale; only the overridden keys. */
+  messages?: Record<string, Record<string, string>>;
 }

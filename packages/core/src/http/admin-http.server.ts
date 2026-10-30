@@ -41,6 +41,7 @@ import { Router } from './router.js';
 import { UiAssets, resolveUiDist } from './ui-assets.js';
 import { AdminApiService } from '../api/admin-api.service.js';
 import { ADMIN_OPTIONS } from '../constants.js';
+import { readUiMessages, uiOverrides } from './ui-messages.js';
 
 interface RequestState {
   req: AdminRequest;
@@ -348,8 +349,12 @@ export class AdminHttpServer implements OnModuleInit {
     if (type !== 'express') {
       throw new Error(`nest-my-admin: the "${type}" HTTP adapter is not supported yet; use @nestjs/platform-express`);
     }
+    const distDir = this.options.uiDistPath ?? resolveUiDist();
+    const bundles = this.options.translate ? readUiMessages(distDir) : undefined;
+    if (this.options.translate && !bundles) this.logger.warn(`no messages.json in ${distDir}: translate cannot reword the UI's own texts`);
+    const messages = bundles ? uiOverrides(bundles, this.options.locales, this.options.translate) : {};
     this.ui = new UiAssets(
-      this.options.uiDistPath ?? resolveUiDist(),
+      distDir,
       {
         basePath: this.options.path,
         apiBase: `${this.options.path}/api`,
@@ -358,6 +363,7 @@ export class AdminHttpServer implements OnModuleInit {
         locales: this.options.locales,
         branding: this.options.branding as AdminRuntimeConfig['branding'],
         ...(this.options.currency ? { currency: this.options.currency } : {}),
+        ...(Object.keys(messages).length > 0 ? { messages } : {}),
       },
       { title: this.options.title },
     );

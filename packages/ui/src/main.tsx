@@ -19,7 +19,7 @@ import { HomePage } from '@/app/home-page';
 import { ListPage } from '@/app/list-page';
 import { NotFound } from '@/app/not-found';
 import { SettingsPage } from '@/app/settings-page';
-import { LocaleProvider } from '@/i18n';
+import { applyMessageOverrides, LocaleProvider } from '@/i18n';
 import { runtimeConfig } from '@/lib/config';
 import { setGlobalCurrency } from '@/lib/money';
 import { routerPath, setSignedOutHandler } from '@/lib/session';
@@ -32,6 +32,7 @@ applyBranding(runtimeConfig.branding);
 // This person's own accent (else the branding) before the first paint; the admin-wide one comes with the session.
 applyAccent({ branding: runtimeConfig.branding.primaryColor });
 setGlobalCurrency(runtimeConfig.currency);
+applyMessageOverrides(runtimeConfig.messages);
 followSystemTheme(readTheme);
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } });

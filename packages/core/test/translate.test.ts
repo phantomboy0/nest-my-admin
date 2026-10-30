@@ -81,6 +81,8 @@ class ToolsModule {}
 
 const asked: Array<{ key?: string; text: unknown; locale: string }> = [];
 const translate: AdminTranslate = (request) => {
+  // The UI's own texts (`ui.`) are asked at boot and must keep their placeholders: not this test's business.
+  if (request.key?.startsWith('ui.')) return undefined;
   asked.push(request);
   return request.key ? `T(${request.key})` : undefined;
 };

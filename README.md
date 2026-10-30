@@ -224,6 +224,8 @@ AdminModule.forRoot({
   - `key` names the text: `title`, `group.<key>`, `menu.<section>`, `menu.advanced`, `resource.<r>`, `resource.<r>.fields.<f>.label` (and `.help`, `.placeholder`, `.enumLabels.<value>`; nested fields by their dotted path, `hours.*.day`), `resource.<r>.actions.<a>.label` (and `.confirm`, `.fields.<f>.label` of its input), `resource.<r>.prints.<p>.label`, `resource.<r>.list.tabs.<t>.label`, `resource.<r>.list.computed.<c>.label`, `resource.<r>.form.<key>` for a layout node (section, tab, summary, inline, aside card) you give a `key`, `page.<p>` and `page.<p>.fields.<f>.label`, `widget.<w>.title`.
   - Texts without a stable name (layout nodes without a `key`, action messages, record links, badge labels) come with `text` only.
   - Role labels are stored with the roles and shown as they are.
+  - **The UI's own texts** (Save, Delete, «Add {name}» …) go through the same function as `ui.<key>` (the keys of the UI's English texts, listed in `messages.json` of the built UI). They are asked once per locale at boot, so for `ui.` keys `translate` must give the same answer every time; `text` is the built-in text of that locale (English when the UI has none). An answer must keep the `{name}` placeholders of the original, or boot fails naming the key and the locale. Only the texts you change are sent to the browser.
+  - That also adds UI languages the admin does not ship: put `'de'` in `locales` and answer `ui.` keys for it; whatever you leave out is English.
 - **Branding.**
   - `primaryColor` may be hex, `rgb()`, `hsl()` or `oklch()`, and `radius` a length. Text on the primary colour is
     chosen from its lightness.
