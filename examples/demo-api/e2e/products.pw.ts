@@ -513,6 +513,23 @@ test('leaving with unsaved changes asks first; Ctrl+S saves in place (M2-3 Revie
   await expect(page).toHaveURL(new RegExp(`${url}$`));
   await expect(page.getByLabel('Stock', { exact: true })).toHaveValue('41');
 
+  // The alert blocks the page: focus is on Stay, Tab stays between the two buttons, the backdrop and Escape both mean stay.
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(bar.getByRole('button', { name: 'Stay' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(bar.getByRole('button', { name: 'Leave' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(bar.getByRole('button', { name: 'Stay' })).toBeFocused();
+  await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
+  await page.keyboard.press('Escape');
+  await expect(bar).toBeHidden();
+  await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(bar).toBeVisible();
+  await page.getByTestId('alert-backdrop').click({ position: { x: 5, y: 5 } });
+  await expect(bar).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`${url}$`));
+
   await page.keyboard.press('Control+s');
   await expect(page.getByRole('status').filter({ hasText: 'saved' })).toContainText('“Guarded lamp” saved.');
   await expect(page).toHaveURL(new RegExp(`${url}$`));

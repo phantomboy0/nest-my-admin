@@ -8,6 +8,7 @@ import { Stepper } from '@/app/stepper';
 import { FieldInput, RichText } from '@/app/field-input';
 import { RecordActions } from '@/app/action-button';
 import { PrintButtons } from '@/app/print-export';
+import { BlockingAlert } from '@/app/blocking-alert';
 import { LeaveBar, SaveBar, SaveKey, useSaveShortcut, useUnsavedGuard, useUploadGate } from '@/app/form-guards';
 import { FormLayout } from '@/app/form-layout';
 import { InlineSection } from '@/app/inline-section';
@@ -710,7 +711,7 @@ function ConflictNotice({ fields, before, current, busy, onKeepMine, onLoadTheir
   const t = useT();
   const changed = fields.filter((field) => JSON.stringify(before?.[field.name] ?? null) !== JSON.stringify(current[field.name] ?? null));
   return (
-    <div role="alertdialog" aria-labelledby="conflict-title" aria-describedby="conflict-body" className="flex flex-col gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+    <BlockingAlert labelledBy="conflict-title" describedBy="conflict-body" className="flex flex-col gap-3 text-sm">
       <p id="conflict-title" className="font-medium">
         {t('form.conflictTitle')}
       </p>
@@ -738,6 +739,6 @@ function ConflictNotice({ fields, before, current, busy, onKeepMine, onLoadTheir
           {t('form.loadTheirs')}
         </Button>
       </div>
-    </div>
+    </BlockingAlert>
   );
 }
