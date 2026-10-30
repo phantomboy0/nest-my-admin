@@ -101,6 +101,17 @@ describe(`@AdminCan('create') on an inline child (${TEST_DB})`, () => {
     expect((await http().post('/admin/api/resources/book').send({ title: 'Fine', shelfId: open.id })).status).toBe(201);
   });
 
+  test('a direct PATCH cannot move a row under a parent that refuses new rows', async () => {
+    const open = await shelf('Move from', false);
+    const book = (await http().post('/admin/api/resources/book').send({ title: 'Mover', shelfId: open.id })).body as { _id: string };
+    const locked = await shelf('Move to', true);
+    expect((await http().patch(`/admin/api/resources/book/${book._id}`).send({ shelfId: locked.id })).status).toBe(403);
+    const other = await shelf('Move ok', false);
+    expect((await http().patch(`/admin/api/resources/book/${book._id}`).send({ shelfId: other.id })).status).toBe(200);
+    // Staying under its own parent is not "adding": a locked parent's row can still be edited.
+    expect((await http().patch(`/admin/api/resources/book/${book._id}`).send({ shelfId: other.id, title: 'Same shelf' })).status).toBe(200);
+  });
+
   test('a direct POST without the link value is not judged by the rule', async () => {
     const res = await http().post('/admin/api/resources/book').send({ title: 'Lost' });
     expect(res.status).toBe(422);

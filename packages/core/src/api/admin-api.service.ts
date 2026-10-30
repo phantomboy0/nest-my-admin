@@ -536,16 +536,22 @@ export class AdminApiService {
   }
 
   /**
-   * `@AdminCan('create')` of an inline child created through its own endpoint: each parent its link field names, as
-   * the user may view it, must allow the new row (403). Without a link value, or a parent the user cannot see, the rule
-   * has nothing to judge (the relation checks answer).
+   * `@AdminCan('create')` of an inline child written through its own endpoint: each parent its link field names, as
+   * the user may view it, must allow the row (403) — on create, and on an update that moves the row to another parent
+   * (`existing`: the stored row; staying under its parent is not adding). Without a link value, or a parent the user
+   * cannot see, the rule has nothing to judge (the relation checks answer).
    */
-  private async checkParentRules(entry: RegisteredResource, dto: Record<string, unknown>, ctx: AdminContext): Promise<void> {
+  private async checkParentRules(entry: RegisteredResource, dto: Record<string, unknown>, ctx: AdminContext, existing?: object): Promise<void> {
     if (getCanRules(entry.resource.constructor, 'create').length === 0) return;
     for (const parent of this.registry.list()) {
       for (const inline of parent.inlines) {
         const value = inline.child === entry ? dto[inline.link] : undefined;
         if (value === undefined || value === null) continue;
+        if (existing) {
+          const stored = (existing as Record<string, unknown>)[inline.link];
+          const storedId = typeof stored === 'object' && stored !== null ? (stored as Record<string, unknown>)[inline.referenced] : stored;
+          if (storedId !== undefined && storedId !== null && String(storedId) === String(value)) continue;
+        }
         const found = await parent.resource.readQuery('nma_parent', ctx).andWhere(`nma_parent.${inline.referenced} = :nmaParent`, { nmaParent: value }).getOne();
         if (found && !this.policy.createRule(entry, found, ctx)) throw new AdminForbiddenError(`You may not add ${entry.schema.label} rows here`);
       }
@@ -581,6 +587,7 @@ export class AdminApiService {
       const existing = await resource.findOne(id, tx);
       if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       this.policy.requireRecordRule(entry, 'update', existing, tx);
+      await this.checkParentRules(entry, dto as Record<string, unknown>, tx, existing);
       const locked = this.lockedFields(entry, existing, tx).filter((name) => Object.hasOwn(dto, name));
       if (locked.length > 0) throw new AdminValidationError(Object.fromEntries(locked.map((name) => [name, ['is read-only']])), 'Some fields are read-only');
       const checked = plan ? await this.inlineWriter.check(plan, existing, tx) : undefined;

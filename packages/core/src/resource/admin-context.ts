@@ -43,8 +43,8 @@ export type AdminWriteContext = AdminContext & { manager: EntityManager };
 const transactional = new WeakSet<AdminContext>();
 
 /** @internal Marks `ctx` as running inside an admin transaction (`WriteRunner.run`). */
-export function markTransaction(ctx: AdminContext): void {
-  transactional.add(ctx);
+export function markTransaction(ctx: object): void {
+  transactional.add(ctx as AdminContext);
 }
 
 /** @internal Whether `ctx` runs inside an admin transaction (row locks, audit entries in the same transaction). */
