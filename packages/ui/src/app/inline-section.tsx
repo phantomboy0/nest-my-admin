@@ -31,6 +31,8 @@ interface InlineSectionProps {
   onBusy: (name: string, busy: boolean) => void;
   /** More rows exist than the form edits: how many, and the child's list filtered by this parent. */
   truncated?: { total: number; href: string };
+  /** The parent's `_perm.inlines.<child>.create`: false when the child's `@AdminCan('create')` refuses new rows here. */
+  canAdd?: boolean;
 }
 
 /**
@@ -38,13 +40,13 @@ interface InlineSectionProps {
  * form layout per child). Add, remove and reorder follow the child's permissions and each row's `_perm`; nothing is
  * saved here, the parent's Save sends every change at once.
  */
-export function InlineSection({ inline, child, rows, onChange, readOnly, errors, parent, parentValues, onBusy, truncated }: InlineSectionProps) {
+export function InlineSection({ inline, child, rows, onChange, readOnly, errors, parent, parentValues, onBusy, truncated, canAdd = true }: InlineSectionProps) {
   const t = useT();
   const titleId = useId();
   const fields = inlineFields(inline, child);
   const next = useRef(0);
   const [dragging, setDragging] = useState<number | null>(null);
-  const canCreate = !readOnly && child.permissions?.create !== false && child.form.create.length > 0 && rows.length < inline.max;
+  const canCreate = !readOnly && canAdd && child.permissions?.create !== false && child.form.create.length > 0 && rows.length < inline.max;
   const ordered = !readOnly && inline.order !== undefined && child.form.update.includes(inline.order) && rows.length > 1;
   const canRemove = (row: InlineRow) => !readOnly && (row.id === undefined || (child.permissions?.delete !== false && (row.record?._perm as { delete?: boolean } | undefined)?.delete !== false));
   // The child's pickers see the parent's form as `_parent`, next to the row's own values.

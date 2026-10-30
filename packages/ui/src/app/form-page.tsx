@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState, type FormEvent, type ReactNode }
 import { ChevronRight, Copy, ExternalLink, Lock, Pencil, Trash2, TriangleAlert } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { AdminRecord, FieldSchema, FormLayoutInline, FormLayoutSummary, InlineChanges, InlineRows, RecordLink, ResourceSchema } from '@nest-my-admin/core/contract';
+import type { AdminRecord, FieldSchema, FormLayoutInline, FormLayoutSummary, InlineChanges, InlineRows, RecordLink, RecordPermissions, ResourceSchema } from '@nest-my-admin/core/contract';
 import { AsideCard } from '@/app/aside-card';
 import { Stepper } from '@/app/stepper';
 import { FieldInput, RichText } from '@/app/field-input';
@@ -323,6 +323,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
         parentValues={dependencies}
         onBusy={uploads.setBusy}
         truncated={truncated}
+        canAdd={(record?._perm as RecordPermissions | undefined)?.inlines?.[inline.inline]?.create !== false}
       />
     );
   }
