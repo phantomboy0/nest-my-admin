@@ -1,6 +1,6 @@
 {
   "name": "@nest-my-admin/auth",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Built-in sign-in for nest-my-admin: admin users, hashed passwords, revocable sessions",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/phantomboy0/nest-my-admin.git", "directory": "packages/auth" },

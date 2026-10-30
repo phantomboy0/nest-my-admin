@@ -934,6 +934,10 @@ Things hosts tend to write by hand that the admin already does:
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
 
+## Upgrading to 0.7.2
+
+Nothing to change. Fixed: 0.7 typed the context of `AdminSettingsSource.save` as `AdminWriteContext`, so code that calls a page's `save()` with an `AdminContext` stopped compiling; it takes an `AdminContext` again. Your own `save` may still declare `ctx: AdminWriteContext` to use `ctx.manager` without `!`.
+
 ## Upgrading to 0.7.1
 
 Nothing to change. New: install `nest-my-admin` alone and import `nest-my-admin/auth` and `nest-my-admin/testing` (see the top of this page). To move to it, replace `@nest-my-admin/core`, `@nest-my-admin/auth` and `@nest-my-admin/testing` in your dependencies with `nest-my-admin`, keep `@nestjs/testing` among your dev dependencies, and change the imports (`@nest-my-admin/core` → `nest-my-admin`, `@nest-my-admin/auth` → `nest-my-admin/auth`, `@nest-my-admin/testing` → `nest-my-admin/testing`). `@nest-my-admin/testing` now marks `@nestjs/testing` an optional peer.

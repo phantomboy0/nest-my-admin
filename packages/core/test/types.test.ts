@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { IsString } from 'class-validator';
-import { AdminResourceBase, type AdminContext, type AdminWriteContext } from '../src/index.js';
+import { AdminResourceBase, type AdminContext, type AdminSettingsSource, type AdminWriteContext } from '../src/index.js';
 import { Widget } from './fixtures/widgets.js';
 
 class WidgetDto {
@@ -32,5 +32,22 @@ class WrongIdAdmin extends AdminResourceBase<Widget, number> {
 describe('types (checked by `bun run typecheck`)', () => {
   test('resource classes with typed ids and write contexts compile', () => {
     expect([TypedAdmin, LooseAdmin, WrongIdAdmin].map((type) => type.name)).toEqual(['TypedAdmin', 'LooseAdmin', 'WrongIdAdmin']);
+  });
+});
+
+/** A settings page as hosts write it: calling `save()` with a plain AdminContext compiles (0.7.2), and an implementation may narrow it. */
+class NoticePage implements AdminSettingsSource<{ text: string }> {
+  load() {
+    return { text: 'hello' };
+  }
+  save(_changes: Partial<{ text: string }>, ctx: AdminWriteContext) {
+    ctx.manager.getRepository(Widget);
+  }
+}
+const callSave = (page: AdminSettingsSource<{ text: string }>, ctx: AdminContext) => page.save({ text: 'x' }, ctx);
+
+describe('settings page types', () => {
+  test('save takes an AdminContext', () => {
+    expect([typeof callSave, NoticePage.name]).toEqual(['function', 'NoticePage']);
   });
 });
