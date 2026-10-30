@@ -14,12 +14,17 @@ The package is ESM; CommonJS apps load it through Node's `require(esm)`. A Commo
 `"module": "nodenext"` (the `nest new` default since Nest 11) needs TypeScript 5.8+; with `"module": "commonjs"` any 5.x works.
 
 ```bash
-npm install @nest-my-admin/core          # the admin (brings the prebuilt UI with it)
-npm install @nest-my-admin/auth          # optional: the built-in sign-in
-npm install -D @nest-my-admin/testing    # optional: test helpers
+npm install nest-my-admin                # the admin, its UI, the built-in sign-in and the test helpers, at one version
+npm install -D @nestjs/testing           # only if you use the test helpers
 ```
 
-`nest-my-admin` (no scope) is the same package as `@nest-my-admin/core` under a shorter name: it re-exports it, at the same version.
+```ts
+import { AdminModule, AdminResource } from 'nest-my-admin';
+import { builtinAuth } from 'nest-my-admin/auth';            // the built-in sign-in
+import { createAdminTestingModule } from 'nest-my-admin/testing'; // in your tests
+```
+
+`nest-my-admin`, `nest-my-admin/auth` and `nest-my-admin/testing` are `@nest-my-admin/core`, `@nest-my-admin/auth` and `@nest-my-admin/testing` under one name: the same objects, always at one version, so they cannot drift apart. The scoped packages still work on their own (`npm install @nest-my-admin/core @nest-my-admin/auth`, then keep them at one exact version); the examples below use the scoped names, and either import works.
 
 ```ts
 @AdminResource(Product, { icon: 'package' })
@@ -928,6 +933,10 @@ Things hosts tend to write by hand that the admin already does:
 - **A shared base class with services.** Inject them as properties (`@Inject(CatalogOwnership) protected readonly ownership: CatalogOwnership`): Nest injects properties of a base class into every subclass, so subclasses need no constructor of their own just to pass a service up.
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
+
+## Upgrading to 0.7.1
+
+Nothing to change. New: install `nest-my-admin` alone and import `nest-my-admin/auth` and `nest-my-admin/testing` (see the top of this page). To move to it, replace `@nest-my-admin/core`, `@nest-my-admin/auth` and `@nest-my-admin/testing` in your dependencies with `nest-my-admin`, keep `@nestjs/testing` among your dev dependencies, and change the imports (`@nest-my-admin/core` → `nest-my-admin`, `@nest-my-admin/auth` → `nest-my-admin/auth`, `@nest-my-admin/testing` → `nest-my-admin/testing`). `@nest-my-admin/testing` now marks `@nestjs/testing` an optional peer.
 
 ## Upgrading to 0.7
 

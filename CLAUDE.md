@@ -20,7 +20,7 @@ bun run test:postgres                           # whole suite on Postgres (test:
 bun run compat                                  # core suite on NestJS 11.0 + TypeORM 0.3.20 (scripts/oldest-supported.ts), in a temp copy
 bun run e2e:screens                             # screenshot matrix (desktop/mobile × en/fa × light/dark) against committed baselines; add `-- --update-snapshots=all` after a deliberate UI change
 bun run e2e                                     # build + Playwright on examples/demo-api (desktop + mobile); needs `bunx playwright install chromium` once (or, if that download is blocked, `PW_CHANNEL=chrome bun run e2e` to use installed Chrome)
-bun run pack:smoke                              # pack all five packages (core, ui, auth, testing, nest-my-admin), npm-install into temp apps (a signed-in consumer too), boot on node and bun; `dist/same.js` checks nest-my-admin === @nest-my-admin/core
+bun run pack:smoke                              # pack all five packages (core, ui, auth, testing, nest-my-admin), npm-install into temp apps (a signed-in consumer too, and `esm-one`: `nest-my-admin` alone with `/auth` and `/testing`), boot on node and bun; `dist/same.js` checks the unscoped names are the scoped packages
 cd examples/demo-api && bun src/main.ts         # demo at http://localhost:3000/admin
 cd packages/ui && bun run dev                   # UI dev server :5173, proxies /admin/api to :3000
 ```

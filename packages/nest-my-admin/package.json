@@ -1,7 +1,7 @@
 {
   "name": "nest-my-admin",
-  "version": "0.7.0",
-  "description": "Django-admin-class admin panel for NestJS + TypeORM (the same package as @nest-my-admin/core)",
+  "version": "0.7.1",
+  "description": "Django-admin-class admin panel for NestJS + TypeORM: @nest-my-admin/core, /auth and /testing under one name",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/phantomboy0/nest-my-admin.git", "directory": "packages/nest-my-admin" },
   "homepage": "https://github.com/phantomboy0/nest-my-admin#readme",
@@ -14,9 +14,19 @@
       "import": "./index.js",
       "default": "./index.js"
     },
+    "./auth": {
+      "types": "./auth.d.ts",
+      "import": "./auth.js",
+      "default": "./auth.js"
+    },
+    "./testing": {
+      "types": "./testing.d.ts",
+      "import": "./testing.js",
+      "default": "./testing.js"
+    },
     "./package.json": "./package.json"
   },
-  "files": ["index.js", "index.d.ts"],
+  "files": ["index.js", "index.d.ts", "auth.js", "auth.d.ts", "testing.js", "testing.d.ts"],
   "engines": {
     "node": ">=20.19.0"
   },
@@ -25,6 +35,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@nest-my-admin/core": "workspace:*"
+    "@nest-my-admin/auth": "workspace:*",
+    "@nest-my-admin/core": "workspace:*",
+    "@nest-my-admin/testing": "workspace:*"
   }
 }

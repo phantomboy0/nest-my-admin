@@ -1,0 +1,7 @@
+import 'reflect-metadata';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module.js';
+
+const app = await NestFactory.create(AppModule, { logger: ['error'] });
+await app.listen(Number(process.env.PORT));
+console.log('READY');

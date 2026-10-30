@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "noEmit": true },
-  "files": ["index.d.ts"]
+  "files": ["index.d.ts", "auth.d.ts", "testing.d.ts"]
 }

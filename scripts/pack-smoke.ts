@@ -74,11 +74,17 @@ assert(authEntries.includes('package/dist/index.js') && !authEntries.some((entry
 const testingPackage = await $`tar -xzOf ${testingTgz} package/package.json`.text();
 assert(!testingPackage.includes('workspace:'), 'testing tarball still contains a workspace: range');
 
-// The unscoped name is two re-exporting files that depend on exactly this core.
+// The unscoped name is re-exporting files (`.`, `./auth`, `./testing`) that depend on exactly this core, auth and testing.
 const unscopedPackage = JSON.parse(await $`tar -xzOf ${unscopedTgz} package/package.json`.text()) as { dependencies: Record<string, string> };
-assert(unscopedPackage.dependencies['@nest-my-admin/core'] === version, `nest-my-admin depends on @nest-my-admin/core ${unscopedPackage.dependencies['@nest-my-admin/core']}, not exactly ${version}`);
+for (const name of ['@nest-my-admin/core', '@nest-my-admin/auth', '@nest-my-admin/testing']) {
+  assert(unscopedPackage.dependencies[name] === version, `nest-my-admin depends on ${name} ${unscopedPackage.dependencies[name]}, not exactly ${version}`);
+}
 const unscopedEntries = (await $`tar -tzf ${unscopedTgz}`.text()).trim().split('\n');
-assert(unscopedEntries.includes('package/index.js') && unscopedEntries.includes('package/index.d.ts'), 'nest-my-admin tarball has no index.js / index.d.ts');
+for (const file of ['index', 'auth', 'testing']) {
+  assert(unscopedEntries.includes(`package/${file}.js`) && unscopedEntries.includes(`package/${file}.d.ts`), `nest-my-admin tarball has no ${file}.js / ${file}.d.ts`);
+}
+// @nestjs/testing is the host's (a dev dependency): installing nest-my-admin must not require it.
+assert((JSON.parse(testingPackage) as { peerDependenciesMeta?: Record<string, { optional?: boolean }> }).peerDependenciesMeta?.['@nestjs/testing']?.optional === true, 'testing must mark @nestjs/testing an optional peer');
 
 // 2. The ui tarball ships only the build (no React, no sources).
 const uiEntries = (await $`tar -tzf ${uiTgz}`.text()).trim().split('\n');
@@ -102,6 +108,8 @@ const consumers: Array<{
   tsconfig?: string;
   /** Uses @nest-my-admin/auth (the checks sign in first) and @nest-my-admin/testing (dist/leaks.js). */
   auth?: boolean;
+  /** Installs `nest-my-admin` alone and imports `nest-my-admin/auth` and `nest-my-admin/testing`. */
+  one?: boolean;
   type: 'module' | undefined;
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
@@ -118,6 +126,14 @@ const consumers: Array<{
     type: 'module' as const,
     dependencies: pick([...hostDeps, ...runtimeDeps], coreDev),
     devDependencies: pick(['typescript', '@types/node'], rootDev),
+  },
+  {
+    name: 'esm-one',
+    auth: true,
+    one: true,
+    type: 'module' as const,
+    dependencies: pick([...hostDeps, ...runtimeDeps], coreDev),
+    devDependencies: { ...pick(['typescript', '@types/node'], rootDev), '@nestjs/testing': coreDev['@nestjs/testing']! },
   },
   {
     name: 'cjs',
@@ -153,16 +169,23 @@ for (const consumer of consumers) {
         name: `nma-consumer-${consumer.name}`,
         private: true,
         ...(consumer.type ? { type: consumer.type } : {}),
-        dependencies: {
-          '@nest-my-admin/ui': `file:${uiTgz}`,
-          '@nest-my-admin/core': `file:${coreTgz}`,
-          'nest-my-admin': `file:${unscopedTgz}`,
-          ...(consumer.auth ? { '@nest-my-admin/auth': `file:${authTgz}`, '@nest-my-admin/testing': `file:${testingTgz}`, '@nestjs/testing': coreDev['@nestjs/testing']! } : {}),
-          ...consumer.dependencies,
-        },
+        dependencies: consumer.one
+          ? { 'nest-my-admin': `file:${unscopedTgz}`, ...consumer.dependencies }
+          : {
+              '@nest-my-admin/ui': `file:${uiTgz}`,
+              '@nest-my-admin/core': `file:${coreTgz}`,
+              'nest-my-admin': `file:${unscopedTgz}`,
+              ...(consumer.auth ? { '@nest-my-admin/auth': `file:${authTgz}`, '@nest-my-admin/testing': `file:${testingTgz}`, '@nestjs/testing': coreDev['@nestjs/testing']! } : {}),
+              ...consumer.dependencies,
+            },
         devDependencies: consumer.devDependencies,
         // The tarballs name each other by version; the overrides point those at the tarballs of this run.
-        overrides: { '@nest-my-admin/ui': '$@nest-my-admin/ui', '@nest-my-admin/core': '$@nest-my-admin/core' },
+        overrides: {
+          '@nest-my-admin/ui': `file:${uiTgz}`,
+          '@nest-my-admin/core': `file:${coreTgz}`,
+          '@nest-my-admin/auth': `file:${authTgz}`,
+          '@nest-my-admin/testing': `file:${testingTgz}`,
+        },
       },
       null,
       2,
