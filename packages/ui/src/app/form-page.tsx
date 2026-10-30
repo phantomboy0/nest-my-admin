@@ -711,7 +711,7 @@ function ConflictNotice({ fields, before, current, busy, onKeepMine, onLoadTheir
   const t = useT();
   const changed = fields.filter((field) => JSON.stringify(before?.[field.name] ?? null) !== JSON.stringify(current[field.name] ?? null));
   return (
-    <BlockingAlert labelledBy="conflict-title" describedBy="conflict-body" className="flex flex-col gap-3 text-sm">
+    <BlockingAlert labelledBy="conflict-title" describedBy="conflict-body" initialFocus="[data-autofocus]" className="flex flex-col gap-3 text-sm">
       <p id="conflict-title" className="font-medium">
         {t('form.conflictTitle')}
       </p>
@@ -735,7 +735,7 @@ function ConflictNotice({ fields, before, current, busy, onKeepMine, onLoadTheir
         <Button type="button" disabled={busy} onClick={onKeepMine}>
           {t('form.keepMine')}
         </Button>
-        <Button type="button" variant="outline" onClick={onLoadTheirs}>
+        <Button type="button" variant="outline" data-autofocus onClick={onLoadTheirs}>
           {t('form.loadTheirs')}
         </Button>
       </div>

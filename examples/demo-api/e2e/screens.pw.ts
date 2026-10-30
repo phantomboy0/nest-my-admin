@@ -11,6 +11,23 @@ const PAGES: Array<[string, string]> = [
   ['shop-settings', '/admin/p/shop'], // a settings page: sections, a switch, an image field and a secret
 ];
 
+/** The blocking alert (dimmed, blurred app behind it), once, so the look can be judged: desktop, English, light. */
+test('leave alert', async ({ page }, testInfo) => {
+  test.skip(!/^(plain-)?desktop$/.test(testInfo.project.name) || testInfo.project.name.startsWith('plain'), 'one baseline is enough');
+  await page.addInitScript(() => {
+    localStorage.setItem('nma.locale', 'en');
+    localStorage.setItem('nma.theme', 'light');
+  });
+  await page.goto('/admin/product/1');
+  await page.waitForLoadState('networkidle');
+  await page.evaluate('document.fonts.ready');
+  await page.getByLabel('Stock', { exact: true }).fill('99');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('alertdialog')).toBeVisible();
+  await page.waitForTimeout(400); // the fade-in ends
+  await expect(page).toHaveScreenshot('leave-alert-en-light.png');
+});
+
 for (const locale of ['en', 'fa']) {
   for (const theme of ['light', 'dark']) {
     test(`${locale} ${theme}`, async ({ page }) => {
