@@ -7,6 +7,7 @@ import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 't
 import {
   ADMIN_RBAC_ENTITIES,
   AdminAuth,
+  AdminGroup,
   AdminResource,
   AdminResourceBase,
   AdminScope,
@@ -197,7 +198,7 @@ describe(`curated menu (${TEST_DB})`, () => {
   });
 
   test('boot refuses an unknown badge filter, an unknown resource or page, and a nav: false resource', async () => {
-    const section = (items: NonNullable<AdminModuleOptions['menu']>['sections'][number]['items']) => ({ menu: { sections: [{ key: 's', label: 'S', icon: 'box', items }] } });
+    const section = (items: NonNullable<NonNullable<AdminModuleOptions['menu']>['sections'][number]['items']>) => ({ menu: { sections: [{ key: 's', label: 'S', icon: 'box', items }] } });
     await expect(boot(section([{ resource: 'order', badge: { 'filter[ownerId][eq]': 'x' } }]))).rejects.toThrow('menu.sections.s: badge of order: filter[ownerId]');
     await expect(boot(section([{ resource: 'invoice' }]))).rejects.toThrow('menu.sections.s: unknown resource "invoice"');
     await expect(boot(section([{ page: 'nope' }]))).rejects.toThrow('menu.sections.s: unknown settings page "nope"');
@@ -232,5 +233,87 @@ describe(`curated menu (${TEST_DB})`, () => {
     } finally {
       await plain.close();
     }
+  });
+});
+
+@AdminResource(Ticket, { name: 'desk-ticket', title: 'state', order: 20 })
+class DeskTicketAdmin extends AdminResourceBase<Ticket> {
+  list: ListConfig<Ticket> = { filters: ['state'] };
+}
+
+@AdminResource(Log, { name: 'desk-log', title: 'line', order: 10 })
+class DeskLogAdmin extends AdminResourceBase<Log> {}
+
+@AdminSettingsPage('desk-notes', { form: LookDto })
+class DeskNotesPage implements AdminSettingsSource<LookDto> {
+  async load(): Promise<Partial<LookDto>> {
+    return {};
+  }
+  async save(): Promise<void> {}
+}
+
+@AdminGroup({ key: 'desk', label: { en: 'Desk', fa: 'میز' }, icon: 'inbox' })
+@Module({ providers: [DeskTicketAdmin, DeskLogAdmin, DeskNotesPage] })
+class DeskModule {}
+
+@AdminResource(Log, { name: 'orphan-log' })
+class OrphanAdmin extends AdminResourceBase<Log> {}
+
+describe(`menu sections from groups, items by class (${TEST_DB})`, () => {
+  const bootDesk = (menu: NonNullable<AdminModuleOptions['menu']>) =>
+    createTestApp({
+      imports: [MenuModule, DeskModule],
+      entities: [Order, OrderLine, Ticket, Log, ...ADMIN_RBAC_ENTITIES],
+      admin: { auth: AdminAuth.custom(TestAuth), rbac: {}, roles: ROLES, locales: ['en', 'fa'], menu },
+    });
+  const metaOf = async (desk: INestApplication, user = 'root') =>
+    (await request(desk.getHttpServer()).get('/admin/api/meta').set('X-User', user).set('Accept-Language', 'en')).body as MetaResponse;
+  const withDesk = async (menu: NonNullable<AdminModuleOptions['menu']>, check: (desk: INestApplication) => Promise<void>) => {
+    const desk = await bootDesk(menu);
+    try {
+      await check(desk);
+    } finally {
+      await desk.close();
+    }
+  };
+
+  test("a group section takes the group's label, icon and key", async () => {
+    await withDesk({ sections: [{ group: 'desk' }] }, async (desk) => {
+      expect((await metaOf(desk)).menu!.sections[0]).toMatchObject({ key: 'desk', label: 'Desk', icon: 'inbox' });
+    });
+  });
+
+  test("without items it lists the group's members in order", async () => {
+    await withDesk({ sections: [{ group: 'desk' }] }, async (desk) => {
+      const items = (await metaOf(desk)).menu!.sections[0]!.items;
+      expect(items.map((item) => ('resource' in item ? item.resource : 'page' in item ? item.page : item.href))).toEqual(['desk-log', 'desk-ticket', 'desk-notes']);
+      expect((await metaOf(desk)).menu!.advanced.items.some((item) => 'resource' in item && item.resource === 'desk-log')).toBe(false);
+    });
+  });
+
+  test("given values override the group's", async () => {
+    await withDesk({ sections: [{ group: 'desk', key: 'front', label: 'Front desk', icon: 'bell' }] }, async (desk) => {
+      expect((await metaOf(desk)).menu!.sections[0]).toMatchObject({ key: 'front', label: 'Front desk', icon: 'bell' });
+    });
+  });
+
+  test('items may be classes', async () => {
+    await withDesk({ sections: [{ key: 'mixed', label: 'Mixed', icon: 'list', items: [{ resource: DeskTicketAdmin, badge: { 'filter[state][eq]': 'open' } }, { page: DeskNotesPage }] }] }, async (desk) => {
+      expect((await metaOf(desk)).menu!.sections[0]!.items).toEqual([
+        { kind: 'resource', resource: 'desk-ticket', label: 'Ticket', creatable: true, searchable: true, badge: true },
+        { kind: 'page', page: 'desk-notes', label: 'Desk notes' },
+      ]);
+    });
+  });
+
+  test('a section whose members the user may not see is left out', async () => {
+    await withDesk({ sections: [{ group: 'desk' }] }, async (desk) => {
+      expect((await metaOf(desk, 'clerk')).menu!.sections).toEqual([]);
+    });
+  });
+
+  test('boot refuses an unknown group and a class that is not registered', async () => {
+    await expect(bootDesk({ sections: [{ group: 'dsek' }] })).rejects.toThrow('menu: unknown group "dsek" (did you mean "desk"?)');
+    await expect(bootDesk({ sections: [{ key: 'x', label: 'X', icon: 'list', items: [{ resource: OrphanAdmin }] }] })).rejects.toThrow('menu: OrphanAdmin is not a registered resource');
   });
 });

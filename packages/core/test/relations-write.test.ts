@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { Module, type INestApplication } from '@nestjs/common';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import request from 'supertest';
-import type { DataSource } from 'typeorm';
+import type { DataSource, SelectQueryBuilder } from 'typeorm';
 import { AdminResource, AdminResourceBase, type AdminContext } from '../src/index.js';
 import { Company, Customer, ORDER_ENTITIES, Order, OrdersModule, Tag } from './fixtures/orders.js';
 import { createTestApp } from './helpers/create-app.js';
@@ -17,7 +17,20 @@ class HostOrderAdmin extends AdminResourceBase<Order> {
     return super.create(dto, ctx);
   }
 }
-@Module({ providers: [HostOrderAdmin] })
+const seenValues: Array<Record<string, unknown>> = [];
+
+/** relationOptions may be async: it looks a customer up before narrowing the picker. */
+@AdminResource(Order, { name: 'async-order' })
+class AsyncOrderAdmin extends AdminResourceBase<Order> {
+  override async relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext, values: Record<string, unknown>) {
+    seenValues.push(values);
+    if (field !== 'customer') return qb;
+    const bob = await (ctx.manager ?? dataSource.manager).getRepository(Customer).findOneByOrFail({ name: 'Bob' });
+    return qb.andWhere('option.id <> :bob', { bob: bob.id });
+  }
+}
+
+@Module({ providers: [HostOrderAdmin, AsyncOrderAdmin] })
 class HostOrdersModule {}
 
 let app: INestApplication;
@@ -109,6 +122,20 @@ describe('writing relations', () => {
 });
 
 describe('relation options', () => {
+  test('an async relationOptions restricts the picker and submitted ids', async () => {
+    expect(titles(await options('customer', '', 'async-order'))).not.toContain('Bob');
+    expect(titles(await options('customer', '', 'async-order'))).toContain('Ada');
+    const refused = await http().post('/admin/api/resources/async-order').send({ number: 'A1', customer: ids.Bob });
+    expect(refused.status).toBe(422);
+    expect(refused.body.fields).toEqual({ customer: ['does not exist'] });
+  });
+
+  test('picker values arrive in the key type', async () => {
+    seenValues.length = 0;
+    await options('customer', `values=${encodeURIComponent(JSON.stringify({ customer: String(ids.Ada), sellerId: 'x', tags: [String(ids.red)] }))}`, 'async-order');
+    expect(seenValues[0]).toEqual({ customer: ids.Ada, tags: [ids.red] });
+  });
+
   test('lists what relationOptions() allows, ordered by title', async () => {
     expect(titles(await options('customer'))).toEqual(['Ada', 'Bob']);
     expect(titles(await options('sellerId'))).toEqual(['Ada', 'Bob', 'Dee']);

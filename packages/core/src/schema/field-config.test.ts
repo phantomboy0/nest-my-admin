@@ -3,6 +3,10 @@ import { describe, expect, test } from 'bun:test';
 import type { FieldSchema } from '../contract.js';
 import { AdminField } from '../decorators/admin-field.js';
 import { applyFieldConfig, checkFieldConfig, checkLayout, localizeLayout, mergeFieldConfig, type LayoutConfig, type LayoutInlineConfig } from './field-config.js';
+import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
+
+/** Texts in `locale`, the default being English. */
+const loc = (locale: string) => (value: LocalizedText) => resolveText(value, locale, 'en');
 
 const field = (name: string, type: FieldSchema['type'], extra: Partial<FieldSchema> = {}): FieldSchema => ({
   name, label: name, type, nullable: false, primary: false, readonly: false, persisted: true, ...extra,
@@ -81,18 +85,18 @@ describe('file fields', () => {
   });
   test('the schema carries accept, maxBytes and many, with defaults', () => {
     const logo = FIELDS[5]!;
-    expect(applyFieldConfig(logo, { widget: 'image' }, 'en', 'en', 500)).toMatchObject({ widget: 'image', file: { accept: ['image/*'], maxBytes: 500, many: false } });
-    expect(applyFieldConfig(logo, { widget: 'file', file: { accept: ['application/pdf'], maxBytes: 9 } }, 'en', 'en', 500)).toMatchObject({ file: { accept: ['application/pdf'], maxBytes: 9, many: false } });
-    expect(applyFieldConfig(FIELDS[6]!, { widget: 'file', many: true }, 'en', 'en')).toMatchObject({ file: { accept: ['*/*'], maxBytes: 10_485_760, many: true } });
+    expect(applyFieldConfig(logo, { widget: 'image' }, loc('en'), 500)).toMatchObject({ widget: 'image', file: { accept: ['image/*'], maxBytes: 500, many: false } });
+    expect(applyFieldConfig(logo, { widget: 'file', file: { accept: ['application/pdf'], maxBytes: 9 } }, loc('en'), 500)).toMatchObject({ file: { accept: ['application/pdf'], maxBytes: 9, many: false } });
+    expect(applyFieldConfig(FIELDS[6]!, { widget: 'file', many: true }, loc('en'))).toMatchObject({ file: { accept: ['*/*'], maxBytes: 10_485_760, many: true } });
   });
 });
 
 describe('applyFieldConfig', () => {
   test('texts in the locale; untouched fields come back as they are', () => {
     const options = { label: { en: 'Status', fa: 'وضعیت' }, enumLabels: { draft: { en: 'Draft', fa: 'پیش‌نویس' } }, widget: 'badge' as const, colors: { draft: 'amber' as const } };
-    expect(applyFieldConfig(FIELDS[4]!, options, 'fa', 'en')).toMatchObject({ label: 'وضعیت', enumLabels: { draft: 'پیش‌نویس' }, widget: 'badge', colors: { draft: 'amber' }, enumValues: ['draft', 'active'] });
-    expect(applyFieldConfig(FIELDS[4]!, options, 'en', 'en').label).toBe('Status');
-    expect(applyFieldConfig(FIELDS[0]!, undefined, 'fa', 'en')).toBe(FIELDS[0]!);
+    expect(applyFieldConfig(FIELDS[4]!, options, loc('fa'))).toMatchObject({ label: 'وضعیت', enumLabels: { draft: 'پیش‌نویس' }, widget: 'badge', colors: { draft: 'amber' }, enumValues: ['draft', 'active'] });
+    expect(applyFieldConfig(FIELDS[4]!, options, loc('en')).label).toBe('Status');
+    expect(applyFieldConfig(FIELDS[0]!, undefined, loc('fa'))).toEqual(FIELDS[0]!);
   });
 });
 
@@ -105,7 +109,7 @@ describe('layout', () => {
     expect(() => checkLayout([{ section: 'Main', fields: ['name', 'slug'], columns: 2 }, { tab: 'Price', sections: [{ fields: ['price'] }] }], names, fail)).not.toThrow();
   });
   test('titles are localized and columns default to 1', () => {
-    expect(localizeLayout([{ section: { en: 'Main', fa: 'اصلی' }, fields: ['name'] }, { tab: { en: 'Price', fa: 'قیمت' }, sections: [{ fields: ['price'], columns: 2 }] }], 'fa', 'en')).toEqual([
+    expect(localizeLayout([{ section: { en: 'Main', fa: 'اصلی' }, fields: ['name'] }, { tab: { en: 'Price', fa: 'قیمت' }, sections: [{ fields: ['price'], columns: 2 }] }], loc('fa'))).toEqual([
       { title: 'اصلی', fields: ['name'], columns: 1 },
       { tab: 'قیمت', sections: [{ fields: ['price'], columns: 2 }] },
     ]);
@@ -134,12 +138,12 @@ describe('layout', () => {
   test('inline nodes are localized by the resolver, and dropped when it has none', () => {
     const layout: LayoutConfig = [{ fields: ['name'] }, { section: { en: 'Lines', fa: 'ردیف‌ها' }, inline }, { tab: 'More', sections: [{ inline }] }];
     const resolved = (node: LayoutInlineConfig, label: string | undefined) => ({ inline: 'child', label: label ?? 'Child', display: 'cards' as const, fields: ['a'], max: 100, link: 'parentId', ...(node.order ? { order: node.order } : {}) });
-    expect(localizeLayout(layout, 'fa', 'en', resolved)).toEqual([
+    expect(localizeLayout(layout, loc('fa'), resolved)).toEqual([
       { fields: ['name'], columns: 1 },
       { inline: 'child', label: 'ردیف‌ها', display: 'cards', fields: ['a'], max: 100, link: 'parentId' },
       { tab: 'More', sections: [{ inline: 'child', label: 'Child', display: 'cards', fields: ['a'], max: 100, link: 'parentId' }] },
     ]);
     // Without a resolver (before the registry resolves them): inline nodes are left out, and so is a tab left empty.
-    expect(localizeLayout(layout, 'en', 'en')).toEqual([{ fields: ['name'], columns: 1 }]);
+    expect(localizeLayout(layout, loc('en'))).toEqual([{ fields: ['name'], columns: 1 }]);
   });
 });

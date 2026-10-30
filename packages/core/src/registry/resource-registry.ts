@@ -27,6 +27,8 @@ import { resolveInlines, type RegisteredInline } from '../inlines/inline-config.
 import { checkTabs } from '../crud/list-tabs.js';
 import { addComputedSort, checkComputed, type ChildQuery, type CompiledComputed } from '../crud/computed-columns.js';
 import type { ComputedColumn } from '../resource/admin-resource-base.js';
+import { bootText } from '../i18n/texts.js';
+import { getCanRules } from '../decorators/admin-scope.js';
 
 export interface RegisteredResource {
   schema: ResourceSchema;
@@ -181,8 +183,15 @@ export class ResourceRegistry implements OnModuleInit {
       });
     }
     // Inline children are edited on their parent's page: out of navigation unless they ask to stay.
-    for (const child of this.list().flatMap((entry) => entry.inlines.map((inline) => inline.child))) {
+    const children = new Set(this.list().flatMap((entry) => entry.inlines.map((inline) => inline.child)));
+    for (const child of children) {
       if (child.navOption === undefined) child.nav = false;
+    }
+    // `@AdminCan('create')` judges adding a row under a parent: only an inline child has one.
+    for (const entry of this.list()) {
+      if (!children.has(entry) && getCanRules(entry.resource.constructor, 'create').length > 0) {
+        throw new Error(`${entry.className}: @AdminCan('create') needs ${entry.className} to be an inline child (no form.layout names it)`);
+      }
     }
     // A parent and its inlines are saved together or not at all: a promise only a transaction can keep.
     const parent = this.list().find((entry) => entry.inlines.length > 0);
@@ -314,6 +323,7 @@ export class ResourceRegistry implements OnModuleInit {
       throw new Error(`${className}: ${message}`);
     });
     const schema = buildResourceSchema({ definition, resource, metadata, moduleGroup, className });
+    resource.attachUpdateFields(() => schema.form.update);
     checkTabs(schema, resource.list?.tabs, (message) => {
       throw new Error(`${className}: ${message}`);
     });
@@ -340,11 +350,11 @@ export class ResourceRegistry implements OnModuleInit {
       throw new Error(`${className}: @AdminAction "${atomic.name}" is \`atomic\`, which needs the admin's transactions; they are off (\`transactions: false\`)`);
     }
     // Texts in the first language given, like the fields; AdminApiService localizes per request.
-    schema.actions = [...actions.values()].map((action) => toActionSchema(action, '', ''));
+    schema.actions = [...actions.values()].map((action) => toActionSchema(action, bootText));
     const prints = resolvePrints(resource.constructor, [...BASE_MEMBERS, ...actions.keys()], (message) => {
       throw new Error(`${className}: ${message}`);
     });
-    schema.prints = [...prints.values()].map((print) => toPrintSchema(print, '', ''));
+    schema.prints = [...prints.values()].map((print) => toPrintSchema(print, bootText));
     const exported = checkExport(resource.list?.export, schema, (message) => {
       throw new Error(`${className}: list.export: ${message}`);
     });

@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { DataSource, EntityManager } from 'typeorm';
+import type { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, TabCounts, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout, mainLayout } from '../schema/field-config.js';
 import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
@@ -21,7 +21,7 @@ const EXPORT_PAGE = 500;
 const PRINT_MAX = 100;
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
-import { buildMenu, checkMenu } from './menu.js';
+import { buildMenu, checkMenu, resolveMenu, type ResolvedMenu } from './menu.js';
 import { DashboardService } from '../dashboard/dashboard.service.js';
 import { WidgetRegistry } from '../dashboard/widget-registry.js';
 import { loadComputed, type CompiledComputed } from '../crud/computed-columns.js';
@@ -30,7 +30,7 @@ import { encodeRecordId, parseRecordId, recordIdOf } from '../crud/record-id.js'
 import { likePattern } from '../crud/list-query-builder.js';
 import { parseId } from '../crud/list-query.js';
 import { isLoadedField, loadReferences, relationRef } from '../crud/references.js';
-import { relationIdsOf, type RelationId } from '../crud/relation-writes.js';
+import { normalizeRelationValues, relationIdsOf, type RelationId } from '../crud/relation-writes.js';
 import { serializeRecord } from '../crud/serialize.js';
 import { validateWrite } from '../crud/validate-write.js';
 import { auditParticipant } from '../audit/audit-participant.js';
@@ -40,9 +40,10 @@ import { FilesService } from '../files/files.service.js';
 import { AdminBadRequestError, AdminConflictError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import { AdminPolicy, type ResourceView } from '../policy/admin-policy.service.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
+import { scopedText } from '../i18n/texts.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
-import type { AdminContext } from '../resource/admin-context.js';
+import { inAdminTransaction, type AdminContext, type AdminWriteContext } from '../resource/admin-context.js';
 import { AdminResourceBase, type ListParams, type RecordId, type RecordLinkConfig } from '../resource/admin-resource-base.js';
 import { PageRegistry } from '../pages/page-registry.js';
 import { PageService } from '../pages/page.service.js';
@@ -50,6 +51,7 @@ import { ActionService } from './action.service.js';
 import type { WriteChange } from './write-participant.js';
 import { SINGLE_CONNECTION_DRIVERS } from './write-queue.js';
 import { WriteRunner } from './write-runner.js';
+import { getCanRules } from '../decorators/admin-scope.js';
 
 @Injectable()
 export class AdminApiService {
@@ -91,7 +93,7 @@ export class AdminApiService {
       change: (change, tx, method) => this.change(change, tx, method),
       checkRelationsExist: (entry, ids, ctx, values) => this.checkRelationsExist(entry, ids, ctx, values),
       checkVersion: (entry, id, expected, ctx) => this.checkVersion(entry, id, expected, ctx),
-      lockedFields: (entry, entity) => this.lockedFields(entry, entity),
+      lockedFields: (entry, entity, ctx) => this.lockedFields(entry, entity, ctx),
       values: async (entry, entity, ctx) => toValues(await this.record(entry, entity, ctx)),
       reloadIfEmpty: (entry, result, id, ctx) => this.reloadIfEmpty(entry, result, id, ctx),
       errorMapper: options.errorMapper,
@@ -122,7 +124,7 @@ export class AdminApiService {
 
   /** Sidebar data with labels in `locale` (the default locale when omitted). */
   meta(locale = this.options.locale, ctx?: AdminContext): MetaResponse {
-    const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
+    const text = (label: LocalizedText, key?: string) => this.options.texts(label, locale, key);
     // Only resources the user may view (spec §6.5: meta is filtered per user).
     // `nav: false` resources have no entry of their own (spec §5): reachable by URL, not listed.
     const resources = this.registry.list().filter((entry) => entry.nav && (!ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view')));
@@ -134,13 +136,13 @@ export class AdminApiService {
       .groupList()
       .map((group) => ({
         group,
-        label: text(group.label),
+        label: text(group.label, `group.${group.key}`),
         resources: resources
           .filter((entry) => entry.schema.group === group.key)
           .map((entry) => {
             const { schema, label } = entry;
             const seen = ctx ? this.view(entry, ctx).schema : schema;
-            const summary: MetaResourceSummary = { name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}), creatable: seen.creatable, searchable: seen.list.search.length > 0 };
+            const summary: MetaResourceSummary = { name: schema.name, label: text(label, `resource.${schema.name}`), ...(schema.icon ? { icon: schema.icon } : {}), creatable: seen.creatable, searchable: seen.list.search.length > 0 };
             return { order: entry.order, summary };
           })
           .sort(byOrder)
@@ -161,10 +163,10 @@ export class AdminApiService {
         resources: items,
         pages: groupPages,
       }));
-    const menu = this.options.menu && buildMenu(this.options.menu, text, groups.flatMap((group) => group.resources), groups.flatMap((group) => group.pages));
+    const menu = this.menu && buildMenu(this.menu, text, groups);
     // With widgets in the app, whether this user has a dashboard (it replaces the home page).
     const dashboard = this.widgets.list().length > 0 ? { dashboard: ctx ? this.dashboard.has(ctx) : true } : {};
-    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups, ...dashboard, ...(menu ? { menu } : {}) };
+    return { schemaVersion: 1, title: text(this.options.title, 'title'), locale, locales: this.options.locales, groups, ...dashboard, ...(menu ? { menu } : {}) };
   }
 
   /**
@@ -219,14 +221,24 @@ export class AdminApiService {
   /** Computed columns of some rows of a resource, image cells as URLs. */
   private async computedValues(entry: RegisteredResource, columns: CompiledComputed[], entities: object[], ctx: AdminContext): Promise<Map<string, Record<string, ComputedValue>>> {
     const locale = ctx.locale ?? this.options.locale;
-    const values = await loadComputed(columns, entities, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (target, field) => this.registry.forEntity(target, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+    const values = await loadComputed(columns, entities, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => this.options.texts(label, locale), (target, field) => this.registry.forEntity(target, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
     await this.imageUrls(entry, columns, values, ctx);
     return values;
   }
 
   /** The menu's references are checked once every resource and settings page is registered. */
   onApplicationBootstrap(): void {
-    if (this.options.menu) checkMenu(this.options.menu, this.registry, this.pageRegistry);
+    if (!this.options.menu) return;
+    this.menu = resolveMenu(this.options.menu, this.registry, this.pageRegistry);
+    checkMenu(this.menu, this.registry, this.pageRegistry);
+  }
+
+  /** `options.menu` with its classes and groups resolved (at bootstrap, once everything is registered). */
+  private menu?: ResolvedMenu;
+
+  /** @internal The resolved menu (`@nest-my-admin/testing` crawls its badges). */
+  resolvedMenu(): ResolvedMenu | undefined {
+    return this.menu;
   }
 
   /**
@@ -236,8 +248,8 @@ export class AdminApiService {
   async badges(ctx: AdminContext): Promise<MenuBadges> {
     const out: MenuBadges = {};
     const perms = this.policy.permissionsOf(ctx);
-    for (const section of this.options.menu?.sections ?? []) {
-      for (const item of section.items) {
+    for (const section of this.menu?.sections ?? []) {
+      for (const item of section.items ?? []) {
         if (!('resource' in item) || !item.badge) continue;
         const entry = this.registry.get(item.resource);
         if (!perms.canOn(entry.schema.name, 'view')) continue;
@@ -260,24 +272,25 @@ export class AdminApiService {
   schema(name: string, locale = this.options.locale, ctx?: AdminContext): ResourceSchema {
     const entry = this.registry.get(name);
     if (ctx) this.policy.requireReach(entry, ctx);
-    const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
+    const text = scopedText(this.options.texts, locale, `resource.${name}`);
     const related = entry.schema.related.map((item, index) => {
-      const base = text(this.registry.get(item.resource).label);
+      const target = this.registry.get(item.resource);
+      const base = this.options.texts(target.label, locale, `resource.${target.schema.name}`);
       const fieldLabel = entry.relatedFieldLabels[index];
       return { ...item, label: fieldLabel ? `${base} (${fieldLabel})` : base };
     });
-    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes, this.files.enabled));
+    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), (value, path) => text(value, `fields.${path}`), this.options.files?.maxBytes, this.files.enabled));
     const layout = mainLayout(entry.resource.form?.layout);
-    const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, locale, this.options.locale);
-    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
-    const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
-    const prints = [...entry.prints.values()].map((print) => toPrintSchema(print, locale, this.options.locale));
-    const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label) }]));
-    const tabs = entry.schema.list.tabs?.map((tab, index) => ({ ...tab, label: text(entry.resource.list!.tabs![index]!.label) }));
+    const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, text, this.options.texts(inlineOf(entry, node).child.label, locale, `resource.${inlineOf(entry, node).name}`));
+    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, (value, key) => text(value, key === undefined ? undefined : `form.${key}`), inline) } : entry.schema.form;
+    const actions = [...entry.actions.values()].map((action) => toActionSchema(action, text));
+    const prints = [...entry.prints.values()].map((print) => toPrintSchema(print, text));
+    const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label, `list.computed.${key}.label`) }]));
+    const tabs = entry.schema.list.tabs?.map((tab, index) => ({ ...tab, label: text(entry.resource.list!.tabs![index]!.label, `list.tabs.${tab.key}.label`) }));
     const list = { ...entry.schema.list, ...(computed ? { computed } : {}), ...(tabs ? { tabs } : {}) };
     const asideConfig = entry.resource.form?.layout && !Array.isArray(entry.resource.form.layout) ? entry.resource.form.layout.aside : undefined;
-    const localizedForm = form.aside && asideConfig ? { ...form, aside: form.aside.map((card, index) => ({ ...card, title: text(asideConfig[index]!.title) })) } : form;
-    const localized = { ...entry.schema, label: text(entry.label), related, fields, form: localizedForm, actions, prints, list };
+    const localizedForm = form.aside && asideConfig ? { ...form, aside: form.aside.map((card, index) => ({ ...card, title: text(asideConfig[index]!.title, asideConfig[index]!.key === undefined ? undefined : `form.${asideConfig[index]!.key}`) })) } : form;
+    const localized = { ...entry.schema, label: text(entry.label, ''), related, fields, form: localizedForm, actions, prints, list };
     const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
     // The child schema of every inline left in the layout (the policy removed those the user may not view).
     const children = (schema.form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('inline' in node ? [node.inline] : []));
@@ -310,7 +323,7 @@ export class AdminApiService {
     const computed = [...entry.computed.values()].filter((column) => schema.list.computed?.[column.key] && shown.has(column.key));
     if (computed.length > 0) {
       const locale = ctx.locale ?? this.options.locale;
-      const values = await loadComputed(computed, items, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (entity, field) => this.registry.forEntity(entity, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+      const values = await loadComputed(computed, items, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => this.options.texts(label, locale), (entity, field) => this.registry.forEntity(entity, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
       await this.imageUrls(entry, computed, values, ctx);
       for (const record of records) record._computed = values.get(String(record._id)) ?? {};
     }
@@ -356,7 +369,7 @@ export class AdminApiService {
           if (items.length === 0) return undefined;
           return {
             resource: schema.name,
-            label: resolveText(entry.label, locale, this.options.locale),
+            label: this.options.texts(entry.label, locale, `resource.${schema.name}`),
             items: items.map((entity) => {
               const id = recordIdOf(entity, schema.primaryKeys);
               return { _id: id, _title: this.policy.titleVisible(entry, ctx) ? entry.title(entity) : `#${id}` };
@@ -445,7 +458,7 @@ export class AdminApiService {
     const files = fileFields.length > 0 ? await this.files.refs(this.files.ownerOf(entry), entities, fileFields, ctx) : undefined;
     const out = entities.map((entity, index) => {
       const id = recordIdOf(entity, schema.primaryKeys);
-      const locked = this.lockedFields(entry, entity);
+      const locked = this.lockedFields(entry, entity, ctx);
       const links = this.recordLinks(entry, entity, locale);
       // TypeORM does not load the discriminator into entities; each row's class says which kind it is.
       const values = discriminator && schema.fields.some((field) => field.name === discriminator) ? { ...loaded?.get(id), [discriminator]: kindOf(entity) } : loaded?.get(id);
@@ -474,7 +487,7 @@ export class AdminApiService {
   }
 
   /** One transaction on the target's DataSource with `ctx.manager` set (see `WriteRunner.run`). */
-  private write<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
+  private write<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminWriteContext) => Promise<T>): Promise<T> {
     return this.writes.run(target, ctx, work);
   }
 
@@ -508,6 +521,7 @@ export class AdminApiService {
     return this.write(entry, ctx, async (tx) => {
       // Every refusal the children can cause is decided before the parent is written.
       const checked = plan ? await this.inlineWriter.check(plan, undefined, tx) : undefined;
+      await this.checkParentRules(entry, dto as Record<string, unknown>, tx);
       const created = await this.change({ kind: 'create', target: entry, dto }, tx, async () => {
         await this.checkRelationsExist(entry, relationIds, tx, dto as Record<string, unknown>);
         const result: unknown = await resource.create(dto, tx);
@@ -519,6 +533,31 @@ export class AdminApiService {
       if (plan) await this.inlineWriter.apply(plan, checked!, created, tx);
       return this.withInlineRows(entry, created, tx);
     });
+  }
+
+  /**
+   * `@AdminCan('create')` of an inline child written through its own endpoint: each parent its link field names, as
+   * the user may view it, must allow the row (403) — on create, and on an update that moves the row to another parent
+   * (`existing`: the stored row; staying under its parent is not adding). Without a link value the rule has nothing to
+   * judge; a parent the parent resource does not show the user is a 422 like a missing one.
+   */
+  private async checkParentRules(entry: RegisteredResource, dto: Record<string, unknown>, ctx: AdminContext, existing?: object): Promise<void> {
+    if (getCanRules(entry.resource.constructor, 'create').length === 0) return;
+    for (const parent of this.registry.list()) {
+      for (const inline of parent.inlines) {
+        const value = inline.child === entry ? dto[inline.link] : undefined;
+        if (value === undefined || value === null) continue;
+        if (existing) {
+          const stored = (existing as Record<string, unknown>)[inline.link];
+          const storedId = typeof stored === 'object' && stored !== null ? (stored as Record<string, unknown>)[inline.referenced] : stored;
+          if (storedId !== undefined && storedId !== null && String(storedId) === String(value)) continue;
+        }
+        const found = await parent.resource.readQuery('nma_parent', ctx).andWhere(`nma_parent.${inline.referenced} = :nmaParent`, { nmaParent: value }).getOne();
+        // A parent this resource does not show (another resource on the entity might): as missing, so the rule is never skipped.
+        if (!found) throw new AdminValidationError({ [inline.link]: ['does not exist'] }, 'A related record does not exist');
+        if (!this.policy.createRule(entry, found, ctx)) throw new AdminForbiddenError(`You may not add ${entry.schema.label} rows here`);
+      }
+    }
   }
 
   async update(name: string, rawId: string, body: unknown, ctx: AdminContext, version?: number): Promise<AdminRecord> {
@@ -550,7 +589,8 @@ export class AdminApiService {
       const existing = await resource.findOne(id, tx);
       if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       this.policy.requireRecordRule(entry, 'update', existing, tx);
-      const locked = this.lockedFields(entry, existing).filter((name) => Object.hasOwn(dto, name));
+      await this.checkParentRules(entry, dto as Record<string, unknown>, tx, existing);
+      const locked = this.lockedFields(entry, existing, tx).filter((name) => Object.hasOwn(dto, name));
       if (locked.length > 0) throw new AdminValidationError(Object.fromEntries(locked.map((name) => [name, ['is read-only']])), 'Some fields are read-only');
       const checked = plan ? await this.inlineWriter.check(plan, existing, tx) : undefined;
       const updated = inlineOnly
@@ -625,7 +665,7 @@ export class AdminApiService {
     const version = entry.schema.version;
     if (expected === undefined || !version) return;
     const manager = ctx.manager ?? entry.dataSource.manager;
-    const lock = ctx.manager && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type) ? ({ mode: 'pessimistic_write' } as const) : undefined;
+    const lock = inAdminTransaction(ctx) && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type) ? ({ mode: 'pessimistic_write' } as const) : undefined;
     const where = typeof id === 'object' ? id : { [entry.schema.primaryKeys[0]!]: id };
     const current = await manager.getRepository(entry.metadata.target).findOne({ where, withDeleted, ...(lock ? { lock } : {}) });
     if (!current) return; // the resource's own findOne answers 404
@@ -637,7 +677,7 @@ export class AdminApiService {
    * A query for the records a relation field may point to (`option`), restricted by the target resource's query() and
    * this resource's relationOptions().
    */
-  private optionsQuery(entry: RegisteredResource, field: string, ctx: AdminContext, values: Record<string, unknown>) {
+  private async optionsQuery(entry: RegisteredResource, field: string, ctx: AdminContext, values: Record<string, unknown>): Promise<SelectQueryBuilder<any>> {
     const target = entry.relations.get(field)!.inverseEntityMetadata;
     const manager = ctx.manager ?? entry.dataSource.manager;
     const qb = manager.getRepository(target.target).createQueryBuilder('option');
@@ -663,7 +703,7 @@ export class AdminApiService {
       if (ids.length === 0) continue;
       const target = entry.relations.get(field)!.inverseEntityMetadata;
       const key = target.primaryColumns[0]!.propertyName;
-      const rows: Array<{ id: unknown }> = await this.optionsQuery(entry, field, ctx, values)
+      const rows: Array<{ id: unknown }> = await (await this.optionsQuery(entry, field, ctx, values))
         .andWhere(`option.${key} IN (:...nmaIds)`, { nmaIds: ids })
         .select(`option.${key}`, 'id')
         .getRawMany();
@@ -692,7 +732,7 @@ export class AdminApiService {
         throw new AdminValidationError({ [key]: [known.has(key) ? 'must be given once' : 'is not a supported parameter'] });
       }
     }
-    const values = this.parentValues(entry, parseValues(query.get('values')), query.get('parent'), ctx);
+    const values = this.parentValues(entry, normalizeRelationValues(parseValues(query.get('values')), entry.schema), query.get('parent'), ctx);
     const relation = entry.relations.get(fieldName)!;
     const target = relation.inverseEntityMetadata;
     const key = target.primaryColumns[0]!.propertyName;
@@ -702,7 +742,7 @@ export class AdminApiService {
     if (targetEntry && !this.policy.permissionsOf(ctx).canOn(targetEntry.schema.name, 'view')) {
       throw new AdminForbiddenError(`You may not view ${targetEntry.schema.label} records`);
     }
-    const qb = this.optionsQuery(entry, fieldName, ctx, values);
+    const qb = await this.optionsQuery(entry, fieldName, ctx, values);
 
     const rawIds = query.get('ids');
     const search = query.get('search')?.trim() ?? '';
@@ -745,7 +785,7 @@ export class AdminApiService {
     const sent = values._parent;
     if (typeof sent !== 'object' || sent === null || Array.isArray(sent)) throw new AdminValidationError({ values: ['_parent must be an object of the parent form\'s values'] });
     const own = Object.fromEntries(Object.entries(sent).filter(([key]) => !key.startsWith('_')));
-    return { ...values, _parent: { ...own, _resource: parent.schema.name } };
+    return { ...values, _parent: { ...normalizeRelationValues(own, parent.schema), _resource: parent.schema.name } };
   }
 
   /**
@@ -793,7 +833,7 @@ export class AdminApiService {
     this.policy.require(entry, 'view', ctx);
     const print = entry.prints.get(printName);
     if (!print) throw new AdminNotFoundError(`${entry.schema.label} has no print template "${printName}"`);
-    if (!this.policy.canPrint(entry, printName, ctx)) throw new AdminForbiddenError(`You may not print "${resolveText(print.label, ctx.locale ?? this.options.locale, this.options.locale)}"`);
+    if (!this.policy.canPrint(entry, printName, ctx)) throw new AdminForbiddenError(`You may not print "${this.options.texts(print.label, ctx.locale ?? this.options.locale, `resource.${entry.schema.name}.prints.${print.name}.label`)}"`);
     const ids = [...new Set(rawIds)];
     if (ids.length === 0) throw new AdminBadRequestError('id is required');
     if (ids.length > (print.bulk ? PRINT_MAX : 1)) throw new AdminBadRequestError(print.bulk ? `at most ${PRINT_MAX} records at once` : 'this template prints one record');
@@ -813,7 +853,7 @@ export class AdminApiService {
       throw hostError(error);
     }
     const locale = ctx.locale ?? this.options.locale;
-    const label = resolveText(print.label, locale, this.options.locale);
+    const label = this.options.texts(print.label, locale, `resource.${entry.schema.name}.prints.${print.name}.label`);
     for (const entity of entities) {
       await this.audit.recordAfter({ event: printCode(entry.schema.name, printName), entry, recordId: recordIdOf(entity, entry.schema.primaryKeys), title: entry.title(entity) }, ctx);
     }
@@ -915,19 +955,34 @@ export class AdminApiService {
     });
   }
 
-  /** Fields `readonlyIf` locks on this record. A function that throws locks its field (and is logged once). */
-  private lockedFields(entry: RegisteredResource, entity: object): string[] {
-    const locked: string[] = [];
+  /**
+   * Fields `readonlyIf` and the resource's `readonlyFields` lock on this record, each once. A `readonlyIf` that throws
+   * locks its field, a `readonlyFields` that throws locks the update form (each logged once); unknown names are dropped.
+   */
+  private lockedFields(entry: RegisteredResource, entity: object, ctx: AdminContext): string[] {
+    const locked = new Set<string>();
     for (const [name, options] of entry.fieldConfig) {
       if (!options.readonlyIf) continue;
       try {
-        if (options.readonlyIf(entity)) locked.push(name);
+        if (options.readonlyIf(entity)) locked.add(name);
       } catch (error) {
-        locked.push(name);
+        locked.add(name);
         this.warnOnce(`${entry.className}.fields.${name}.readonlyIf threw (${error instanceof Error ? error.message : String(error)}); the field stays read-only`);
       }
     }
-    return locked;
+    let more: readonly string[];
+    try {
+      more = entry.resource.readonlyFields(entity, ctx);
+    } catch (error) {
+      more = entry.schema.form.update;
+      this.warnOnce(`${entry.className}.readonlyFields threw (${error instanceof Error ? error.message : String(error)}); the record stays read-only`);
+    }
+    const fields = new Set(entry.schema.fields.map((field) => field.name));
+    for (const name of more) {
+      if (fields.has(name) && !entry.schema.primaryKeys.includes(name)) locked.add(name);
+      else if (!fields.has(name)) this.warnOnce(`${entry.className}.readonlyFields names "${name}", which is not a field; it is ignored`);
+    }
+    return [...locked];
   }
 
   /** `links()` of the resource with labels in the locale; only http(s) and relative URLs get through. */
@@ -941,7 +996,7 @@ export class AdminApiService {
     }
     return (Array.isArray(links) ? links : [])
       .filter((link) => typeof link?.href === 'string' && (/^https?:\/\//i.test(link.href) || !/^[a-z][a-z0-9+.-]*:/i.test(link.href.trim())))
-      .map((link) => ({ label: resolveText(link.label, locale, this.options.locale), href: link.href }));
+      .map((link) => ({ label: this.options.texts(link.label, locale), href: link.href }));
   }
 
   private readonly warned = new Set<string>();

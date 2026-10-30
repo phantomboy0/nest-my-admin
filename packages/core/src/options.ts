@@ -5,6 +5,8 @@ import type { RoleDefinition } from './policy/roles.js';
 import type { AdminContext } from './resource/admin-context.js';
 import type { AdminError } from './errors.js';
 import type { LocalizedText } from './i18n/localized-text.js';
+import { createTexts, type AdminTranslate, type TextResolver } from './i18n/texts.js';
+import { Logger } from '@nestjs/common';
 import type { AdminStorage } from './files/storage.js';
 import { checkCurrency, type AdminCurrency } from './schema/currency.js';
 import { DEFAULT_MAX_FILE_BYTES, MAX_FILE_BYTES } from './schema/field-config.js';
@@ -25,19 +27,35 @@ export interface AdminBranding {
   radius?: string;
 }
 
-/** One menu entry: a resource (with an optional count badge: `filter[...]` list parameters), a settings page, or a link. */
+/**
+ * One menu entry: a resource (with an optional count badge: `filter[...]` list parameters), a settings page, or a link.
+ * A resource or page is named, or given as its class (`{ resource: OrderAdmin }`, `{ page: ShopSettingsPage }`).
+ */
 export type AdminMenuItem =
-  | { resource: string; badge?: Record<string, string> }
-  | { page: string }
+  | { resource: string | Function; badge?: Record<string, string> }
+  | { page: string | Function }
   | { href: string; label: LocalizedText };
 
-export interface AdminMenuSection {
-  /** Unique; also the URL of the section's page (`/g/<key>`) and the badge key prefix. */
-  key: string;
-  label: LocalizedText;
-  icon: string;
-  items: AdminMenuItem[];
-}
+/** A section of the menu: its own label, icon and items, or an `@AdminGroup`'s (`{ group: 'sales' }`). */
+export type AdminMenuSection =
+  | {
+      /** Unique; also the URL of the section's page (`/g/<key>`) and the badge key prefix. */
+      key: string;
+      label: LocalizedText;
+      icon: string;
+      items: AdminMenuItem[];
+      group?: undefined;
+    }
+  | {
+      /** The group's key: label, icon and (without `items`) the members come from the group; what you give wins. */
+      group: string;
+      /** Default: the group's key. */
+      key?: string;
+      label?: LocalizedText;
+      icon?: string;
+      /** Default: the group's resources and settings pages, in the group's order. */
+      items?: AdminMenuItem[];
+    };
 
 export interface AdminMenuOptions {
   sections: AdminMenuSection[];
@@ -122,6 +140,11 @@ export interface AdminModuleOptions {
   transactions?: boolean;
   /** Translate your own exceptions into admin errors (see ErrorMapper). Default: none. */
   errorMapper?: ErrorMapper;
+  /**
+   * Resolves every text you declare (labels, help, enum labels, sections…) and the UI's own texts (`ui.<key>`) per
+   * locale, with your own i18n. Answer undefined to keep the declared text. See AdminTranslate for the keys.
+   */
+  translate?: AdminTranslate;
   /** Advanced: serve the UI from this directory instead of @nest-my-admin/ui (tests, UI development). */
   uiDistPath?: string;
   /**
@@ -169,6 +192,9 @@ export interface ResolvedAdminOptions {
   autoRegister: string[];
   transactions: boolean;
   errorMapper?: ErrorMapper;
+  translate?: AdminTranslate;
+  /** Every host text goes through this: `translate`, else the declared text. */
+  texts: TextResolver;
   uiDistPath?: string;
   auth?: AdminAuthConfig;
   roles: RoleDefinition[];
@@ -209,6 +235,8 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     autoRegister: options.autoRegister === true ? ['default'] : Array.isArray(options.autoRegister) ? options.autoRegister : [],
     transactions: options.transactions ?? true,
     errorMapper: options.errorMapper,
+    translate: options.translate,
+    texts: createTexts({ translate: options.translate, locale }, new Logger('NestMyAdmin')),
     auth: options.auth,
     roles: options.roles ?? [],
     resolveRoles: options.resolveRoles,
@@ -249,17 +277,23 @@ function checkMenuShape(menu: AdminMenuOptions): AdminMenuOptions {
   if (!Array.isArray(menu.sections)) throw new Error('nest-my-admin: menu.sections must be a list');
   const keys = new Set<string>();
   for (const section of menu.sections) {
+    if (section.group !== undefined && (typeof section.group !== 'string' || section.group === '')) throw new Error('nest-my-admin: menu section `group` must be a group key');
+  }
+  // A group section is keyed by its group unless it says otherwise.
+  const sections = menu.sections.map((section) => (section.group !== undefined && section.key === undefined ? { ...section, key: section.group } : section));
+  for (const section of sections) {
     const where = `nest-my-admin: menu.sections.${String(section.key)}`;
     if (typeof section.key !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/i.test(section.key)) throw new Error(`nest-my-admin: menu section key "${String(section.key)}" must be letters, digits, - and _`);
     if (section.key === 'advanced') throw new Error(`${where}: the key "advanced" is the last section's`);
     if (keys.has(section.key)) throw new Error(`${where}: the key is used twice`);
     keys.add(section.key);
-    if (!Array.isArray(section.items)) throw new Error(`${where}: items must be a list`);
-    for (const item of section.items) {
+    if (section.group === undefined && !Array.isArray(section.items)) throw new Error(`${where}: items must be a list`);
+    if (section.items !== undefined && !Array.isArray(section.items)) throw new Error(`${where}: items must be a list`);
+    for (const item of section.items ?? []) {
       if ('href' in item && /^[a-z][a-z0-9+.-]*:/i.test(item.href.trim()) && !/^https?:\/\//i.test(item.href.trim())) throw new Error(`${where}: href must be an http(s) URL or a relative path`);
     }
   }
-  return menu;
+  return { ...menu, sections };
 }
 
 function checkFiles(files: AdminFilesOptions | undefined): ResolvedAdminOptions['files'] {

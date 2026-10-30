@@ -2,7 +2,7 @@ import type { FieldConstraints, FieldSchema, FilterSchema, ResourceSchema, SortD
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import type { AdminResourceBase } from '../resource/admin-resource-base.js';
 import { columnToField, isSupportedColumn, type ColumnLike } from './column-field.js';
-import { applyFieldConfig, checkFieldConfig, checkLayout, localizeLayout, mainLayout, mergeFieldConfig, type FieldConfig } from './field-config.js';
+import { applyFieldConfig, bootFieldText, bootLayoutText, checkFieldConfig, checkLayout, localizeLayout, mainLayout, mergeFieldConfig, type FieldConfig } from './field-config.js';
 import { dtoObjectField, embeddedField, nestedTypeOf, topEmbedded, type EmbeddedLike } from './nested-fields.js';
 import { isToOne, pathField as toPathField, relationFields, resolvePath, type RelatedMetadataLike } from './relation-fields.js';
 import { dtoConstraints, hasDtoInitializer, isConditionalProperty } from './dto-constraints.js';
@@ -355,7 +355,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     softDelete: metadata.columns.some((column) => column.isDeleteDate),
     ...(versionField ? { version: versionField } : {}),
     // Texts in the first language given; AdminApiService localizes per request.
-    fields: allFields.map((field) => applyFieldConfig(field, fieldConfig.get(field.name), '', '')),
+    fields: allFields.map((field) => applyFieldConfig(field, fieldConfig.get(field.name), bootFieldText)),
     list: {
       columns,
       sortable,
@@ -405,7 +405,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       requiredOnCreate,
       readonly: formReadonly,
       constraints,
-      ...(layout ? { layout: localizeLayout(layout, '', '') } : {}),
+      ...(layout ? { layout: localizeLayout(layout, bootLayoutText) } : {}),
       ...(aside ? { aside } : {}),
       ...(mode === 'view' ? { mode: 'view' as const } : {}),
       ...(headerConfig

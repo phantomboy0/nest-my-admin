@@ -23,6 +23,7 @@ import { printCode } from '../decorators/admin-print.js';
 import { EffectivePermissions, type FieldLevel } from './effective.js';
 import { explainPermissions } from './explain.js';
 import { RESOURCE_OPERATIONS, actionCode, checkRoles, type ResourceOperation, type RoleDefinition, type ScopedOperation } from './roles.js';
+import { scopedText, type ScopedText } from '../i18n/texts.js';
 
 const RANK: Record<FieldLevel, number> = { hidden: 0, view: 1, edit: 2 };
 const OPEN: EffectivePermissions = new EffectivePermissions([], true);
@@ -121,7 +122,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
     ctx.locale = locale;
     const permissions = await this.forUser(user);
     ctx.permissions = permissions;
-    const pages = this.pages.list().map((page) => ({ name: page.name, label: resolveText(page.label, locale ?? this.options.locale, this.options.locale) }));
+    const pages = this.pages.list().map((page) => ({ name: page.name, label: this.options.texts(page.label, locale ?? this.options.locale, `page.${page.name}`) }));
     return explainPermissions(this, { user, entry, labels, pages, ctx: ctx as AdminContext & { permissions: EffectivePermissions }, sources: await this.roleSources(user), record });
   }
 
@@ -181,7 +182,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
   requirePage(page: RegisteredPage, operation: 'view' | 'update', ctx: AdminContext): void {
     if (!this.canPage(page, 'view', ctx)) throw unknownPage(page.name);
     if (operation === 'update' && !this.canPage(page, 'update', ctx)) {
-      throw new AdminForbiddenError(`You may not change ${resolveText(page.label, ctx.locale ?? this.options.locale, this.options.locale)}`);
+      throw new AdminForbiddenError(`You may not change ${this.options.texts(page.label, ctx.locale ?? this.options.locale, `page.${page.name}`)}`);
     }
   }
 
@@ -516,6 +517,14 @@ export class AdminPolicy implements OnApplicationBootstrap {
     return true;
   }
 
+  /**
+   * Whether a row of the inline `child` may be added under `parent` (the parent entity as its resource reads it): every
+   * `@AdminCan('create')` rule of the child agrees; a rule that throws says no. True for a child without one.
+   */
+  createRule(child: RegisteredResource, parent: object, ctx: AdminContext): boolean {
+    return this.recordRule(child, 'create', parent, ctx);
+  }
+
   /** 403 when `@AdminCan` says no for this record. */
   requireRecordRule(entry: RegisteredResource, operation: RecordOperation, entity: object, ctx: AdminContext): void {
     if (!this.recordRule(entry, operation, entity, ctx)) throw new AdminForbiddenError(`You may not ${operation} this ${entry.schema.label} record`);
@@ -531,10 +540,13 @@ export class AdminPolicy implements OnApplicationBootstrap {
     const perms = this.permissionsOf(ctx);
     const target = entry.resource.constructor;
     const recordActions = [...entry.actions.values()].filter((action) => action.target === 'record');
-    const hasRules = ['update', 'delete', ...recordActions.map((action) => action.name)].some((name) => getCanRules(target, name).length > 0);
+    // Inline children with a create rule: whether a row may be added under each record.
+    const ruledInlines = entry.inlines.filter((inline) => getCanRules(inline.child.resource.constructor, 'create').length > 0);
+    const hasRules = ruledInlines.length > 0 || ['update', 'delete', ...recordActions.map((action) => action.name)].some((name) => getCanRules(target, name).length > 0);
     // Per-record labels are computed for everyone, superusers too.
     if (perms.superuser && !hasRules && !recordActions.some((action) => action.labelFor)) return undefined;
     const locale = ctx.locale ?? this.options.locale;
+    const actionText = scopedText(this.options.texts, locale, `resource.${entry.schema.name}`);
     const keys = entry.schema.primaryKeys;
     const ids = entities.map((entity) => (keys.length === 1 ? (entity as Record<string, unknown>)[keys[0]!] : Object.fromEntries(keys.map((key) => [key, (entity as Record<string, unknown>)[key]])))) as RecordId[];
     const result = new Map<string, RecordPermissions>();
@@ -554,12 +566,13 @@ export class AdminPolicy implements OnApplicationBootstrap {
           ? {
               actions: Object.fromEntries(
                 offered.map((action) => {
-                  const label = actionLabel(action, entity, locale, this.options.locale);
+                  const label = actionLabel(action, entity, actionText);
                   return [action.name, updatable && label !== null && this.recordRule(entry, action.name, entity, ctx) ? label : false];
                 }),
               ),
             }
           : {}),
+        ...(ruledInlines.length > 0 ? { inlines: Object.fromEntries(ruledInlines.map((inline) => [inline.name, { create: this.createRule(inline.child, entity, ctx) }])) } : {}),
       });
     }
     return result;
@@ -632,11 +645,13 @@ export function topLevelFields(schema: ResourceSchema): FieldSchema[] {
 }
 
 
-/** An action's label on one record: `label.for(record)` in `locale` (`null` hides it there), else its label. */
-export function actionLabel(action: RegisteredAction, record: object, locale: string, defaultLocale: string): string | null {
-  if (!action.labelFor) return resolveText(action.label, locale, defaultLocale);
-  const label = action.labelFor(record);
-  return label === null ? null : resolveText(label, locale, defaultLocale);
+/**
+ * An action's label on one record: `label.for(record)` (`null` hides it there), else its label, through `text`
+ * (the resource's texts; the key is the action's label key either way).
+ */
+export function actionLabel(action: RegisteredAction, record: object, text: ScopedText): string | null {
+  const label = action.labelFor ? action.labelFor(record) : action.label;
+  return label === null ? null : text(label, `actions.${action.name}.label`);
 }
 
 /** The list without `export`, for a viewer who may not export. */

@@ -22,7 +22,7 @@ import {
   type ResourceSchema,
   type SearchResponse,
 } from '@nest-my-admin/core';
-import { ADMIN_OPTIONS, AdminApiService, DashboardService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, ResourceRegistry, createAdminContext, runInAdminContext, type ResolvedAdminOptions } from '@nest-my-admin/core/internal';
+import { AdminApiService, DashboardService, AdminAudit, AdminPolicy, AdminRbac, AuditReader, EffectivePermissions, ResourceRegistry, createAdminContext, runInAdminContext } from '@nest-my-admin/core/internal';
 
 /** Who a test acts as. With `roles`, exactly these roles (code or stored); without, the admin resolves them as for a request. */
 export interface TestUser extends Partial<Omit<AdminUser, 'id'>> {
@@ -106,9 +106,9 @@ export class AdminClient {
   }
   /** The menu badges on a resource: their key and filters (from the `menu` option). */
   badgeQueries(resource: string): Array<{ key: string; params: Record<string, string> }> {
-    const options = this.app.get<ResolvedAdminOptions>(ADMIN_OPTIONS, { strict: false });
-    return (options.menu?.sections ?? []).flatMap((section) =>
-      section.items.flatMap((item) => ('resource' in item && item.resource === resource && item.badge ? [{ key: `${section.key}.${resource}`, params: item.badge }] : [])),
+    const menu = this.app.get(AdminApiService, { strict: false }).resolvedMenu();
+    return (menu?.sections ?? []).flatMap((section) =>
+      (section.items ?? []).flatMap((item) => ('resource' in item && item.resource === resource && item.badge ? [{ key: `${section.key}.${resource}`, params: item.badge }] : [])),
     );
   }
   /** Every resource the user may view, those without a navigation entry (`nav: false`) included. */

@@ -172,6 +172,8 @@ export interface FormConfig {
  * (`relation`: the relation field), with a link to it (`link`, «مشاهده پروفایل»).
  */
 export interface AsideCardConfig {
+  /** Names this card for `translate` (`resource.<r>.form.<key>`). */
+  key?: string;
   title: LocalizedText;
   icon?: string;
   fields: string[] | { relation: string; fields: string[] };
@@ -188,7 +190,15 @@ export interface RecordLinkConfig {
  * Base class for admin resources. Override `create`/`update` (and the finders) to route
  * admin operations through your own services, so business rules are never bypassed.
  */
-export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral> {
+/**
+ * `Id` is the type of a record id in `findOne`, `update`, `delete`, `restore` and `purge`: `number` for an integer
+ * primary key, `string` for bigint, uuid and text keys, `{ key: value }` for composite keys. The admin parses ids to
+ * that type before they reach you; the parameter only tells TypeScript.
+ *
+ * Write methods (`create`, `update`, `delete`, `restore`, `purge`, actions) always get a context with `manager` set:
+ * type the parameter of your override as `AdminWriteContext` to use it without `!`.
+ */
+export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral, Id extends RecordId = RecordId> {
   list?: ListConfig<T>;
   form?: FormConfig;
   /** Per-field labels, help, widgets, enum labels, `showIf`, `readonly`, `readonlyIf` (spec §5.2 `fields`). */
@@ -197,6 +207,27 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   /** External links of a record, shown in its header. */
   links(_record: T): RecordLinkConfig[] {
     return [];
+  }
+
+  /**
+   * Fields locked on this record, on top of each field's `readonlyIf`: the record shows them read-only and a write that
+   * changes one is refused (422), inline rows included. Lock everything but some with `this.updateFields`. Must be
+   * synchronous and cheap (it runs per record of a page). A throw locks every field of the update form. Default: none.
+   */
+  readonlyFields(_record: T, _ctx: AdminContext): readonly string[] {
+    return [];
+  }
+
+  #updateFields?: () => readonly string[];
+
+  /** @internal Called once by the registry: where `updateFields` reads the update form from. */
+  attachUpdateFields(read: () => readonly string[]): void {
+    this.#updateFields = read;
+  }
+
+  /** The fields of the update form (`schema.form.update`): what `readonlyFields` can lock. */
+  protected get updateFields(): readonly string[] {
+    return this.#updateFields?.() ?? [];
   }
 
   #repository?: Repository<T>;
@@ -301,7 +332,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   /** `options.withDeleted` also finds records in the trash (restore and purge use it). */
-  async findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<T | null> {
+  async findOne(id: Id, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<T | null> {
     const where = typeof id === 'object' ? id : { [this.primaryKeys[0]!]: id };
     const qb = this.repositoryFor(ctx)
       .createQueryBuilder('entity')
@@ -314,9 +345,11 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * update (a restricted id is a 422 on the field). `qb` selects the target entity as `option`; the target resource's
    * `query()` has already been applied. `values` are the record's values as the user sees them: the form's current
    * values in the picker, the body on create, the stored record with the body on top on update (relations as ids),
-   * so one field's options can depend on another (`city` on `province`). Default: all records.
+   * so one field's options can depend on another (`city` on `province`). Relation ids in `values` (and in
+   * `values._parent`) are in the target key's type. May be async: a lookup inside it should use `ctx.manager` when set,
+   * so a write's check sees its own transaction. Default: all records.
    */
-  relationOptions(_field: string, qb: SelectQueryBuilder<any>, _ctx: AdminContext, _values: Record<string, unknown>): SelectQueryBuilder<any> {
+  relationOptions(_field: string, qb: SelectQueryBuilder<any>, _ctx: AdminContext, _values: Record<string, unknown>): SelectQueryBuilder<any> | Promise<SelectQueryBuilder<any>> {
     return qb;
   }
 
@@ -339,7 +372,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them.
    * Relation and file fields arrive as in `create`.
    */
-  async update(id: RecordId, dto: object, ctx: AdminContext): Promise<T> {
+  async update(id: Id, dto: object, ctx: AdminContext): Promise<T> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeSave', dto, ctx, 'update');
@@ -359,7 +392,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * Moves the record to the trash when the entity has a @DeleteDateColumn, else removes it.
    * Overriding this skips the @BeforeDelete hooks; call `this.runHooks(...)` yourself to keep them.
    */
-  async delete(id: RecordId, ctx: AdminContext): Promise<void> {
+  async delete(id: Id, ctx: AdminContext): Promise<void> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
     const repo = this.repositoryFor(ctx);
@@ -370,7 +403,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   /** Takes a record out of the trash (soft-deletable entities only). */
-  async restore(id: RecordId, ctx: AdminContext): Promise<T> {
+  async restore(id: Id, ctx: AdminContext): Promise<T> {
     const repo = this.repositoryFor(ctx);
     const column = repo.metadata.deleteDateColumn;
     const existing = await this.findOne(id, ctx, { withDeleted: true });
@@ -380,7 +413,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   /** Removes a record for good, whether it is in the trash or not. Runs the @BeforeDelete hooks with `'hard'`. */
-  async purge(id: RecordId, ctx: AdminContext): Promise<void> {
+  async purge(id: Id, ctx: AdminContext): Promise<void> {
     const existing = await this.findOne(id, ctx, { withDeleted: true });
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeDelete', existing, ctx, 'hard');

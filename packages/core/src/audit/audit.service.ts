@@ -8,7 +8,7 @@ import type { AdminUser } from '../auth/auth-adapter.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
-import { AdminContext } from '../resource/admin-context.js';
+import { AdminContext, inAdminTransaction } from '../resource/admin-context.js';
 import { fitChanges, type AuditChange } from './diff.js';
 import { NmaAuditEntry, type AuditMeta } from './entities.js';
 import { LoginFailures, WINDOW_MS } from './login-failures.js';
@@ -151,7 +151,7 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** Whether an entry recorded with `ctx` is written in its transaction (the transaction is on the audit log's DataSource). */
   joins(ctx: AuditContext): boolean {
-    return this.enabled && ctx.manager !== undefined && ctx.manager.connection === this.db;
+    return this.enabled && inAdminTransaction(ctx) && ctx.manager !== undefined && ctx.manager.connection === this.db;
   }
 
   /**
@@ -310,7 +310,9 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
     // On a single-connection driver, an entry written from inside an admin write on the audit log's own DataSource
     // (host code of that write changed something on another DataSource) cannot wait for the queue that write
     // holds: it goes through the write's manager.
-    const holder = SINGLE_CONNECTION_DRIVERS.has(this.db.options.type) ? AdminContext.current()?.manager : undefined;
+    const current = AdminContext.current();
+    // Only a transaction holds the queue; a write with `transactions: false` has a manager but holds nothing.
+    const holder = SINGLE_CONNECTION_DRIVERS.has(this.db.options.type) && current && inAdminTransaction(current) ? current.manager : undefined;
     const inside = manager ?? (holder?.connection === this.db ? holder : undefined);
     const result = inside ? await inside.getRepository(NmaAuditEntry).insert(values) : await exclusive(this.db, () => this.db.getRepository(NmaAuditEntry).insert(values));
     const id = Number((result.identifiers[0] as { id?: unknown } | undefined)?.id);

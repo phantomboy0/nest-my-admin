@@ -730,6 +730,18 @@ describe('audit log: recording', () => {
     expect(await t.fresh()).toEqual([]);
   });
 
+  test('a role change is recorded inside its own transaction, not after the commit', async () => {
+    const after = spyOn(AdminAudit.prototype, 'recordAfter');
+    try {
+      expect((await t.http().post('/rbac/roles', { name: 'atomic', label: 'Atomic', permissions: ['product.view'] })).status).toBe(201);
+      expect(after.mock.calls.filter(([input]) => (input as { event?: string }).event === 'rbac.role.changed')).toHaveLength(0);
+      expect((await t.http().delete('/rbac/roles/atomic')).status).toBe(204);
+    } finally {
+      after.mockRestore();
+    }
+    await t.fresh();
+  });
+
   test('a role change records its permissions before and after', async () => {
     const created = await t.http().post('/rbac/roles', { name: 'packer', label: 'Packer', permissions: ['product.view'] });
     expect(created.status).toBe(201);

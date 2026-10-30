@@ -4,7 +4,7 @@ import { ModuleRef } from '@nestjs/core';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { AdminApiService } from '../src/api/admin-api.service.js';
-import { AdminContext, AdminFieldError, AdminResource, AdminResourceBase, AfterSave } from '../src/index.js';
+import { AdminContext, AdminFieldError, AdminResource, AdminResourceBase, AfterSave, type AdminWriteContext } from '../src/index.js';
 import { Widget } from './fixtures/widgets.js';
 import { createTestApp } from './helpers/create-app.js';
 
@@ -61,7 +61,19 @@ class NestedWidgetAdmin extends AdminResourceBase<Widget> {
   }
 }
 
-@Module({ providers: [StrictWidgetAdmin, PairWidgetAdmin, OwnRepoWidgetAdmin, NestedWidgetAdmin] })
+@AdminResource(Widget, { name: 'manager-widget' })
+class ManagerWidgetAdmin extends AdminResourceBase<Widget> {
+  constructor(private readonly dataSource: DataSource) {
+    super();
+  }
+  // Without transactions a write still gets a manager: the DataSource's own.
+  override async create(dto: { name?: string }, ctx: AdminWriteContext) {
+    if (ctx.manager !== this.dataSource.manager) throw new AdminFieldError({ name: 'no manager' });
+    return ctx.manager.getRepository(Widget).save({ name: dto.name ?? 'm' });
+  }
+}
+
+@Module({ providers: [StrictWidgetAdmin, PairWidgetAdmin, OwnRepoWidgetAdmin, NestedWidgetAdmin, ManagerWidgetAdmin] })
 class TxModule {}
 
 let app: INestApplication | undefined;
@@ -120,6 +132,11 @@ describe('transactions', () => {
     const http = app.getHttpServer();
     expect((await request(http).post('/admin/api/resources/strict-widget').send({ name: 'explode' })).status).toBe(422);
     expect(await count(http)).toBe(1); // saved before the hook threw, nothing rolled it back
+  });
+
+  test('without transactions a write still gets a manager', async () => {
+    app = await createTestApp({ imports: [TxModule], admin: { transactions: false } });
+    expect((await request(app.getHttpServer()).post('/admin/api/resources/manager-widget').send({ name: 'm' })).status).toBe(201);
   });
 
   test('concurrent writes do not interleave transactions (single-connection drivers)', async () => {

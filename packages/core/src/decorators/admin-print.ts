@@ -3,6 +3,7 @@ import { ADMIN_PRINTS_METADATA } from '../constants.js';
 import type { PrintSchema } from '../contract.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import { humanize } from '../schema/humanize.js';
+import type { ScopedText } from '../i18n/texts.js';
 
 /** Paper sizes by name; any other string is used as the CSS `@page { size }` value. */
 export const PAPERS: Record<string, string> = { A4: 'A4', A5: 'A5', label: '100mm 150mm' };
@@ -68,6 +69,6 @@ export function resolvePrints(resourceClass: Function, taken: readonly string[],
 /** The permission code of a print template. */
 export const printCode = (resource: string, name: string): string => `${resource}.print.${name}`;
 
-export function toPrintSchema(print: RegisteredPrint, locale: string, defaultLocale: string): PrintSchema {
-  return { name: print.name, label: resolveText(print.label, locale, defaultLocale), bulk: print.bulk, ...(print.icon ? { icon: print.icon } : {}) };
+export function toPrintSchema(print: RegisteredPrint, text: ScopedText): PrintSchema {
+  return { name: print.name, label: text(print.label, `prints.${print.name}.label`), bulk: print.bulk, ...(print.icon ? { icon: print.icon } : {}) };
 }

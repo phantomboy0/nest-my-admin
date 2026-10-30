@@ -59,7 +59,7 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   };
 
   /** Only active customers can be the customer; the seller may be anyone but the order's own customer. */
-  relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext, values: Record<string, unknown>): SelectQueryBuilder<any> {
+  relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext, values: Record<string, unknown>) {
     if (field === 'customer') return qb.andWhere('option.active = :active', { active: true });
     if (field === 'sellerId' && typeof values.customer === 'number') return qb.andWhere('option.id <> :buyer', { buyer: values.customer });
     return super.relationOptions(field, qb, ctx, values);

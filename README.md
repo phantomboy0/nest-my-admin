@@ -69,6 +69,26 @@ export class SettingsModule {}
 - **One module per key.** When two modules configure the same key with a different label, icon or order, the first one Nest discovers (import order) wins and a warning is logged at boot. The same options twice are fine.
 - **`order` inside a group.** `@AdminResource(Entity, { order })` and `@AdminSettingsPage(name, { order })`: lower comes first, then the label in the reader's language; the default is 100, as for groups. A group lists its resources first and its settings pages after them, so `order` sorts resources among resources and pages among pages. The sidebar, the group's page, the home page and the command palette all show this order. `order` must be a finite number, or boot fails.
 
+#### The menu
+
+`forRoot({ menu })` replaces the module groups in the sidebar, the home page, group pages, breadcrumbs and the palette with your own sections; whatever is visible and placed nowhere goes into a last «Advanced» section, collapsed.
+
+```ts
+AdminModule.forRoot({
+  menu: {
+    sections: [
+      { key: 'sales', label: { en: 'Sales', fa: 'فروش' }, icon: 'shopping-cart', items: [{ resource: OrderAdmin, badge: { 'filter[status][eq]': 'paid' } }, { page: 'shop' }, { href: 'https://shop.example', label: 'Shop' }] },
+      { group: 'settings' },                        // an @AdminGroup: its label, icon and members
+      { group: 'catalog', items: [{ resource: 'product' }] }, // its label and icon, your items
+    ],
+  },
+});
+```
+
+- **Items** name a resource or a settings page, or give its class (`{ resource: OrderAdmin }`, `{ page: ShopSettingsPage }`); a class that is not registered fails boot. A `badge` is a list query whose count shows next to the item, for each user through the list's scoped count.
+- **`{ group: '<key>' }`** takes the label and icon from that `@AdminGroup` (and the section key from its key); whatever you give yourself wins. Without `items` the section lists the group's resources and then its settings pages, in the group's order, as each user may see them. An unknown group fails boot.
+- A section left with nothing the user may see is not shown.
+
 ### Customising lists
 
 Put row restrictions in `query(qb, ctx)`. It applies to every read path: the list, GET, PATCH, DELETE, restore and
@@ -163,6 +183,12 @@ relationOptions(field: string, qb: SelectQueryBuilder<any>, ctx: AdminContext, v
 }
 ```
 
+- It may be `async` when it needs to look something up first (use `ctx.manager` when it is set, so a check during a
+  write sees that write's transaction). An override that returns `super.relationOptions(...)` under an explicit
+  `: SelectQueryBuilder<any>` return type needs that annotation dropped (the base now answers either).
+- Relation ids in `values` and in `values._parent` arrive in the target key's type (a number for an integer key), as
+  in write bodies; an id that cannot be one is left out.
+
 ### Entity shapes
 
 - **Record ids.** Every record carries `_id`, the id used in URLs: key values in primary-key order, joined by `,`,
@@ -208,6 +234,24 @@ AdminModule.forRoot({
     locale.
   - Resources and hooks see it as `ctx.locale`.
   - Field labels, help, placeholders and enum value labels take the same `{ en, fa }` form (see Fields and forms).
+  - A plain string (`label: 'سفارش‌ها'`) is one text for every language: write labels once in your own language when that is all you need.
+- **Your own translations (`translate`).** Resolve every text you declare with your own i18n instead of writing each language inline:
+
+  ```ts
+  AdminModule.forRoot({
+    locale: 'fa',
+    locales: ['fa', 'en'],
+    translate: ({ key, text, locale }) => (locale === 'en' && key ? english[key] : undefined),
+  });
+  ```
+
+  - It is asked for every text of a request, before the declared one; `undefined` (or `''`) keeps the declared text, and a throw keeps it too (logged once per key). It runs per request: keep it cheap.
+  - `text` is what you declared, or the default (`Created at` for `createdAt`) when you declared nothing, so fields you never labelled can be translated too.
+  - `key` names the text: `title`, `group.<key>`, `menu.<section>` (a `{ group }` section without a label of its own is its group's text, `group.<key>`), `menu.advanced`, `resource.<r>`, `resource.<r>.fields.<f>.label` (and `.help`, `.placeholder`, `.enumLabels.<value>`; nested fields by their dotted path, `hours.*.day`), `resource.<r>.actions.<a>.label` (and `.confirm`, `.fields.<f>.label` of its input), `resource.<r>.prints.<p>.label`, `resource.<r>.list.tabs.<t>.label`, `resource.<r>.list.computed.<c>.label`, `resource.<r>.form.<key>` for a layout node (section, tab, summary, inline, aside card) you give a `key`, `page.<p>` and `page.<p>.fields.<f>.label`, `widget.<w>.title`.
+  - Texts without a stable name (layout nodes without a `key`, action messages, record links, badge labels) come with `text` only.
+  - Role labels are stored with the roles and shown as they are.
+  - **The UI's own texts** (Save, Delete, «Add {name}» …) go through the same function as `ui.<key>` (the keys of the UI's English texts, listed in `messages.json` of the built UI). They are asked once per locale at boot, so for `ui.` keys `translate` must give the same answer every time; `text` is the built-in text of that locale (English when the UI has none). An answer must keep the `{name}` placeholders of the original, or boot fails naming the key and the locale. Only the texts you change are sent to the browser.
+  - That also adds UI languages the admin does not ship: put `'de'` in `locales` and answer `ui.` keys for it; whatever you leave out is English.
 - **Branding.**
   - `primaryColor` may be hex, `rgb()`, `hsl()` or `oklch()`, and `radius` a length. Text on the primary colour is
     chosen from its lightness.
@@ -284,6 +328,13 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - `readonly: true` shows the field on edit forms as text with a lock and removes it from `form.update`.
   - `readonlyIf(record)` runs on the server for every record. Records carry `_readonly` (the fields it locks), and a PATCH that sends a locked field is a 422 `{ field: ['is read-only'] }` before your `update` runs. That covers inline cell edits too.
   - A `readonlyIf` that throws locks its field and is logged once.
+  - To lock a record from one place, override `readonlyFields(record, ctx)` on the resource and return the names to lock; they add to every `readonlyIf`, with the same effects (`_readonly`, the 422, inline rows). `this.updateFields` lists the update form, so "everything but these" is `this.updateFields.filter((name) => !KEEP.has(name))`. Unknown names are ignored (logged once); a throw locks the whole update form. It runs per record, so keep it synchronous and cheap.
+
+    ```ts
+    override readonlyFields(product: Product): readonly string[] {
+      return product.crmId ? this.updateFields.filter((name) => !SHOP_FIELDS.has(name)) : [];
+    }
+    ```
   - Create ignores it.
 - **`showIf`** hides a field while other fields do not hold the given value (or one of the values), evaluated live in the browser. A hidden field is not sent and not checked. It is presentation, not a permission: the server keeps the stored value.
 - **`slugFrom`** makes the slug widget fill itself from another field. It keeps the letters of every script and stops once someone types in it, or when it already holds a value.
@@ -589,6 +640,19 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 
 **Permissions.** An inline never widens access: a user reads, adds, changes, removes or reorders a child through an inline only as they could through the child's own resource (`order-line.view`, `.create`, `.update`, `.delete`, its field levels and scopes, each row's `@AdminCan`), and only the children of this parent. A user without `<child>.view` does not see the inline at all; without `<child>.delete` there is no remove button, and a crafted delete is a 403 that saves nothing. Since children are saved with the parent, the save also needs `<parent>.create` (a new parent) or `<parent>.update`. View-as shows inlines read-only, like everything else.
 
+**Adding rows, per parent.** `@AdminCan('create')` on the child decides whether rows may be added under a given parent: it gets the parent record (as the parent resource reads it) and answers `true` to allow.
+
+```ts
+@AdminResource(OrderLine)
+class OrderLineAdmin extends AdminResourceBase<OrderLine> {
+  @AdminCan('create') notShipped(order: Order) {
+    return order.status !== 'shipped';
+  }
+}
+```
+
+The parent's records carry `_perm.inlines.<child>.create`, and the inline hides «Add» when it is `false`. A save that adds rows anyway is a 403 that writes nothing; so is a `POST` to the child's own endpoint whose link field names such a parent, or a `PATCH` that moves a row to one. The rule sees the parent as the save leaves it: a parent created in the same save once it exists, and a parent changed in the same save with its changes (locking a parent and adding rows in one save is refused, unlocking and adding is allowed). A link to a parent the parent resource does not show the user is a 422, like a missing one. A rule that throws says no (logged once). It may only be declared on an inline child (boot error otherwise).
+
 **Saving.** The form sends, next to the parent's fields, `_inlines: { <child>: { create, update, delete, order } }` (`InlineChanges` in the contract): new rows with a `_key`, changed fields of changed rows with their `_id` (and `_version` for a child with a version column), the ids to delete, and the new order. Inside the parent's write the parent is saved first (a save with only inline changes does not update the parent), then each inline in layout order: deletes, updates, creates, each through the child resource's own `delete`/`update`/`create` and its write participants (files, audit). Any error rolls back everything; errors name the row (`_inlines.order-line.create.2.quantity`, `_inlines.order-line.update.17.unitPrice`) and the form shows them on that row. At most 500 entries per inline per request.
 
 **Options that depend on the parent.** A child's `relationOptions(field, qb, ctx, values)` receives `values._parent`: the parent form's values as the user sees them (unsaved, in the picker; body over stored, on save), with `_parent._resource` naming the parent. Use it to narrow a picker to what the parent allows, such as the attributes of the product's category.
@@ -603,10 +667,18 @@ Every create, update and delete runs in one database transaction. Pass `ctx.mana
 join it — a hook or service that throws afterwards rolls everything back:
 
 ```ts
-create(dto: CreateProductDto, ctx: AdminContext) {
-  return this.products.create(dto, ctx.manager); // service: manager ? manager.getRepository(Product) : this.products
+class ProductAdmin extends AdminResourceBase<Product, number> {
+  override create(dto: CreateProductDto, ctx: AdminWriteContext) {
+    return this.products.create(dto, ctx.manager); // service: manager ? manager.getRepository(Product) : this.products
+  }
+  override update(id: number, dto: UpdateProductDto, ctx: AdminWriteContext) {
+    return this.products.update(id, dto, ctx.manager);
+  }
 }
 ```
+
+- **Typed parameters.** Your overrides may name their own types: the DTO class (`dto: CreateProductDto`, no cast), `AdminWriteContext` (a context whose `manager` is always set, so no `ctx.manager!`) and the id type through the second type parameter, `AdminResourceBase<Product, number>` (the admin already turns ids into the key's type: a number for an integer key, a string for bigint, uuid and text keys, `{ key: value }` for composite keys). `AdminContext` keeps working everywhere.
+- **`transactions: false`**: writes still get `ctx.manager`, the DataSource's own (not a transaction).
 
 Services that keep using their own injected repository still work, but on Postgres/MySQL they write outside the
 transaction, on a separate pooled connection, and can block on the admin transaction's locks (writing the same row or
@@ -844,6 +916,36 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - **A delete on another connection** (MySQL, a service that ignores `ctx.manager`) is noticed by one more read right after the commit, and its entry is stamped as the record's end then. That step can miss: a key that is created again between the commit and the read leaves the entry unstamped; so does a crash, a failed read or a failed update in that step (failures are logged with the correlation id). An unstamped ending means a later record with the same key shows the earlier entries in its history.
   - **Read replicas.** Reads outside a transaction (that check after commit; with `transactions: false` the before and after images too) go through `dataSource.manager`, which TypeORM replication may send to a replica. A lagging replica then still shows a deleted row (no stamp), or shows an update as unchanged (a smaller diff, or no entry).
   - **Scopes that depend on a field.** A record's history is open to whoever may open the record now. A reader whose scope depends on a field (`ownerId`, a status) reads the values the record had before it entered their scope, in the fields they may view.
+
+## Writing less
+
+Things hosts tend to write by hand that the admin already does:
+
+- **Your own errors.** One `forRoot({ errorMapper })` turns your services' exceptions into admin errors everywhere (resource methods, hooks, actions, bulk actions, settings pages): no `try`/`catch` around each call.
+- **Records only your code writes** (orders, logs, snapshots): `@AdminResource(Entity, { readonly: true })`. No New, Save, Delete, editable cell or inline add and remove is offered and every write is a 403; actions still run. No need to throw from `create`/`update`/`delete` or declare empty forms.
+- **One DTO for create and update.** Without `form.update`, the create DTO is used for updates too and a PATCH is always checked as a partial. Write an update DTO only when updates take other fields.
+- **Typed overrides.** `override create(dto: CreateProductDto, ctx: AdminWriteContext)` and `AdminResourceBase<Product, number>`: no `dto as …`, no `ctx.manager!`, no `Number(id)` (see Transactions, context and errors).
+- **A shared base class with services.** Inject them as properties (`@Inject(CatalogOwnership) protected readonly ownership: CatalogOwnership`): Nest injects properties of a base class into every subclass, so subclasses need no constructor of their own just to pass a service up.
+- **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
+- **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
+
+## Upgrading to 0.7
+
+Nothing needs changing in an app on 0.6, except two type-only cases:
+
+- an override that returns `super.relationOptions(...)` under an explicit `: SelectQueryBuilder<any>` return type: drop the annotation (`relationOptions` may now be async);
+- code that names `AdminMenuSection['items']` as a type: wrap it in `NonNullable<…>` (a `{ group }` section's items are optional);
+- code that reads `item.resource` or `item.page` of its own menu items as a string: they may now be classes too (`string | Function`), so narrow with `typeof item.resource === 'string'`.
+
+New:
+
+- `translate` (Languages, theme and branding): your own i18n for every text you declare and for the UI's own texts, by key; UI languages the admin does not ship.
+- `readonlyFields(record, ctx)` and `this.updateFields` (Fields and forms): lock a record's fields from one place.
+- `AdminWriteContext` and `AdminResourceBase<T, Id>` (Transactions, context and errors); with `transactions: false` writes now get the DataSource's own `ctx.manager`.
+- `relationOptions` may be async, and relation ids in its `values` (and `values._parent`) have the key's type.
+- `@AdminCan('create')` on an inline child (Inlines): whether rows may be added under a parent; `_perm.inlines` on the parent's records.
+- Menu sections from groups (`{ group: 'settings' }`) and menu items by class (The menu).
+- Layout nodes and aside cards take an optional `key`, for `translate`.
 
 ## Upgrading to 0.4
 

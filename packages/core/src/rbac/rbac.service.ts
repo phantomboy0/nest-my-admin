@@ -16,7 +16,7 @@ import type { EffectivePermissions } from '../policy/effective.js';
 import { checkRoles, type PolicyCatalog, type RoleDefinition } from '../policy/roles.js';
 import { PageRegistry } from '../pages/page-registry.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
-import { AdminContext } from '../resource/admin-context.js';
+import { AdminContext, inAdminTransaction, markTransaction } from '../resource/admin-context.js';
 import { ADMIN_RBAC_ENTITIES, NmaGroup, NmaGroupMember, NmaGroupRole, NmaRole, NmaUserRole } from './entities.js';
 import { escalations } from './escalation.js';
 
@@ -82,11 +82,13 @@ export class AdminRbac implements OnApplicationBootstrap {
       this.db.transaction(async (tx) => {
         const result = await work(tx, (input) => void (input && entries.push(input)));
         const inside: AuditContext = { correlationId: ctx.correlationId, user: ctx.user, viewAs: ctx.viewAs, manager: tx };
+        // A transaction of its own: its entries are written in it and roll back with the change.
+        markTransaction(inside);
         if (this.audit.joins(inside)) for (const input of entries.splice(0)) await this.audit.record(input, inside);
         return result;
       });
     // Queued with the admin's other writes on a single-connection driver, unless this runs inside one of them.
-    const result = await (current?.manager?.connection === this.db ? run() : exclusive(this.db, run));
+    const result = await (current && inAdminTransaction(current) && current.manager?.connection === this.db ? run() : exclusive(this.db, run));
     for (const input of entries) await this.audit.recordAfter(input, ctx);
     this.invalidate();
     return result;

@@ -7,6 +7,7 @@ import type { DtoClass } from '../schema/dto-fields.js';
 import { humanize } from '../schema/humanize.js';
 import { didYouMean } from '../schema/suggest.js';
 import { getCanRuleNames } from './admin-scope.js';
+import type { ScopedText } from '../i18n/texts.js';
 
 export interface AdminActionOptions {
   /**
@@ -157,9 +158,10 @@ export function resolveActions(resourceClass: Function, reserved: readonly strin
   if (primaries.length > 1) fail(`@AdminAction: only one action can be \`primary\` (${primaries.map((action) => action.name).join(', ')})`);
   // A rule under a name nothing checks would silently never apply.
   for (const rule of getCanRuleNames(resourceClass)) {
-    if (rule === 'update' || rule === 'delete') continue;
+    // `create` is an inline child's rule on its parent, checked once inlines are resolved (the registry).
+    if (rule === 'update' || rule === 'delete' || rule === 'create') continue;
     const action = actions.get(rule);
-    if (!action) fail(`@AdminCan("${rule}") names no record action${didYouMean(rule, ['update', 'delete', ...actions.keys()])}`);
+    if (!action) fail(`@AdminCan("${rule}") names no record action${didYouMean(rule, ['update', 'delete', 'create', ...actions.keys()])}`);
     if (action!.target === 'resource') fail(`@AdminCan("${rule}"): "${rule}" runs on the resource, not on a record`);
   }
   return actions;
@@ -170,19 +172,20 @@ function isText(value: unknown): value is LocalizedText {
   return typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every((text) => typeof text === 'string');
 }
 
-/** The action as one request gets it, texts in `locale`. */
-export function toActionSchema(action: RegisteredAction, locale: string, defaultLocale: string): ActionSchema {
+/** The action as one request gets it, texts through `text` (keys `actions.<name>.…` of the resource). */
+export function toActionSchema(action: RegisteredAction, text: ScopedText): ActionSchema {
   const { confirm } = action;
+  const at = `actions.${action.name}`;
   return {
     name: action.name,
-    label: resolveText(action.label, locale, defaultLocale),
+    label: text(action.label, `${at}.label`),
     target: action.target,
     bulk: action.bulk,
     atomic: action.atomic,
-    ...(confirm !== undefined ? { confirm: confirm === true ? true : resolveText(confirm, locale, defaultLocale) } : {}),
+    ...(confirm !== undefined ? { confirm: confirm === true ? true : text(confirm, `${at}.confirm`) } : {}),
     variant: action.variant,
     ...(action.primary ? { primary: true } : {}),
     ...(action.icon ? { icon: action.icon } : {}),
-    ...(action.form ? { input: localizeDtoForm(action.form, locale, defaultLocale) } : {}),
+    ...(action.form ? { input: localizeDtoForm(action.form, (value, path) => text(value, `${at}.fields.${path}`)) } : {}),
   };
 }

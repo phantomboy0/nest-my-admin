@@ -4,10 +4,10 @@ import { validateWrite } from '../crud/validate-write.js';
 import { AdminForbiddenError, AdminValidationError } from '../errors.js';
 import type { FilesService } from '../files/files.service.js';
 import { hostError } from '../http/error-response.js';
-import { resolveText } from '../i18n/localized-text.js';
+import { scopedText } from '../i18n/texts.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { AdminPolicy } from '../policy/admin-policy.service.js';
-import type { AdminContext } from '../resource/admin-context.js';
+import type { AdminContext, AdminWriteContext } from '../resource/admin-context.js';
 import { localizeDtoForm } from '../schema/dto-form.js';
 import { localizeLayout } from '../schema/field-config.js';
 import { loadPage, type PageRegistry, type RegisteredPage } from './page-registry.js';
@@ -38,7 +38,7 @@ export class PageService {
   constructor(private readonly host: PageHost) {}
 
   private text(page: RegisteredPage, locale: string | undefined): string {
-    return resolveText(page.label, locale ?? this.host.options.locale, this.host.options.locale);
+    return this.host.options.texts(page.label, locale ?? this.host.options.locale, `page.${page.name}`);
   }
 
   /** The pages `ctx`'s user may view (all of them without a request), labelled in `locale`. */
@@ -53,13 +53,14 @@ export class PageService {
   private schema(page: RegisteredPage, ctx: AdminContext): PageSchema {
     const { options, files, policy } = this.host;
     const locale = ctx.locale ?? options.locale;
-    const form = localizeDtoForm(page.form, locale, options.locale, { maxBytes: options.files?.maxBytes, enabled: files.enabled });
+    const text = scopedText(options.texts, locale, `page.${page.name}`);
+    const form = localizeDtoForm(page.form, (value, path) => text(value, `fields.${path}`), { maxBytes: options.files?.maxBytes, enabled: files.enabled });
     return {
       name: page.name,
       label: this.text(page, locale),
       ...(page.icon ? { icon: page.icon } : {}),
       fields: form.fields,
-      ...(page.layout ? { layout: localizeLayout(page.layout, locale, options.locale) } : {}),
+      ...(page.layout ? { layout: localizeLayout(page.layout, (value, key) => text(value, key === undefined ? undefined : `form.${key}`)) } : {}),
       constraints: form.constraints,
       required: form.required,
       readonly: ctx.viewAs !== undefined || !policy.canPage(page, 'update', ctx),
@@ -153,7 +154,7 @@ export class PageService {
    * host's `save()` and what is stored afterwards. The participants see both: files resolve the uploads against
    * `before` and attach them to `after` (replaced objects are deleted after the commit).
    */
-  private async apply(page: RegisteredPage, dto: Record<string, unknown>, sent: string[], tx: AdminContext): Promise<{ before: Record<string, unknown>; after: Record<string, unknown> }> {
+  private async apply(page: RegisteredPage, dto: Record<string, unknown>, sent: string[], tx: AdminWriteContext): Promise<{ before: Record<string, unknown>; after: Record<string, unknown> }> {
     const before = await loadPage(page, tx);
     const secrets = [...sent, ...page.secrets.map((secret) => before[secret]).filter((value): value is string => typeof value === 'string')];
     try {

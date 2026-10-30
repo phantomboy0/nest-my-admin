@@ -63,3 +63,16 @@ describe('@VersionColumn (Review Focus 3)', () => {
     if (TEST_DB !== 'sqljs') expect(results.find((res) => res.status === 409)!.body.current.version).toBe(2);
   });
 });
+
+describe('If-Match with transactions off', () => {
+  test('If-Match works with transactions off', async () => {
+    const plain = await createTestApp({ imports: [ShapesModule], entities: SHAPE_ENTITIES, admin: { transactions: false } });
+    try {
+      const shop = (await request(plain.getHttpServer()).post(shops).send({ name: 'Plain' })).body as { _id: string };
+      expect((await request(plain.getHttpServer()).patch(`${shops}/${shop._id}`).set('If-Match', '"1"').send({ stock: 1 })).status).toBe(200);
+      expect((await request(plain.getHttpServer()).patch(`${shops}/${shop._id}`).set('If-Match', '"1"').send({ stock: 2 })).status).toBe(409);
+    } finally {
+      await plain.close();
+    }
+  });
+});

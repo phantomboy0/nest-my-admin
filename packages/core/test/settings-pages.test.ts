@@ -856,7 +856,7 @@ describe('boot checks', () => {
     try {
       const res = await request(loose.getHttpServer()).patch('/admin/api/pages/loose').set('X-User', 'root').send({ text: 'b' });
       expect(res.status).toBe(200);
-      expect(saved).toEqual([[{ text: 'b' }, false]]);
+      expect(saved).toEqual([[{ text: 'b' }, true]]); // a write always gets a manager since 0.7
     } finally {
       await loose.close();
     }

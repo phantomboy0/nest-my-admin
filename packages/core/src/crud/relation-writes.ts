@@ -78,3 +78,29 @@ export function toRelationReferences(dto: object, metadata: RelatedMetadataLike)
   }
   return out;
 }
+
+/**
+ * Relation values of a picker's `values` (form state the browser sent) in the target key's type, as write bodies
+ * already are: a to-one id parsed with `parseId`, a many-to-many list element-wise. A value that does not parse is
+ * left out; `null` stays; other keys are untouched.
+ */
+export function normalizeRelationValues(values: Record<string, unknown>, schema: ResourceSchema): Record<string, unknown> {
+  const out = { ...values };
+  const parse = (field: FieldSchema, value: unknown) => {
+    if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+    const parsed = parseId(field, String(value));
+    return 'error' in parsed ? undefined : parsed.value;
+  };
+  for (const field of schema.fields) {
+    if (field.type !== 'relation' || !Object.hasOwn(values, field.name) || values[field.name] === null) continue;
+    const value = values[field.name];
+    if (field.relation!.kind === 'to-one') {
+      const id = parse(field, value);
+      if (id === undefined) delete out[field.name];
+      else out[field.name] = id;
+    } else if (Array.isArray(value)) {
+      out[field.name] = value.map((item) => parse(field, item)).filter((id) => id !== undefined);
+    } else delete out[field.name];
+  }
+  return out;
+}

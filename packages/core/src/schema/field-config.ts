@@ -15,6 +15,8 @@ export type FieldsConfig<T> = { [K in Extract<keyof T, string>]?: FieldConfig<T>
 
 /** `form.layout`: sections (optionally grouped into tabs). */
 export interface LayoutSectionConfig {
+  /** Names this node for `translate` (`resource.<r>.form.<key>`); unique within the layout. */
+  key?: string;
   section?: LocalizedText;
   fields: string[];
   /** Columns on wide screens (one on phones). Default 1. */
@@ -29,6 +31,8 @@ export const MAX_INLINE_ROWS = 500;
  * as a table or as cards. The child is an ordinary resource with its own permissions, scopes, fields and services.
  */
 export interface LayoutInlineConfig {
+  /** Names this node for `translate` (`resource.<r>.form.<key>`); unique within the layout. */
+  key?: string;
   /** The section's title. Default: the child resource's label. */
   section?: LocalizedText;
   /**
@@ -58,11 +62,15 @@ export interface LayoutInlineConfig {
 
 /** Label and value rows in a card (an order's totals): fields of the record, or its computed columns (`list.computed`). */
 export interface LayoutSummaryConfig {
+  /** Names this node for `translate` (`resource.<r>.form.<key>`); unique within the layout. */
+  key?: string;
   section?: LocalizedText;
   summary: Array<{ label: LocalizedText; value: string | { computed: string } }>;
 }
 
 export interface LayoutTabConfig {
+  /** Names this node for `translate` (`resource.<r>.form.<key>`); unique within the layout. */
+  key?: string;
   tab: LocalizedText;
   sections: Array<LayoutSectionConfig | LayoutInlineConfig | LayoutSummaryConfig>;
 }
@@ -220,26 +228,36 @@ export function sensitiveFields(config: ReadonlyMap<string, FieldConfig>): Set<s
   return new Set([...config].filter(([, options]) => options.sensitive === true || options.secret === true || options.widget === 'password').map(([name]) => name));
 }
 
-/** The field with its configured options, texts in `locale` (the schema the UI gets). */
-export function applyFieldConfig(field: FieldSchema, options: FieldConfig | undefined, locale: string, defaultLocale: string, defaultMaxBytes = DEFAULT_MAX_FILE_BYTES, filesEnabled = false): FieldSchema {
-  if (!options) return field;
-  const text = (value: LocalizedText) => resolveText(value, locale, defaultLocale);
-  const out: FieldSchema = { ...field };
-  if (options.label !== undefined) out.label = text(options.label);
-  if (options.help !== undefined) out.help = text(options.help);
-  if (options.placeholder !== undefined) out.placeholder = text(options.placeholder);
+/**
+ * A text of a field in the request's locale. `path` is the text's place under the owner's `fields.` key
+ * (`name.label`, `status.enumLabels.open`, `hours.*.day.label`).
+ */
+export type FieldText = (value: LocalizedText, path: string) => string;
+
+/** Texts resolved at boot: the default locale's, or the first one given (the stored schema keeps that one). */
+export const bootFieldText: FieldText = (value) => resolveText(value, '', '');
+
+/** The field with its configured options, texts in the request's locale (the schema the UI gets). */
+export function applyFieldConfig(field: FieldSchema, options: FieldConfig | undefined, fieldText: FieldText, defaultMaxBytes = DEFAULT_MAX_FILE_BYTES, filesEnabled = false, path = field.name): FieldSchema {
+  const text = (value: LocalizedText, suffix: string) => fieldText(value, `${path}.${suffix}`);
+  const nested = field.fields?.map((child) => applyFieldConfig(child, undefined, fieldText, defaultMaxBytes, filesEnabled, `${path}.${field.many ? '*.' : ''}${child.name}`));
+  if (!options) return { ...field, label: text(field.label, 'label'), ...(nested ? { fields: nested } : {}) };
+  const out: FieldSchema = { ...field, ...(nested ? { fields: nested } : {}) };
+  out.label = text(options.label ?? field.label, 'label');
+  if (options.help !== undefined) out.help = text(options.help, 'help');
+  if (options.placeholder !== undefined) out.placeholder = text(options.placeholder, 'placeholder');
   if (options.widget !== undefined) out.widget = options.widget;
-  if (options.enumLabels) out.enumLabels = Object.fromEntries(Object.entries(options.enumLabels).map(([value, label]) => [value, text(label)]));
+  if (options.enumLabels) out.enumLabels = Object.fromEntries(Object.entries(options.enumLabels).map(([value, label]) => [value, text(label, `enumLabels.${value}`)]));
   if (options.colors) out.colors = { ...options.colors };
   if (options.showIf) out.showIf = { ...options.showIf };
   if (options.slugFrom !== undefined) out.slugFrom = options.slugFrom;
-  if (options.warnIf !== undefined) out.warnIf = { empty: true, message: text(options.warnIf.message) };
+  if (options.warnIf !== undefined) out.warnIf = { empty: true, message: text(options.warnIf.message, 'warnIf.message') };
   if (options.widget === 'stepper') {
     const exclude = options.exclude ?? [];
     out.steps = { values: (options.steps ?? field.enumValues ?? []).filter((value) => !exclude.includes(value)), exclude: [...exclude], history: options.history !== undefined };
   }
   if (options.currency !== undefined) {
-    out.currency = typeof options.currency === 'string' ? { unit: options.currency, position: 'after' } : { unit: text(options.currency.unit), position: options.currency.position ?? 'after' };
+    out.currency = typeof options.currency === 'string' ? { unit: options.currency, position: 'after' } : { unit: text(options.currency.unit, 'currency.unit'), position: options.currency.position ?? 'after' };
   }
   if (options.widget === 'file' || options.widget === 'image') {
     out.file = {
@@ -265,6 +283,13 @@ export function checkLayout(
   allow: { inlines?: boolean; summary?: { fields: string[]; computed: string[] } } = {},
 ): void {
   const seen = new Set<string>();
+  const keys = new Set<string>();
+  for (const node of layout.flatMap((node) => ('tab' in node ? [node, ...node.sections] : [node]))) {
+    if (node.key === undefined) continue;
+    if (typeof node.key !== 'string' || !/^[\w-]+$/.test(node.key)) fail('form.layout: a key is a word (letters, digits, _ and -)');
+    if (keys.has(node.key)) fail(`form.layout: key "${node.key}" is used twice`);
+    keys.add(node.key);
+  }
   const nodes = layout.flatMap((node) => ('tab' in node ? node.sections : [node]));
   for (const node of nodes) {
     if (isSummaryConfig(node)) {
@@ -318,22 +343,22 @@ function checkInlineShape(node: LayoutInlineConfig, fail: (message: string) => n
 }
 
 /**
- * The layout with texts in `locale`. `inline` turns an inline node into what the UI gets (given the section's title in
- * `locale`); nodes it answers `undefined` for are left out, and so is a tab left without sections by that.
+ * The layout with texts in the request's locale. `text` gets each node's key under the owner's `form.` (`main`,
+ * `main.0` for a summary row) when the node has a `key`. `inline` turns an inline node into what the UI gets (given the
+ * section's title); nodes it answers `undefined` for are left out, and so is a tab left without sections by that.
  */
 export function localizeLayout(
   layout: LayoutConfig,
-  locale: string,
-  defaultLocale: string,
+  text: (value: LocalizedText, key: string | undefined) => string,
   inline?: (node: LayoutInlineConfig, label: string | undefined) => FormLayoutInline | undefined,
 ): FormLayoutNode[] {
   const section = (node: LayoutSectionConfig | LayoutInlineConfig | LayoutSummaryConfig): FormLayoutSection | FormLayoutInline | FormLayoutSummary | undefined => {
-    const title = node.section !== undefined ? resolveText(node.section, locale, defaultLocale) : undefined;
+    const title = node.section !== undefined ? text(node.section, node.key) : undefined;
     if (isInlineConfig(node)) return inline?.(node, title);
     if (isSummaryConfig(node)) {
       return {
         ...(title !== undefined ? { title } : {}),
-        summary: node.summary.map((row) => ({ label: resolveText(row.label, locale, defaultLocale), value: typeof row.value === 'string' ? { field: row.value } : { computed: row.value.computed } })),
+        summary: node.summary.map((row, index) => ({ label: text(row.label, node.key === undefined ? undefined : `${node.key}.${index}`), value: typeof row.value === 'string' ? { field: row.value } : { computed: row.value.computed } })),
       };
     }
     return { ...(title !== undefined ? { title } : {}), fields: [...node.fields], columns: node.columns ?? 1 };
@@ -342,7 +367,7 @@ export function localizeLayout(
   for (const node of layout) {
     if ('tab' in node) {
       const sections = node.sections.map(section).filter((item) => item !== undefined);
-      if (sections.length > 0 || node.sections.length === 0) out.push({ tab: resolveText(node.tab, locale, defaultLocale), sections });
+      if (sections.length > 0 || node.sections.length === 0) out.push({ tab: text(node.tab, node.key), sections });
     } else {
       const item = section(node);
       if (item) out.push(item);
@@ -350,3 +375,6 @@ export function localizeLayout(
   }
   return out;
 }
+
+/** Layout texts resolved at boot (the stored schema). */
+export const bootLayoutText = (value: LocalizedText): string => resolveText(value, '', '');

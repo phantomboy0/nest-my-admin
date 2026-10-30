@@ -4,6 +4,10 @@ import { Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Length, Max, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { AdminField } from '../decorators/admin-field.js';
 import { buildDtoForm, localizeDtoForm } from './dto-form.js';
+import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
+
+/** Texts in `locale`, the default being English. */
+const loc = (locale: string) => (value: LocalizedText) => resolveText(value, locale, 'en');
 
 class LineDto {
   @IsString() @Length(1, 10) sku: string;
@@ -65,9 +69,9 @@ describe('buildDtoForm', () => {
 
   test('keeps texts in every language; localizeDtoForm resolves them per request', () => {
     expect(form.config.get('amount')).toEqual({ label: { en: 'Amount', fa: 'مبلغ' }, help: 'In rials' });
-    const fa = localizeDtoForm(form, 'fa', 'en');
+    const fa = localizeDtoForm(form, loc('fa'));
     expect(fa.fields[0]).toMatchObject({ name: 'amount', label: 'مبلغ', help: 'In rials' });
-    expect(localizeDtoForm(form, 'de', 'en').fields[0]!.label).toBe('Amount');
+    expect(localizeDtoForm(form, loc('de')).fields[0]!.label).toBe('Amount');
     expect(Object.keys(fa)).toEqual(['fields', 'constraints', 'required']);
     expect(fa.constraints).toEqual(form.constraints);
     expect(fa.required).toEqual(form.required);
@@ -79,7 +83,7 @@ describe('buildDtoForm', () => {
       method: { widget: 'radio', enumLabels: { card: { en: 'Card', fa: 'کارت' } } },
       card: { showIf: { method: 'card' } },
     });
-    const en = localizeDtoForm(configured, 'en', 'en');
+    const en = localizeDtoForm(configured, loc('en'));
     expect(en.fields[0]).toMatchObject({ label: 'Sum', help: 'In rials', widget: 'money' });
     expect(en.fields[1]).toMatchObject({ widget: 'radio', enumLabels: { card: 'Card' } });
     expect(en.fields[4]!.showIf).toEqual({ method: 'card' });

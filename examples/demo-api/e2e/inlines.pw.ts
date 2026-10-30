@@ -94,3 +94,19 @@ test('without order-line.delete there is no remove, but lines can still be edite
   }
   expect((await linesOf(page, id))[0]!.quantity).toBe(3);
 });
+
+test('a cancelled order offers no Add for lines, and its lines are read-only (0.7)', async ({ page }, testInfo) => {
+  const number = `CXL-${testInfo.project.name.toUpperCase()}`;
+  const id = await makeOrder(page, number, [{ description: 'Lamp', quantity: 1, unitPrice: '25' }]);
+  // A draft order still takes lines and edits.
+  await page.goto(`/admin/order/${id}`);
+  await expect(section(page).getByRole('button', { name: 'Add Lines' })).toBeVisible();
+  await expect(cell(row(page, 0), 'Qty')).toBeEditable();
+
+  const cancelled = await page.request.post('/admin/api/resources/order/actions/cancel', { data: { ids: [id] }, headers: await csrf(page) });
+  expect(cancelled.status()).toBe(200);
+  await page.goto(`/admin/order/${id}`);
+  await expect(section(page).getByText('Lamp')).toBeVisible();
+  await expect(section(page).getByRole('button', { name: 'Add Lines' })).toHaveCount(0);
+  await expect(cell(row(page, 0), 'Qty')).toHaveCount(0);
+});

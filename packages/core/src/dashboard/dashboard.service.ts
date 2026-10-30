@@ -32,7 +32,7 @@ export class DashboardService {
 
   layout(ctx: AdminContext): DashboardResponse {
     const locale = ctx.locale ?? this.options.locale;
-    return { widgets: this.visible(ctx).map((widget) => ({ name: widget.name, type: widget.type, title: resolveText(widget.title, locale, this.options.locale), size: widget.size })) };
+    return { widgets: this.visible(ctx).map((widget) => ({ name: widget.name, type: widget.type, title: this.options.texts(widget.title, locale, `widget.${widget.name}.title`), size: widget.size })) };
   }
 
   /** One widget's data: 404 for a widget the user may not see (or that does not exist), 400 for a bad period. */

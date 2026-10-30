@@ -45,7 +45,7 @@ export class ActionService {
     policy.requireReach(entry, ctx);
     const action = entry.actions.get(name);
     if (!action) throw new AdminNotFoundError(`${entry.schema.label} has no action "${name}"`);
-    const label = resolveText(action.label, ctx.locale ?? options.locale, options.locale);
+    const label = options.texts(action.label, ctx.locale ?? options.locale, `resource.${entry.schema.name}.actions.${action.name}.label`);
     policy.requireAction(entry, action, label, ctx);
     // The HTTP layer refuses writes while viewing as someone; this covers callers that are not HTTP.
     if (ctx.viewAs) throw new AdminForbiddenError('Viewing as another user is read-only');
@@ -227,7 +227,7 @@ async function validateInput(action: RegisteredAction, input: unknown): Promise<
 function messageOf(outcome: unknown, ctx: AdminContext, options: ResolvedAdminOptions): string | undefined {
   const message = isPlainObject(outcome) ? (outcome as ActionOutcome).message : undefined;
   const isText = typeof message === 'string' || (isPlainObject(message) && Object.values(message).every((text) => typeof text === 'string'));
-  return isText ? resolveText(message!, ctx.locale ?? options.locale, options.locale) || undefined : undefined;
+  return isText ? options.texts(message!, ctx.locale ?? options.locale) || undefined : undefined;
 }
 
 /** One message for a bulk run only when every record that ran gave the same one. */
