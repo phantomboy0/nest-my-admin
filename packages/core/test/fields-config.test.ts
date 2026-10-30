@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { Module, type INestApplication } from '@nestjs/common';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
+import { Logger, Module, type INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { IsInt, IsOptional, IsString } from 'class-validator';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
@@ -72,7 +72,20 @@ class WidgetAdmin extends AdminResourceBase<Widget> {
   override form = { create: CreateWidgetDto, update: UpdateWidgetDto };
 }
 
-@Module({ providers: [GadgetAdmin, WidgetAdmin] })
+/** Locks a whole record from one place: archived gadgets keep only their status editable. */
+@AdminResource(Gadget, { name: 'locked-gadget' })
+class LockedGadgetAdmin extends AdminResourceBase<Gadget> {
+  override fields: FieldsConfig<Gadget> = { price: { readonlyIf: (gadget) => gadget.status === 'archived' } };
+  updatable(): readonly string[] {
+    return this.updateFields;
+  }
+  override readonlyFields(gadget: Gadget): readonly string[] {
+    if (gadget.name === 'kaboom') throw new Error('broken rule');
+    return gadget.status === 'archived' ? ['price', 'note', 'nope', 'id'] : [];
+  }
+}
+
+@Module({ providers: [GadgetAdmin, WidgetAdmin, LockedGadgetAdmin] })
 class GadgetModule {}
 
 let app: INestApplication;
@@ -185,5 +198,49 @@ describe('field config errors at boot', () => {
     @Module({ providers: [BadAdmin] })
     class BadModule {}
     await expect(createTestApp({ imports: [BadModule], entities: [Gadget] })).rejects.toThrow('form.layout: "nmae" is not on the form (did you mean "name"?)');
+  });
+});
+
+describe(`readonlyFields (${TEST_DB})`, () => {
+  const locked = '/admin/api/resources/locked-gadget';
+  // Installed before the first read of the describe: the warning is logged once per process.
+  let warn: ReturnType<typeof spyOn>;
+  beforeAll(() => {
+    warn = spyOn(Logger.prototype, 'warn');
+  });
+  afterAll(() => warn.mockRestore());
+
+  test('readonlyFields locks on GET', async () => {
+    const archived = (await http().post(locked).send({ name: 'old', status: 'archived' })).body;
+    expect(archived._readonly).toEqual(['price', 'note']);
+    const open = (await http().post(locked).send({ name: 'new' })).body;
+    expect(open._readonly).toBeUndefined();
+  });
+
+  test('readonlyFields refuses PATCH', async () => {
+    const archived = (await http().post(locked).send({ name: 'old', status: 'archived' })).body;
+    const res = await http().patch(`${locked}/${archived._id}`).send({ note: 'x' });
+    expect(res.status).toBe(422);
+    expect(res.body.fields).toEqual({ note: ['is read-only'] });
+    expect((await http().patch(`${locked}/${archived._id}`).send({ status: 'draft' })).status).toBe(200);
+  });
+
+  test('an unknown name warns once', async () => {
+    const archived = (await http().post(locked).send({ name: 'old', status: 'archived' })).body;
+    await http().get(`${locked}/${archived._id}`);
+    await http().get(`${locked}/${archived._id}`);
+    expect(warn.mock.calls.filter(([message]) => String(message).includes('"nope"'))).toHaveLength(1);
+  });
+
+  test('a throwing readonlyFields locks the update form', async () => {
+    const schema = (await http().get('/admin/api/meta/resources/locked-gadget')).body;
+    const boom = (await http().post(locked).send({ name: 'kaboom' })).body;
+    expect([...boom._readonly].sort()).toEqual([...schema.form.update].sort());
+  });
+
+  test('updateFields lists the update form', async () => {
+    const schema = (await http().get('/admin/api/meta/resources/locked-gadget')).body;
+    const resource = app.get(LockedGadgetAdmin);
+    expect([...resource.updatable()]).toEqual(schema.form.update);
   });
 });

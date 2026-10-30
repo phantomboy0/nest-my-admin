@@ -105,6 +105,10 @@ class VariantDto {
 class VariantAdmin extends AdminResourceBase<Variant> {
   override form: FormConfig = { create: VariantDto };
   override fields: FieldsConfig<Variant> = { sku: { readonlyIf: (variant: Variant) => variant.locked } };
+  /** A frozen variant's price is fixed (readonlyFields, next to sku's readonlyIf). */
+  override readonlyFields(variant: Variant): readonly string[] {
+    return variant.sku.startsWith('FROZEN') ? ['price'] : [];
+  }
   @AdminScope('active') activeOnly() {
     return { active: true };
   }
@@ -587,6 +591,15 @@ describe(`Review Focus 3: the child's own permissions (${TEST_DB})`, () => {
     expect(readonly.status).toBe(422);
     expect(Object.keys(readonly.body.fields)).toEqual([`_inlines.variant.update.${locked}.sku`]);
     expect((await variantsOf(id)).map((variant) => variant.sku)).toEqual(['BD-1', 'BD-2']);
+  });
+
+  test("a child's readonlyFields refuses an inline update", async () => {
+    const { id, variants } = await seed('Ice', ['FROZEN-1', 'IC-2'], [{}, {}]);
+    const frozen = String(variants[0]!.id);
+    const res = await root.patch(`/resources/product/${id}`, { _inlines: { variant: { update: [{ _id: frozen, price: 5 }] } } });
+    expect(res.status).toBe(422);
+    expect(Object.keys(res.body.fields)).toEqual([`_inlines.variant.update.${frozen}.price`]);
+    expect((await root.patch(`/resources/product/${id}`, { _inlines: { variant: { update: [{ _id: String(variants[1]!.id), price: 5 }] } } })).status).toBe(200);
   });
 
   test('ruling 4: `order` needs the right to update the order field; without it the whole save is 403', async () => {

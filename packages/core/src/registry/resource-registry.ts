@@ -315,6 +315,7 @@ export class ResourceRegistry implements OnModuleInit {
       throw new Error(`${className}: ${message}`);
     });
     const schema = buildResourceSchema({ definition, resource, metadata, moduleGroup, className });
+    resource.attachUpdateFields(() => schema.form.update);
     checkTabs(schema, resource.list?.tabs, (message) => {
       throw new Error(`${className}: ${message}`);
     });

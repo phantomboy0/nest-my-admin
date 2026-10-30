@@ -76,7 +76,7 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - Boot checks: `checkFieldConfig`/`checkLayout` run there.
   - Texts: the registry keeps the raw `LocalizedText`, and `AdminApiService.schema(name, locale)` applies it per request through `applyFieldConfig`/`localizeLayout`.
   - `readonly: true` fields leave `form.update` and are listed in `form.readonly`.
-  - `readonlyIf` stays on the server:
+  - `readonlyIf` and the resource's `readonlyFields(record, ctx)` stay on the server (`AdminApiService.lockedFields(entry, entity, ctx)` unions them; `updateFields` comes from `attachUpdateFields`):
     - `records()` adds `_readonly` (a throw locks the field) and `_links` (http(s)/relative only);
     - `update()` refuses locked fields with 422 before the resource method.
   - The UI side:

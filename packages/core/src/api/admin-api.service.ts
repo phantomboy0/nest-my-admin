@@ -92,7 +92,7 @@ export class AdminApiService {
       change: (change, tx, method) => this.change(change, tx, method),
       checkRelationsExist: (entry, ids, ctx, values) => this.checkRelationsExist(entry, ids, ctx, values),
       checkVersion: (entry, id, expected, ctx) => this.checkVersion(entry, id, expected, ctx),
-      lockedFields: (entry, entity) => this.lockedFields(entry, entity),
+      lockedFields: (entry, entity, ctx) => this.lockedFields(entry, entity, ctx),
       values: async (entry, entity, ctx) => toValues(await this.record(entry, entity, ctx)),
       reloadIfEmpty: (entry, result, id, ctx) => this.reloadIfEmpty(entry, result, id, ctx),
       errorMapper: options.errorMapper,
@@ -447,7 +447,7 @@ export class AdminApiService {
     const files = fileFields.length > 0 ? await this.files.refs(this.files.ownerOf(entry), entities, fileFields, ctx) : undefined;
     const out = entities.map((entity, index) => {
       const id = recordIdOf(entity, schema.primaryKeys);
-      const locked = this.lockedFields(entry, entity);
+      const locked = this.lockedFields(entry, entity, ctx);
       const links = this.recordLinks(entry, entity, locale);
       // TypeORM does not load the discriminator into entities; each row's class says which kind it is.
       const values = discriminator && schema.fields.some((field) => field.name === discriminator) ? { ...loaded?.get(id), [discriminator]: kindOf(entity) } : loaded?.get(id);
@@ -552,7 +552,7 @@ export class AdminApiService {
       const existing = await resource.findOne(id, tx);
       if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       this.policy.requireRecordRule(entry, 'update', existing, tx);
-      const locked = this.lockedFields(entry, existing).filter((name) => Object.hasOwn(dto, name));
+      const locked = this.lockedFields(entry, existing, tx).filter((name) => Object.hasOwn(dto, name));
       if (locked.length > 0) throw new AdminValidationError(Object.fromEntries(locked.map((name) => [name, ['is read-only']])), 'Some fields are read-only');
       const checked = plan ? await this.inlineWriter.check(plan, existing, tx) : undefined;
       const updated = inlineOnly
@@ -917,19 +917,34 @@ export class AdminApiService {
     });
   }
 
-  /** Fields `readonlyIf` locks on this record. A function that throws locks its field (and is logged once). */
-  private lockedFields(entry: RegisteredResource, entity: object): string[] {
-    const locked: string[] = [];
+  /**
+   * Fields `readonlyIf` and the resource's `readonlyFields` lock on this record, each once. A `readonlyIf` that throws
+   * locks its field, a `readonlyFields` that throws locks the update form (each logged once); unknown names are dropped.
+   */
+  private lockedFields(entry: RegisteredResource, entity: object, ctx: AdminContext): string[] {
+    const locked = new Set<string>();
     for (const [name, options] of entry.fieldConfig) {
       if (!options.readonlyIf) continue;
       try {
-        if (options.readonlyIf(entity)) locked.push(name);
+        if (options.readonlyIf(entity)) locked.add(name);
       } catch (error) {
-        locked.push(name);
+        locked.add(name);
         this.warnOnce(`${entry.className}.fields.${name}.readonlyIf threw (${error instanceof Error ? error.message : String(error)}); the field stays read-only`);
       }
     }
-    return locked;
+    let more: readonly string[];
+    try {
+      more = entry.resource.readonlyFields(entity, ctx);
+    } catch (error) {
+      more = entry.schema.form.update;
+      this.warnOnce(`${entry.className}.readonlyFields threw (${error instanceof Error ? error.message : String(error)}); the record stays read-only`);
+    }
+    const fields = new Set(entry.schema.fields.map((field) => field.name));
+    for (const name of more) {
+      if (fields.has(name) && !entry.schema.primaryKeys.includes(name)) locked.add(name);
+      else if (!fields.has(name)) this.warnOnce(`${entry.className}.readonlyFields names "${name}", which is not a field; it is ignored`);
+    }
+    return [...locked];
   }
 
   /** `links()` of the resource with labels in the locale; only http(s) and relative URLs get through. */

@@ -24,7 +24,7 @@ export interface InlineWriterDeps {
   change: <T>(change: WriteChange, tx: AdminContext, method: () => Promise<T>) => Promise<T>;
   checkRelationsExist: (entry: RegisteredResource, ids: Map<string, RelationId[]>, ctx: AdminContext, values: Record<string, unknown>) => Promise<void>;
   checkVersion: (entry: RegisteredResource, id: RecordId, expected: number | undefined, ctx: AdminContext) => Promise<void>;
-  lockedFields: (entry: RegisteredResource, entity: object) => string[];
+  lockedFields: (entry: RegisteredResource, entity: object, ctx: AdminContext) => string[];
   /** A record's values as `relationOptions()` sees them (as the user sees the record, relations as ids). */
   values: (entry: RegisteredResource, entity: object, ctx: AdminContext) => Promise<Record<string, unknown>>;
   reloadIfEmpty: (entry: RegisteredResource, result: unknown, id: RecordId, ctx: AdminContext) => Promise<object>;
@@ -299,12 +299,12 @@ export class InlineWriter {
       if (!policy.recordRule(child, 'update', rows.get(canonical)!, tx)) throw new AdminForbiddenError(`You may not update ${label} "${named.get(canonical)!.raw}"`);
     }
     for (const entry of updates) {
-      const locked = this.deps.lockedFields(child, rows.get(entry.canonical)!).filter((name) => Object.hasOwn(entry.dto, name));
+      const locked = this.deps.lockedFields(child, rows.get(entry.canonical)!, tx).filter((name) => Object.hasOwn(entry.dto, name));
       for (const name of locked) errors[`${at}.update.${entry.raw}.${name}`] = ['is read-only'];
     }
     if (inline.order !== undefined) {
       for (const canonical of moves.keys()) {
-        if (this.deps.lockedFields(child, rows.get(canonical)!).includes(inline.order)) errors[at] = [`${label} "${named.get(canonical)!.raw}" cannot be moved`];
+        if (this.deps.lockedFields(child, rows.get(canonical)!, tx).includes(inline.order)) errors[at] = [`${label} "${named.get(canonical)!.raw}" cannot be moved`];
       }
     }
 

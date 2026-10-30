@@ -201,6 +201,27 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
     return [];
   }
 
+  /**
+   * Fields locked on this record, on top of each field's `readonlyIf`: the record shows them read-only and a write that
+   * changes one is refused (422), inline rows included. Lock everything but some with `this.updateFields`. Must be
+   * synchronous and cheap (it runs per record of a page). A throw locks every field of the update form. Default: none.
+   */
+  readonlyFields(_record: T, _ctx: AdminContext): readonly string[] {
+    return [];
+  }
+
+  #updateFields?: () => readonly string[];
+
+  /** @internal Called once by the registry: where `updateFields` reads the update form from. */
+  attachUpdateFields(read: () => readonly string[]): void {
+    this.#updateFields = read;
+  }
+
+  /** The fields of the update form (`schema.form.update`): what `readonlyFields` can lock. */
+  protected get updateFields(): readonly string[] {
+    return this.#updateFields?.() ?? [];
+  }
+
   #repository?: Repository<T>;
   #scoper?: (qb: SelectQueryBuilder<T>, ctx: AdminContext | undefined) => SelectQueryBuilder<T>;
 

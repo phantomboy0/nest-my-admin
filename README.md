@@ -302,6 +302,13 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - `readonly: true` shows the field on edit forms as text with a lock and removes it from `form.update`.
   - `readonlyIf(record)` runs on the server for every record. Records carry `_readonly` (the fields it locks), and a PATCH that sends a locked field is a 422 `{ field: ['is read-only'] }` before your `update` runs. That covers inline cell edits too.
   - A `readonlyIf` that throws locks its field and is logged once.
+  - To lock a record from one place, override `readonlyFields(record, ctx)` on the resource and return the names to lock; they add to every `readonlyIf`, with the same effects (`_readonly`, the 422, inline rows). `this.updateFields` lists the update form, so "everything but these" is `this.updateFields.filter((name) => !KEEP.has(name))`. Unknown names are ignored (logged once); a throw locks the whole update form. It runs per record, so keep it synchronous and cheap.
+
+    ```ts
+    override readonlyFields(product: Product): readonly string[] {
+      return product.crmId ? this.updateFields.filter((name) => !SHOP_FIELDS.has(name)) : [];
+    }
+    ```
   - Create ignores it.
 - **`showIf`** hides a field while other fields do not hold the given value (or one of the values), evaluated live in the browser. A hidden field is not sent and not checked. It is presentation, not a permission: the server keeps the stored value.
 - **`slugFrom`** makes the slug widget fill itself from another field. It keeps the letters of every script and stops once someone types in it, or when it already holds a value.
