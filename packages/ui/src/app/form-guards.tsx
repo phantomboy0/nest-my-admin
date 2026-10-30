@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject, type ReactNode } from 'react';
 import { useBlocker, type Blocker } from 'react-router';
+import { BlockingAlert } from '@/app/blocking-alert';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
 
@@ -30,22 +31,22 @@ export function useUnsavedGuard(dirty: boolean): { blocker: Blocker; release: ()
   };
 }
 
-/** The inline "Leave without saving?" bar of a blocked navigation. */
+/** "Leave without saving?" for a blocked navigation: a blocking alert, where Escape and the backdrop mean stay. */
 export function LeaveBar({ blocker }: { blocker: Blocker }) {
   const t = useT();
   if (blocker.state !== 'blocked') return null;
   return (
-    <div role="alertdialog" aria-labelledby="leave-title" className="sticky top-16 z-10 flex flex-wrap items-center gap-2 rounded-md border border-amber-500/50 bg-background p-3 shadow-sm">
-      <p id="leave-title" className="flex-1 text-sm font-medium">
+    <BlockingAlert labelledBy="leave-title" onDismiss={() => blocker.reset()} className="flex flex-wrap items-center gap-2">
+      <p id="leave-title" className="min-w-0 flex-1 basis-full text-sm font-medium sm:basis-0">
         {t('form.leaveTitle')}
       </p>
-      <Button type="button" variant="outline" autoFocus onClick={() => blocker.reset()}>
+      <Button type="button" variant="outline" onClick={() => blocker.reset()}>
         {t('form.stay')}
       </Button>
       <Button type="button" variant="destructive" onClick={() => blocker.proceed()}>
         {t('form.leave')}
       </Button>
-    </div>
+    </BlockingAlert>
   );
 }
 

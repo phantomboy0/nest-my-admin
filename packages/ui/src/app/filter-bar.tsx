@@ -1,4 +1,5 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { OVERLAY_ANIMATED_CLASS } from '@/components/ui/overlay';
 import { ArrowDownUp, Check, ChevronDown, CirclePlus, ListFilter, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Checkbox, Dialog, Popover } from 'radix-ui';
 import type { FieldSchema, FilterOperator, ResourceSchema } from '@nest-my-admin/core/contract';
@@ -125,7 +126,7 @@ export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps
       {drawer && (
         <Dialog.Root open={open} onOpenChange={setOpen}>
           <Dialog.Portal>
-            <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
+            <Dialog.Overlay className={OVERLAY_ANIMATED_CLASS} />
             <Dialog.Content
               aria-describedby={undefined}
               className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-[18px] bg-card shadow-xl outline-none"

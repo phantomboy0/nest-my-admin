@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
+import { OVERLAY_ANIMATED_CLASS } from '@/components/ui/overlay';
 import { Dialog } from 'radix-ui';
 import type { ActionSchema } from '@nest-my-admin/core/contract';
 import { FieldInput } from '@/app/field-input';
@@ -81,7 +82,7 @@ export function ActionDialog({ resource, action, count, subject, running, error,
   return (
     <Dialog.Root open onOpenChange={(next) => !next && !running && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
+        <Dialog.Overlay className={OVERLAY_ANIMATED_CLASS} />
         <Dialog.Content
           aria-describedby={question ? 'action-question' : undefined}
           className="fixed inset-x-3 top-[12vh] z-50 mx-auto flex max-h-[76vh] max-w-lg flex-col overflow-hidden rounded-xl border bg-background shadow-xl outline-none"

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { OVERLAY_ANIMATED_CLASS } from '@/components/ui/overlay';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { Moon, Plus, Search } from 'lucide-react';
@@ -129,7 +130,7 @@ export function CommandPalette() {
         </Button>
       </Dialog.Trigger>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
+        <Dialog.Overlay className={OVERLAY_ANIMATED_CLASS} />
         <Dialog.Content
           aria-describedby={undefined}
           className="fixed inset-x-3 top-[12vh] z-50 mx-auto flex max-h-[70vh] max-w-[540px] flex-col overflow-hidden rounded-card border border-border bg-card text-card-foreground shadow-[0_24px_48px_rgba(0,0,0,.18)] outline-none"

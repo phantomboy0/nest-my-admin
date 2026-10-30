@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { OVERLAY_ANIMATED_CLASS } from '@/components/ui/overlay';
 import { Link } from 'react-router';
 import { Pencil, X } from 'lucide-react';
 import { Dialog } from 'radix-ui';
@@ -29,7 +30,7 @@ export function QuickView({ schema, item, onClose }: QuickViewProps) {
   return (
     <Dialog.Root open={item !== undefined} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
+        <Dialog.Overlay className={OVERLAY_ANIMATED_CLASS} />
         <Dialog.Content
           className="fixed inset-y-0 end-0 z-50 flex w-full max-w-md flex-col border-s bg-background shadow-xl outline-none"
           aria-describedby={undefined}

@@ -133,7 +133,7 @@ function Shell() {
 
       {menuOpen && (
         <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('shell.menu')} ref={drawer}>
-          <div className="absolute inset-0 bg-black/40" aria-hidden onClick={() => setMenuOpen(false)} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm dark:bg-black/60 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150" aria-hidden onClick={() => setMenuOpen(false)} />
           {/* A link closes the menu at once: a form with unsaved changes may hold the navigation back to ask first. */}
           <aside
             className="absolute inset-y-0 start-0 flex w-[300px] max-w-[85vw] flex-col border-e border-sidebar-border bg-sidebar text-sidebar-foreground shadow-xl"

@@ -218,6 +218,45 @@ test('a second editor gets a conflict notice and can keep their changes', async 
   await expect(page.getByLabel('Stock', { exact: true })).toHaveValue('7');
 });
 
+test('stacked alerts: the top one takes the keys, and the page is released only when the last one closes', async ({ page }, testInfo) => {
+  const sku = `STK-${testInfo.project.name.toUpperCase()}`;
+  await page.goto('/admin/product/new');
+  await page.getByLabel('Name').fill('Stacked lamp');
+  await page.getByLabel('Sku').fill(sku);
+  await page.getByLabel('Price').fill('10');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await openRecord(page, sku);
+  const editUrl = page.url();
+  const other = await page.context().newPage();
+  await other.goto(editUrl);
+  await other.getByLabel('Stock', { exact: true }).fill('7');
+  await other.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(other).toHaveURL(/\/admin\/product$/);
+  await other.close();
+
+  await page.getByLabel('Name').fill('Mine');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const conflict = page.getByRole('alertdialog', { name: /Someone else saved/ });
+  await expect(conflict).toBeVisible();
+  await expect(conflict.getByRole('button', { name: 'Load theirs' })).toBeFocused(); // never the destructive choice first
+  await expect(page.locator('#root')).toHaveAttribute('inert', '');
+
+  await page.goBack(); // navigation under the conflict: the leave alert stacks on top
+  const leave = page.getByRole('alertdialog', { name: 'Leave without saving? Your changes will be lost.' });
+  await expect(leave).toBeVisible();
+  await expect(leave.getByRole('button', { name: 'Stay' })).toBeFocused();
+  await page.keyboard.press('Escape'); // closes only the top one
+  await expect(leave).toBeHidden();
+  await expect(conflict).toBeVisible();
+  await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
+  await expect(page.locator('#root')).toHaveAttribute('inert', '');
+
+  await conflict.getByRole('button', { name: 'Load theirs' }).click();
+  await expect(conflict).toBeHidden();
+  await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
+  await expect(page.locator('#root')).not.toHaveAttribute('inert', '');
+});
+
 test('a product in the trash can be restored', async ({ page }, testInfo) => {
   const sku = `BIN-${testInfo.project.name.toUpperCase()}`;
   await page.goto('/admin/product/new');
@@ -512,6 +551,23 @@ test('leaving with unsaved changes asks first; Ctrl+S saves in place (M2-3 Revie
   await expect(bar).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`${url}$`));
   await expect(page.getByLabel('Stock', { exact: true })).toHaveValue('41');
+
+  // The alert blocks the page: focus is on Stay, Tab stays between the two buttons, the backdrop and Escape both mean stay.
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(bar.getByRole('button', { name: 'Stay' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(bar.getByRole('button', { name: 'Leave' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(bar.getByRole('button', { name: 'Stay' })).toBeFocused();
+  await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
+  await page.keyboard.press('Escape');
+  await expect(bar).toBeHidden();
+  await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(bar).toBeVisible();
+  await page.getByTestId('alert-backdrop').click({ position: { x: 5, y: 5 } });
+  await expect(bar).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`${url}$`));
 
   await page.keyboard.press('Control+s');
   await expect(page.getByRole('status').filter({ hasText: 'saved' })).toContainText('“Guarded lamp” saved.');
