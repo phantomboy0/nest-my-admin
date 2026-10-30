@@ -5,6 +5,7 @@ import type { RegisteredResource, RelationMetadataLike } from '../registry/resou
 import { DEFAULT_INLINE_MAX, layoutInlines, localizeLayout, mainLayout, type LayoutInlineConfig } from '../schema/field-config.js';
 import { isToOne } from '../schema/relation-fields.js';
 import { didYouMean } from '../schema/suggest.js';
+import { bootText, type ScopedText } from '../i18n/texts.js';
 
 /** An inline of a parent resource, resolved at boot against the child resource. */
 export interface RegisteredInline {
@@ -52,7 +53,7 @@ export function resolveInlines(entries: RegisteredResource[]): void {
       inlines.push(inline);
     }
     entry.inlines = inlines;
-    entry.schema.form.layout = localizeLayout(layout, '', '', (node, label) => toLayoutInline(inlineOf(entry, node), label, '', ''));
+    entry.schema.form.layout = localizeLayout(layout, bootText, (node, label) => toLayoutInline(inlineOf(entry, node), label, bootText, bootText(inlineOf(entry, node).child.label)));
   }
 }
 
@@ -63,11 +64,14 @@ export function inlineOf(entry: RegisteredResource, node: LayoutInlineConfig): R
   return inline;
 }
 
-/** The inline node the UI gets, its label in `locale` (`label`: the section's title already in `locale`). */
-export function toLayoutInline(inline: RegisteredInline, label: string | undefined, locale: string, defaultLocale: string): FormLayoutInline {
+/**
+ * The inline node the UI gets: `label` is the section's title already resolved, else `childLabel` (the child
+ * resource's label); `text` resolves the parent's texts (`form.<key>.markFirst`).
+ */
+export function toLayoutInline(inline: RegisteredInline, label: string | undefined, text: ScopedText, childLabel: string): FormLayoutInline {
   return {
     inline: inline.name,
-    label: label ?? resolveText(inline.child.label, locale, defaultLocale),
+    label: label ?? childLabel,
     display: inline.display,
     fields: [...inline.fields],
     ...(inline.order !== undefined ? { order: inline.order } : {}),
@@ -76,7 +80,7 @@ export function toLayoutInline(inline: RegisteredInline, label: string | undefin
     link: inline.link,
     ...(inline.readonly ? { readonly: true as const } : {}),
     ...(inline.computed.length > 0 ? { computed: [...inline.computed] } : {}),
-    ...(inline.node.cards?.markFirst !== undefined ? { markFirst: resolveText(inline.node.cards.markFirst, locale, defaultLocale) } : {}),
+    ...(inline.node.cards?.markFirst !== undefined ? { markFirst: text(inline.node.cards.markFirst, inline.node.key === undefined ? undefined : `form.${inline.node.key}.markFirst`) } : {}),
   };
 }
 

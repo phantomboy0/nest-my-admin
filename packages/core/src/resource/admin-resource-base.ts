@@ -172,6 +172,8 @@ export interface FormConfig {
  * (`relation`: the relation field), with a link to it (`link`, «مشاهده پروفایل»).
  */
 export interface AsideCardConfig {
+  /** Names this card for `translate` (`resource.<r>.form.<key>`). */
+  key?: string;
   title: LocalizedText;
   icon?: string;
   fields: string[] | { relation: string; fields: string[] };

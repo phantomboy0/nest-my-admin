@@ -40,7 +40,7 @@ export function checkMenu(menu: AdminMenuOptions, registry: ResourceRegistry, pa
  */
 export function buildMenu(
   menu: AdminMenuOptions,
-  text: (label: LocalizedText) => string,
+  text: (label: LocalizedText, key?: string) => string,
   resources: MetaResourceSummary[],
   pages: MetaPageSummary[],
 ): MetaMenu {
@@ -65,13 +65,13 @@ export function buildMenu(
     }
     // A section of links only is the host's choice; one whose resources and pages were all cut is dropped.
     const linksOnly = section.items.every((item) => 'href' in item);
-    if (linksOnly || items.some((item) => item.kind !== 'link')) sections.push({ key: section.key, label: text(section.label), icon: section.icon, items });
+    if (linksOnly || items.some((item) => item.kind !== 'link')) sections.push({ key: section.key, label: text(section.label, `menu.${section.key}`), icon: section.icon, items });
   }
   const rest: MetaMenuItem[] = [
     ...resources.filter((resource) => !placed.has(`r:${resource.name}`)).map((resource) => resourceItem(resource, false)),
     ...pages.filter((page) => !placed.has(`p:${page.name}`)).map((page): MetaMenuItem => ({ kind: 'page', page: page.name, label: page.label, ...(page.icon ? { icon: page.icon } : {}) })),
   ];
-  return { sections, advanced: { key: 'advanced', label: text(menu.advanced?.label ?? { en: 'Advanced', fa: 'پیشرفته' }), icon: 'database', items: rest } };
+  return { sections, advanced: { key: 'advanced', label: text(menu.advanced?.label ?? { en: 'Advanced', fa: 'پیشرفته' }, 'menu.advanced'), icon: 'database', items: rest } };
 }
 
 function resourceItem(summary: MetaResourceSummary, badge: boolean): MetaMenuItem {

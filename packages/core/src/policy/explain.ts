@@ -7,6 +7,7 @@ import { runInAdminContext, type AdminContext } from '../resource/admin-context.
 import { EffectivePermissions, type FieldLevel } from './effective.js';
 import { RESOURCE_OPERATIONS, actionCode, codeMatches, pageCode, type RoleDefinition, type ScopedOperation } from './roles.js';
 import type { AdminPolicy } from './admin-policy.service.js';
+import { bootText } from '../i18n/texts.js';
 
 const SCOPED: ScopedOperation[] = ['view', 'update', 'delete'];
 
@@ -156,6 +157,6 @@ async function explainRecord(policy: AdminPolicy, entry: RegisteredResource, raw
   const recordActions = [...entry.actions.values()].filter((action) => action.target === 'record');
   const updatable = update || reasons.update === 'rule';
   // A per-record label of `null` hides the action on that record, as in `_perm.actions`.
-  const actions = recordActions.filter((action) => updatable && policy.canRunAction(entry, action, ctx) && policy.recordRule(entry, action.name, found!, ctx) && actionLabel(action, found!, 'en', 'en') !== null).map((action) => action.name);
+  const actions = recordActions.filter((action) => updatable && policy.canRunAction(entry, action, ctx) && policy.recordRule(entry, action.name, found!, ctx) && actionLabel(action, found!, bootText) !== null).map((action) => action.name);
   return { id: key, exists, view, update, delete: del, ...(recordActions.length > 0 ? { actions } : {}), reasons };
 }

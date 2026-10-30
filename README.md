@@ -208,6 +208,22 @@ AdminModule.forRoot({
     locale.
   - Resources and hooks see it as `ctx.locale`.
   - Field labels, help, placeholders and enum value labels take the same `{ en, fa }` form (see Fields and forms).
+  - A plain string (`label: 'سفارش‌ها'`) is one text for every language: write labels once in your own language when that is all you need.
+- **Your own translations (`translate`).** Resolve every text you declare with your own i18n instead of writing each language inline:
+
+  ```ts
+  AdminModule.forRoot({
+    locale: 'fa',
+    locales: ['fa', 'en'],
+    translate: ({ key, text, locale }) => (locale === 'en' && key ? english[key] : undefined),
+  });
+  ```
+
+  - It is asked for every text of a request, before the declared one; `undefined` (or `''`) keeps the declared text, and a throw keeps it too (logged once per key). It runs per request: keep it cheap.
+  - `text` is what you declared, or the default (`Created at` for `createdAt`) when you declared nothing, so fields you never labelled can be translated too.
+  - `key` names the text: `title`, `group.<key>`, `menu.<section>`, `menu.advanced`, `resource.<r>`, `resource.<r>.fields.<f>.label` (and `.help`, `.placeholder`, `.enumLabels.<value>`; nested fields by their dotted path, `hours.*.day`), `resource.<r>.actions.<a>.label` (and `.confirm`, `.fields.<f>.label` of its input), `resource.<r>.prints.<p>.label`, `resource.<r>.list.tabs.<t>.label`, `resource.<r>.list.computed.<c>.label`, `resource.<r>.form.<key>` for a layout node (section, tab, summary, inline, aside card) you give a `key`, `page.<p>` and `page.<p>.fields.<f>.label`, `widget.<w>.title`.
+  - Texts without a stable name (layout nodes without a `key`, action messages, record links, badge labels) come with `text` only.
+  - Role labels are stored with the roles and shown as they are.
 - **Branding.**
   - `primaryColor` may be hex, `rgb()`, `hsl()` or `oklch()`, and `radius` a length. Text on the primary colour is
     chosen from its lightness.

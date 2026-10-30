@@ -4,6 +4,10 @@ import { IsString } from 'class-validator';
 import { AdminAction, getActions, resolveActions, toActionSchema } from './admin-action.js';
 import { AdminField } from './admin-field.js';
 import { AdminCan } from './admin-scope.js';
+import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
+
+/** Texts in `locale`, the default being English. */
+const loc = (locale: string) => (value: LocalizedText) => resolveText(value, locale, 'en');
 
 class NoteDto {
   @AdminField({ label: { en: 'Note', fa: 'یادداشت' } })
@@ -61,12 +65,12 @@ describe('resolveActions', () => {
 
   test('toActionSchema resolves the texts for one language', () => {
     const approve = resolve(ChildAdmin).get('approve')!;
-    expect(toActionSchema(approve, 'fa', 'en')).toMatchObject({ name: 'approve', label: 'تایید', confirm: true, input: { fields: [{ name: 'note', label: 'یادداشت' }], required: ['note'] } });
+    expect(toActionSchema(approve, loc('fa'))).toMatchObject({ name: 'approve', label: 'تایید', confirm: true, input: { fields: [{ name: 'note', label: 'یادداشت' }], required: ['note'] } });
     const asked = { ...approve, confirm: { en: 'Sure?', fa: 'مطمئنید؟' } };
-    expect(toActionSchema(asked, 'en', 'en').confirm).toBe('Sure?');
+    expect(toActionSchema(asked, loc('en')).confirm).toBe('Sure?');
     const { confirm: _confirm, ...quiet } = approve;
-    expect('confirm' in toActionSchema(quiet, 'en', 'en')).toBe(false);
-    expect('input' in toActionSchema(resolve(ChildAdmin).get('wipeAll')!, 'en', 'en')).toBe(false);
+    expect('confirm' in toActionSchema(quiet, loc('en'))).toBe(false);
+    expect('input' in toActionSchema(resolve(ChildAdmin).get('wipeAll')!, loc('en'))).toBe(false);
   });
 
   const bad = (options: Parameters<typeof AdminAction>[0], method = 'run') => {

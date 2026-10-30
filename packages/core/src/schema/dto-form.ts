@@ -2,7 +2,7 @@ import type { DtoFormSchema, FieldConstraints, FieldSchema } from '../contract.j
 import { dtoConstraints, isConditionalProperty } from './dto-constraints.js';
 import { getAdminFieldOptions, type AdminFieldOptions } from '../decorators/admin-field.js';
 import { dtoOnlyField, dtoPropertyNames, type DtoClass } from './dto-fields.js';
-import { applyFieldConfig, checkFieldConfig, mergeFieldConfig, type FieldConfig } from './field-config.js';
+import { applyFieldConfig, checkFieldConfig, mergeFieldConfig, type FieldConfig, type FieldText } from './field-config.js';
 import { dtoObjectField, nestedTypeOf } from './nested-fields.js';
 
 /**
@@ -118,9 +118,9 @@ function addNestedConstraints(out: Record<string, FieldConstraints>, field: Fiel
 }
 
 /** The form as one request gets it: field options applied, texts in `locale`. */
-export function localizeDtoForm(form: DtoForm, locale: string, defaultLocale: string, files: { maxBytes?: number; enabled?: boolean } = {}): DtoFormSchema {
+export function localizeDtoForm(form: DtoForm, fieldText: FieldText, files: { maxBytes?: number; enabled?: boolean } = {}): DtoFormSchema {
   return {
-    fields: form.fields.map((field) => applyFieldConfig(field, form.config.get(field.name), locale, defaultLocale, files.maxBytes, files.enabled)),
+    fields: form.fields.map((field) => applyFieldConfig(field, form.config.get(field.name), fieldText, files.maxBytes, files.enabled)),
     constraints: form.constraints,
     required: form.required,
   };

@@ -3,9 +3,11 @@ import { resolveAdminOptions } from './options.js';
 
 describe('resolveAdminOptions', () => {
   test('defaults', () => {
-    expect(resolveAdminOptions()).toEqual({
+    const { texts, ...rest } = resolveAdminOptions();
+    expect(texts('Orders', 'en')).toBe('Orders');
+    expect(rest).toEqual({
       path: '/admin', title: 'Admin', locale: 'en', locales: ['en'], branding: {}, uiDistPath: undefined, autoRegister: [], transactions: true, errorMapper: undefined,
-      auth: undefined, roles: [], resolveRoles: undefined, globalScopes: [], permissions: [], rbac: undefined,
+      translate: undefined, auth: undefined, roles: [], resolveRoles: undefined, globalScopes: [], permissions: [], rbac: undefined,
     });
   });
 

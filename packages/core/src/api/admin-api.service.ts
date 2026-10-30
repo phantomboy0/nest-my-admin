@@ -40,6 +40,7 @@ import { FilesService } from '../files/files.service.js';
 import { AdminBadRequestError, AdminConflictError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import { AdminPolicy, type ResourceView } from '../policy/admin-policy.service.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
+import { scopedText } from '../i18n/texts.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
@@ -122,7 +123,7 @@ export class AdminApiService {
 
   /** Sidebar data with labels in `locale` (the default locale when omitted). */
   meta(locale = this.options.locale, ctx?: AdminContext): MetaResponse {
-    const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
+    const text = (label: LocalizedText, key?: string) => this.options.texts(label, locale, key);
     // Only resources the user may view (spec §6.5: meta is filtered per user).
     // `nav: false` resources have no entry of their own (spec §5): reachable by URL, not listed.
     const resources = this.registry.list().filter((entry) => entry.nav && (!ctx || this.policy.permissionsOf(ctx).canOn(entry.schema.name, 'view')));
@@ -134,13 +135,13 @@ export class AdminApiService {
       .groupList()
       .map((group) => ({
         group,
-        label: text(group.label),
+        label: text(group.label, `group.${group.key}`),
         resources: resources
           .filter((entry) => entry.schema.group === group.key)
           .map((entry) => {
             const { schema, label } = entry;
             const seen = ctx ? this.view(entry, ctx).schema : schema;
-            const summary: MetaResourceSummary = { name: schema.name, label: text(label), ...(schema.icon ? { icon: schema.icon } : {}), creatable: seen.creatable, searchable: seen.list.search.length > 0 };
+            const summary: MetaResourceSummary = { name: schema.name, label: text(label, `resource.${schema.name}`), ...(schema.icon ? { icon: schema.icon } : {}), creatable: seen.creatable, searchable: seen.list.search.length > 0 };
             return { order: entry.order, summary };
           })
           .sort(byOrder)
@@ -164,7 +165,7 @@ export class AdminApiService {
     const menu = this.options.menu && buildMenu(this.options.menu, text, groups.flatMap((group) => group.resources), groups.flatMap((group) => group.pages));
     // With widgets in the app, whether this user has a dashboard (it replaces the home page).
     const dashboard = this.widgets.list().length > 0 ? { dashboard: ctx ? this.dashboard.has(ctx) : true } : {};
-    return { schemaVersion: 1, title: text(this.options.title), locale, locales: this.options.locales, groups, ...dashboard, ...(menu ? { menu } : {}) };
+    return { schemaVersion: 1, title: text(this.options.title, 'title'), locale, locales: this.options.locales, groups, ...dashboard, ...(menu ? { menu } : {}) };
   }
 
   /**
@@ -219,7 +220,7 @@ export class AdminApiService {
   /** Computed columns of some rows of a resource, image cells as URLs. */
   private async computedValues(entry: RegisteredResource, columns: CompiledComputed[], entities: object[], ctx: AdminContext): Promise<Map<string, Record<string, ComputedValue>>> {
     const locale = ctx.locale ?? this.options.locale;
-    const values = await loadComputed(columns, entities, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (target, field) => this.registry.forEntity(target, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+    const values = await loadComputed(columns, entities, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => this.options.texts(label, locale), (target, field) => this.registry.forEntity(target, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
     await this.imageUrls(entry, columns, values, ctx);
     return values;
   }
@@ -260,24 +261,25 @@ export class AdminApiService {
   schema(name: string, locale = this.options.locale, ctx?: AdminContext): ResourceSchema {
     const entry = this.registry.get(name);
     if (ctx) this.policy.requireReach(entry, ctx);
-    const text = (label: LocalizedText) => resolveText(label, locale, this.options.locale);
+    const text = scopedText(this.options.texts, locale, `resource.${name}`);
     const related = entry.schema.related.map((item, index) => {
-      const base = text(this.registry.get(item.resource).label);
+      const target = this.registry.get(item.resource);
+      const base = this.options.texts(target.label, locale, `resource.${target.schema.name}`);
       const fieldLabel = entry.relatedFieldLabels[index];
       return { ...item, label: fieldLabel ? `${base} (${fieldLabel})` : base };
     });
-    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), locale, this.options.locale, this.options.files?.maxBytes, this.files.enabled));
+    const fields = entry.schema.fields.map((field) => applyFieldConfig(field, entry.fieldConfig.get(field.name), (value, path) => text(value, `fields.${path}`), this.options.files?.maxBytes, this.files.enabled));
     const layout = mainLayout(entry.resource.form?.layout);
-    const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, locale, this.options.locale);
-    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, locale, this.options.locale, inline) } : entry.schema.form;
-    const actions = [...entry.actions.values()].map((action) => toActionSchema(action, locale, this.options.locale));
-    const prints = [...entry.prints.values()].map((print) => toPrintSchema(print, locale, this.options.locale));
-    const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label) }]));
-    const tabs = entry.schema.list.tabs?.map((tab, index) => ({ ...tab, label: text(entry.resource.list!.tabs![index]!.label) }));
+    const inline = (node: Parameters<typeof inlineOf>[1], label: string | undefined) => toLayoutInline(inlineOf(entry, node), label, text, this.options.texts(inlineOf(entry, node).child.label, locale, `resource.${inlineOf(entry, node).name}`));
+    const form = layout ? { ...entry.schema.form, layout: localizeLayout(layout, (value, key) => text(value, key === undefined ? undefined : `form.${key}`), inline) } : entry.schema.form;
+    const actions = [...entry.actions.values()].map((action) => toActionSchema(action, text));
+    const prints = [...entry.prints.values()].map((print) => toPrintSchema(print, text));
+    const computed = entry.schema.list.computed && Object.fromEntries(Object.entries(entry.schema.list.computed).map(([key, column]) => [key, { ...column, label: text(entry.computed.get(key)!.column.label, `list.computed.${key}.label`) }]));
+    const tabs = entry.schema.list.tabs?.map((tab, index) => ({ ...tab, label: text(entry.resource.list!.tabs![index]!.label, `list.tabs.${tab.key}.label`) }));
     const list = { ...entry.schema.list, ...(computed ? { computed } : {}), ...(tabs ? { tabs } : {}) };
     const asideConfig = entry.resource.form?.layout && !Array.isArray(entry.resource.form.layout) ? entry.resource.form.layout.aside : undefined;
-    const localizedForm = form.aside && asideConfig ? { ...form, aside: form.aside.map((card, index) => ({ ...card, title: text(asideConfig[index]!.title) })) } : form;
-    const localized = { ...entry.schema, label: text(entry.label), related, fields, form: localizedForm, actions, prints, list };
+    const localizedForm = form.aside && asideConfig ? { ...form, aside: form.aside.map((card, index) => ({ ...card, title: text(asideConfig[index]!.title, asideConfig[index]!.key === undefined ? undefined : `form.${asideConfig[index]!.key}`) })) } : form;
+    const localized = { ...entry.schema, label: text(entry.label, ''), related, fields, form: localizedForm, actions, prints, list };
     const schema = ctx ? this.policy.view(entry, localized, ctx).schema : localized;
     // The child schema of every inline left in the layout (the policy removed those the user may not view).
     const children = (schema.form.layout ?? []).flatMap((node) => ('tab' in node ? node.sections : [node])).flatMap((node) => ('inline' in node ? [node.inline] : []));
@@ -310,7 +312,7 @@ export class AdminApiService {
     const computed = [...entry.computed.values()].filter((column) => schema.list.computed?.[column.key] && shown.has(column.key));
     if (computed.length > 0) {
       const locale = ctx.locale ?? this.options.locale;
-      const values = await loadComputed(computed, items, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => resolveText(label, locale, this.options.locale), (entity, field) => this.registry.forEntity(entity, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
+      const values = await loadComputed(computed, items, entry.metadata, ctx, this.registry.childQuery, (alias) => entry.resource.readQuery(alias, ctx), (label) => this.options.texts(label, locale), (entity, field) => this.registry.forEntity(entity, entry.dataSource)?.schema.fields.find((candidate) => candidate.name === field));
       await this.imageUrls(entry, computed, values, ctx);
       for (const record of records) record._computed = values.get(String(record._id)) ?? {};
     }
@@ -356,7 +358,7 @@ export class AdminApiService {
           if (items.length === 0) return undefined;
           return {
             resource: schema.name,
-            label: resolveText(entry.label, locale, this.options.locale),
+            label: this.options.texts(entry.label, locale, `resource.${schema.name}`),
             items: items.map((entity) => {
               const id = recordIdOf(entity, schema.primaryKeys);
               return { _id: id, _title: this.policy.titleVisible(entry, ctx) ? entry.title(entity) : `#${id}` };
@@ -793,7 +795,7 @@ export class AdminApiService {
     this.policy.require(entry, 'view', ctx);
     const print = entry.prints.get(printName);
     if (!print) throw new AdminNotFoundError(`${entry.schema.label} has no print template "${printName}"`);
-    if (!this.policy.canPrint(entry, printName, ctx)) throw new AdminForbiddenError(`You may not print "${resolveText(print.label, ctx.locale ?? this.options.locale, this.options.locale)}"`);
+    if (!this.policy.canPrint(entry, printName, ctx)) throw new AdminForbiddenError(`You may not print "${this.options.texts(print.label, ctx.locale ?? this.options.locale, `resource.${entry.schema.name}.prints.${print.name}.label`)}"`);
     const ids = [...new Set(rawIds)];
     if (ids.length === 0) throw new AdminBadRequestError('id is required');
     if (ids.length > (print.bulk ? PRINT_MAX : 1)) throw new AdminBadRequestError(print.bulk ? `at most ${PRINT_MAX} records at once` : 'this template prints one record');
@@ -813,7 +815,7 @@ export class AdminApiService {
       throw hostError(error);
     }
     const locale = ctx.locale ?? this.options.locale;
-    const label = resolveText(print.label, locale, this.options.locale);
+    const label = this.options.texts(print.label, locale, `resource.${entry.schema.name}.prints.${print.name}.label`);
     for (const entity of entities) {
       await this.audit.recordAfter({ event: printCode(entry.schema.name, printName), entry, recordId: recordIdOf(entity, entry.schema.primaryKeys), title: entry.title(entity) }, ctx);
     }
@@ -941,7 +943,7 @@ export class AdminApiService {
     }
     return (Array.isArray(links) ? links : [])
       .filter((link) => typeof link?.href === 'string' && (/^https?:\/\//i.test(link.href) || !/^[a-z][a-z0-9+.-]*:/i.test(link.href.trim())))
-      .map((link) => ({ label: resolveText(link.label, locale, this.options.locale), href: link.href }));
+      .map((link) => ({ label: this.options.texts(link.label, locale), href: link.href }));
   }
 
   private readonly warned = new Set<string>();

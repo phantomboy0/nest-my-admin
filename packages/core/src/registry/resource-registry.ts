@@ -27,6 +27,7 @@ import { resolveInlines, type RegisteredInline } from '../inlines/inline-config.
 import { checkTabs } from '../crud/list-tabs.js';
 import { addComputedSort, checkComputed, type ChildQuery, type CompiledComputed } from '../crud/computed-columns.js';
 import type { ComputedColumn } from '../resource/admin-resource-base.js';
+import { bootText } from '../i18n/texts.js';
 
 export interface RegisteredResource {
   schema: ResourceSchema;
@@ -340,11 +341,11 @@ export class ResourceRegistry implements OnModuleInit {
       throw new Error(`${className}: @AdminAction "${atomic.name}" is \`atomic\`, which needs the admin's transactions; they are off (\`transactions: false\`)`);
     }
     // Texts in the first language given, like the fields; AdminApiService localizes per request.
-    schema.actions = [...actions.values()].map((action) => toActionSchema(action, '', ''));
+    schema.actions = [...actions.values()].map((action) => toActionSchema(action, bootText));
     const prints = resolvePrints(resource.constructor, [...BASE_MEMBERS, ...actions.keys()], (message) => {
       throw new Error(`${className}: ${message}`);
     });
-    schema.prints = [...prints.values()].map((print) => toPrintSchema(print, '', ''));
+    schema.prints = [...prints.values()].map((print) => toPrintSchema(print, bootText));
     const exported = checkExport(resource.list?.export, schema, (message) => {
       throw new Error(`${className}: list.export: ${message}`);
     });

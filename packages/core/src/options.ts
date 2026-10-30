@@ -5,6 +5,8 @@ import type { RoleDefinition } from './policy/roles.js';
 import type { AdminContext } from './resource/admin-context.js';
 import type { AdminError } from './errors.js';
 import type { LocalizedText } from './i18n/localized-text.js';
+import { createTexts, type AdminTranslate, type TextResolver } from './i18n/texts.js';
+import { Logger } from '@nestjs/common';
 import type { AdminStorage } from './files/storage.js';
 import { checkCurrency, type AdminCurrency } from './schema/currency.js';
 import { DEFAULT_MAX_FILE_BYTES, MAX_FILE_BYTES } from './schema/field-config.js';
@@ -122,6 +124,11 @@ export interface AdminModuleOptions {
   transactions?: boolean;
   /** Translate your own exceptions into admin errors (see ErrorMapper). Default: none. */
   errorMapper?: ErrorMapper;
+  /**
+   * Resolves every text you declare (labels, help, enum labels, sections…) and the UI's own texts (`ui.<key>`) per
+   * locale, with your own i18n. Answer undefined to keep the declared text. See AdminTranslate for the keys.
+   */
+  translate?: AdminTranslate;
   /** Advanced: serve the UI from this directory instead of @nest-my-admin/ui (tests, UI development). */
   uiDistPath?: string;
   /**
@@ -169,6 +176,9 @@ export interface ResolvedAdminOptions {
   autoRegister: string[];
   transactions: boolean;
   errorMapper?: ErrorMapper;
+  translate?: AdminTranslate;
+  /** Every host text goes through this: `translate`, else the declared text. */
+  texts: TextResolver;
   uiDistPath?: string;
   auth?: AdminAuthConfig;
   roles: RoleDefinition[];
@@ -209,6 +219,8 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
     autoRegister: options.autoRegister === true ? ['default'] : Array.isArray(options.autoRegister) ? options.autoRegister : [],
     transactions: options.transactions ?? true,
     errorMapper: options.errorMapper,
+    translate: options.translate,
+    texts: createTexts({ translate: options.translate, locale }, new Logger('NestMyAdmin')),
     auth: options.auth,
     roles: options.roles ?? [],
     resolveRoles: options.resolveRoles,
