@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import { Logger, Module, type INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { Column, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
-import { AdminCan, AdminResource, AdminResourceBase, type FormConfig } from '../src/index.js';
+import { Column, Entity, ManyToOne, PrimaryGeneratedColumn, type SelectQueryBuilder } from 'typeorm';
+import { AdminCan, AdminResource, AdminResourceBase, type AdminContext, type FormConfig } from '../src/index.js';
 import { createTestApp } from './helpers/create-app.js';
 import { TEST_DB } from './helpers/test-db.js';
 
@@ -112,6 +112,18 @@ describe(`@AdminCan('create') on an inline child (${TEST_DB})`, () => {
     expect((await http().patch(`/admin/api/resources/book/${book._id}`).send({ shelfId: other.id, title: 'Same shelf' })).status).toBe(200);
   });
 
+  test('a save that changes the parent and adds rows is judged on the parent as saved', async () => {
+    const open = await shelf('Lock and add', false);
+    const before = await books();
+    const locking = await http().patch(`${shelves}/${open._id}`).send({ locked: true, _inlines: { book: { create: [{ _key: 'n1', title: 'Late' }] } } });
+    expect(locking.status).toBe(403);
+    expect(await books()).toBe(before);
+    const locked = await shelf('Unlock and add', true);
+    const unlocking = await http().patch(`${shelves}/${locked._id}`).send({ locked: false, _inlines: { book: { create: [{ _key: 'n1', title: 'Welcome' }] } } });
+    expect(unlocking.status).toBe(200);
+    expect(await books()).toBe(before + 1);
+  });
+
   test('a direct POST without the link value is not judged by the rule', async () => {
     const res = await http().post('/admin/api/resources/book').send({ title: 'Lost' });
     expect(res.status).toBe(422);
@@ -149,5 +161,41 @@ describe(`@AdminCan('create') on an inline child (${TEST_DB})`, () => {
     @Module({ providers: [LonelyAdmin] })
     class LonelyModule {}
     await expect(createTestApp({ imports: [LonelyModule], entities: [Shelf] })).rejects.toThrow("LonelyAdmin: @AdminCan('create') needs LonelyAdmin to be an inline child (no form.layout names it)");
+  });
+});
+
+/** The inline's parent resource hides "secret" shelves; another resource on the same entity, registered first, does not. */
+@AdminResource(Shelf, { name: 'any-shelf' })
+class AnyShelfAdmin extends AdminResourceBase<Shelf> {}
+
+@AdminResource(Book, { name: 'guarded-book' })
+class GuardedBookAdmin extends AdminResourceBase<Book> {
+  @AdminCan('create') open(shelf: Shelf) {
+    return !shelf.locked;
+  }
+}
+
+@AdminResource(Shelf, { name: 'visible-shelf' })
+class VisibleShelfAdmin extends AdminResourceBase<Shelf> {
+  override query(qb: SelectQueryBuilder<Shelf>, ctx: AdminContext) {
+    return super.query(qb, ctx).andWhere(`${qb.alias}.name <> 'secret'`);
+  }
+  override form: FormConfig = { layout: [{ fields: ['name', 'locked'] }, { inline: GuardedBookAdmin, display: 'table', fields: ['title'] }] };
+}
+
+@Module({ providers: [AnyShelfAdmin, VisibleShelfAdmin, GuardedBookAdmin] })
+class TwoShelvesModule {}
+
+describe(`@AdminCan('create') with a parent hidden by its resource (${TEST_DB})`, () => {
+  test('a direct POST naming a parent the inline resource hides is refused like a missing one', async () => {
+    const two = await createTestApp({ imports: [TwoShelvesModule], entities: [Shelf, Book] });
+    try {
+      const secret = (await request(two.getHttpServer()).post('/admin/api/resources/any-shelf').send({ name: 'secret', locked: true })).body as { id: number };
+      const res = await request(two.getHttpServer()).post('/admin/api/resources/guarded-book').send({ title: 'Sneaky', shelfId: secret.id });
+      expect(res.status).toBe(422);
+      expect(res.body.fields).toEqual({ shelfId: ['does not exist'] });
+    } finally {
+      await two.close();
+    }
   });
 });

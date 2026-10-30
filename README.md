@@ -247,7 +247,7 @@ AdminModule.forRoot({
 
   - It is asked for every text of a request, before the declared one; `undefined` (or `''`) keeps the declared text, and a throw keeps it too (logged once per key). It runs per request: keep it cheap.
   - `text` is what you declared, or the default (`Created at` for `createdAt`) when you declared nothing, so fields you never labelled can be translated too.
-  - `key` names the text: `title`, `group.<key>`, `menu.<section>`, `menu.advanced`, `resource.<r>`, `resource.<r>.fields.<f>.label` (and `.help`, `.placeholder`, `.enumLabels.<value>`; nested fields by their dotted path, `hours.*.day`), `resource.<r>.actions.<a>.label` (and `.confirm`, `.fields.<f>.label` of its input), `resource.<r>.prints.<p>.label`, `resource.<r>.list.tabs.<t>.label`, `resource.<r>.list.computed.<c>.label`, `resource.<r>.form.<key>` for a layout node (section, tab, summary, inline, aside card) you give a `key`, `page.<p>` and `page.<p>.fields.<f>.label`, `widget.<w>.title`.
+  - `key` names the text: `title`, `group.<key>`, `menu.<section>` (a `{ group }` section without a label of its own is its group's text, `group.<key>`), `menu.advanced`, `resource.<r>`, `resource.<r>.fields.<f>.label` (and `.help`, `.placeholder`, `.enumLabels.<value>`; nested fields by their dotted path, `hours.*.day`), `resource.<r>.actions.<a>.label` (and `.confirm`, `.fields.<f>.label` of its input), `resource.<r>.prints.<p>.label`, `resource.<r>.list.tabs.<t>.label`, `resource.<r>.list.computed.<c>.label`, `resource.<r>.form.<key>` for a layout node (section, tab, summary, inline, aside card) you give a `key`, `page.<p>` and `page.<p>.fields.<f>.label`, `widget.<w>.title`.
   - Texts without a stable name (layout nodes without a `key`, action messages, record links, badge labels) come with `text` only.
   - Role labels are stored with the roles and shown as they are.
   - **The UI's own texts** (Save, Delete, «Add {name}» …) go through the same function as `ui.<key>` (the keys of the UI's English texts, listed in `messages.json` of the built UI). They are asked once per locale at boot, so for `ui.` keys `translate` must give the same answer every time; `text` is the built-in text of that locale (English when the UI has none). An answer must keep the `{name}` placeholders of the original, or boot fails naming the key and the locale. Only the texts you change are sent to the browser.
@@ -651,7 +651,7 @@ class OrderLineAdmin extends AdminResourceBase<OrderLine> {
 }
 ```
 
-The parent's records carry `_perm.inlines.<child>.create`, and the inline hides «Add» when it is `false`. A save that adds rows anyway is a 403 that writes nothing; so is a `POST` to the child's own endpoint whose link field names such a parent. A parent created in the same save is judged once it exists. A rule that throws says no (logged once). It may only be declared on an inline child (boot error otherwise).
+The parent's records carry `_perm.inlines.<child>.create`, and the inline hides «Add» when it is `false`. A save that adds rows anyway is a 403 that writes nothing; so is a `POST` to the child's own endpoint whose link field names such a parent, or a `PATCH` that moves a row to one. The rule sees the parent as the save leaves it: a parent created in the same save once it exists, and a parent changed in the same save with its changes (locking a parent and adding rows in one save is refused, unlocking and adding is allowed). A link to a parent the parent resource does not show the user is a 422, like a missing one. A rule that throws says no (logged once). It may only be declared on an inline child (boot error otherwise).
 
 **Saving.** The form sends, next to the parent's fields, `_inlines: { <child>: { create, update, delete, order } }` (`InlineChanges` in the contract): new rows with a `_key`, changed fields of changed rows with their `_id` (and `_version` for a child with a version column), the ids to delete, and the new order. Inside the parent's write the parent is saved first (a save with only inline changes does not update the parent), then each inline in layout order: deletes, updates, creates, each through the child resource's own `delete`/`update`/`create` and its write participants (files, audit). Any error rolls back everything; errors name the row (`_inlines.order-line.create.2.quantity`, `_inlines.order-line.update.17.unitPrice`) and the form shows them on that row. At most 500 entries per inline per request.
 
@@ -934,7 +934,8 @@ Things hosts tend to write by hand that the admin already does:
 Nothing needs changing in an app on 0.6, except two type-only cases:
 
 - an override that returns `super.relationOptions(...)` under an explicit `: SelectQueryBuilder<any>` return type: drop the annotation (`relationOptions` may now be async);
-- code that names `AdminMenuSection['items']` as a type: wrap it in `NonNullable<…>` (a `{ group }` section's items are optional).
+- code that names `AdminMenuSection['items']` as a type: wrap it in `NonNullable<…>` (a `{ group }` section's items are optional);
+- code that reads `item.resource` or `item.page` of its own menu items as a string: they may now be classes too (`string | Function`), so narrow with `typeof item.resource === 'string'`.
 
 New:
 

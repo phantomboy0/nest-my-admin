@@ -29,6 +29,13 @@ describe('createTexts', () => {
     expect(log.warnings[0]).toContain('k');
   });
 
+  test('keyless texts that throw are warned about once in all, not once per text', () => {
+    const log = logger();
+    const texts = createTexts({ locale: 'fa', translate: () => { throw new Error('broken'); } }, log);
+    for (const order of ['#1', '#2', '#3']) expect(texts(`Order ${order} shipped`, 'en')).toBe(`Order ${order} shipped`);
+    expect(log.warnings).toHaveLength(1);
+  });
+
   test('keyless texts reach translate with text only', () => {
     const seen: Parameters<AdminTranslate>[0][] = [];
     const texts = createTexts({ locale: 'fa', translate: (request) => void seen.push(request) as undefined }, logger());

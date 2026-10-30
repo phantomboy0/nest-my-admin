@@ -213,7 +213,6 @@ export class InlineWriter {
       // No children can be named: a new parent (or one whose referenced value is empty) has none.
       const first = updates[0]?.raw ?? deletes[0]?.raw ?? order?.find((item) => !creates.some((entry) => entry.key === item));
       if (first !== undefined) throw notFound(first);
-      if (parentEntity && creates.length > 0 && !policy.createRule(child, parentEntity, tx)) throw new AdminForbiddenError(`You may not add ${label} rows here`);
       if (order !== undefined) this.checkOrder(planned, [], new Set(), errors, positions);
       this.checkCount(inline, creates.length, errors);
       return { planned, rows, moves, positions };
@@ -299,8 +298,6 @@ export class InlineWriter {
     for (const canonical of new Set([...updates.map((entry) => entry.canonical), ...moves.keys()])) {
       if (!policy.recordRule(child, 'update', rows.get(canonical)!, tx)) throw new AdminForbiddenError(`You may not update ${label} "${named.get(canonical)!.raw}"`);
     }
-    // A new parent is judged in `apply`, once it exists.
-    if (creates.length > 0 && !policy.createRule(child, parentEntity, tx)) throw new AdminForbiddenError(`You may not add ${label} rows here`);
     for (const entry of updates) {
       const locked = this.deps.lockedFields(child, rows.get(entry.canonical)!, tx).filter((name) => Object.hasOwn(entry.dto, name));
       for (const name of locked) errors[`${at}.update.${entry.raw}.${name}`] = ['is read-only'];
@@ -366,8 +363,9 @@ export class InlineWriter {
       const { child } = inline;
       const resource = child.resource;
       const at = `_inlines.${inline.name}`;
-      // `@AdminCan('create')` of a parent created by this save: it exists now (the stored parent's was judged in `check`).
-      if (plan.creating && creates.length > 0 && !this.deps.policy.createRule(child, parentEntity, tx)) throw new AdminForbiddenError(`You may not add ${child.schema.label} rows here`);
+      // `@AdminCan('create')` judges the parent as this save leaves it (created, or with its changes): the save is one
+      // transaction, so a refusal here undoes the parent too.
+      if (creates.length > 0 && !this.deps.policy.createRule(child, parentEntity, tx)) throw new AdminForbiddenError(`You may not add ${child.schema.label} rows here`);
       const run = async <T>(path: string, change: WriteChange, method: () => Promise<T>): Promise<T> => {
         try {
           return await this.deps.change({ ...change, parent: parentRef }, tx, method);

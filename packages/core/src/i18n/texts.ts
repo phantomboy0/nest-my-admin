@@ -10,7 +10,7 @@ export type AdminTranslate = (request: { key?: string; text: LocalizedText; loca
 /** A text in a locale: the host's translation, else the declared text (`resolveText`). */
 export type TextResolver = (text: LocalizedText, locale: string, key?: string) => string;
 
-/** The one place host texts are resolved. A `translate` that throws falls back to the declared text, logged once per key. */
+/** The one place host texts are resolved. A `translate` that throws falls back to the declared text, logged once per key (once for all keyless texts). */
 export function createTexts(options: { translate?: AdminTranslate; locale: string }, logger: { warn(message: string): void }): TextResolver {
   const { translate, locale: defaultLocale } = options;
   if (!translate) return (text, locale) => resolveText(text, locale, defaultLocale);
@@ -20,7 +20,8 @@ export function createTexts(options: { translate?: AdminTranslate; locale: strin
       const answer = translate(key === undefined ? { text, locale } : { key, text, locale });
       if (typeof answer === 'string' && answer !== '') return answer;
     } catch (error) {
-      const name = key ?? resolveText(text, defaultLocale, defaultLocale);
+      // Keyless texts are often built from data (action messages): one warning for all of them keeps this set small.
+      const name = key ?? '(texts without a key)';
       if (!warned.has(name)) {
         warned.add(name);
         logger.warn(`translate threw for "${name}" (${error instanceof Error ? error.message : String(error)}); the declared text is shown`);

@@ -538,8 +538,8 @@ export class AdminApiService {
   /**
    * `@AdminCan('create')` of an inline child written through its own endpoint: each parent its link field names, as
    * the user may view it, must allow the row (403) — on create, and on an update that moves the row to another parent
-   * (`existing`: the stored row; staying under its parent is not adding). Without a link value, or a parent the user
-   * cannot see, the rule has nothing to judge (the relation checks answer).
+   * (`existing`: the stored row; staying under its parent is not adding). Without a link value the rule has nothing to
+   * judge; a parent the parent resource does not show the user is a 422 like a missing one.
    */
   private async checkParentRules(entry: RegisteredResource, dto: Record<string, unknown>, ctx: AdminContext, existing?: object): Promise<void> {
     if (getCanRules(entry.resource.constructor, 'create').length === 0) return;
@@ -553,7 +553,9 @@ export class AdminApiService {
           if (storedId !== undefined && storedId !== null && String(storedId) === String(value)) continue;
         }
         const found = await parent.resource.readQuery('nma_parent', ctx).andWhere(`nma_parent.${inline.referenced} = :nmaParent`, { nmaParent: value }).getOne();
-        if (found && !this.policy.createRule(entry, found, ctx)) throw new AdminForbiddenError(`You may not add ${entry.schema.label} rows here`);
+        // A parent this resource does not show (another resource on the entity might): as missing, so the rule is never skipped.
+        if (!found) throw new AdminValidationError({ [inline.link]: ['does not exist'] }, 'A related record does not exist');
+        if (!this.policy.createRule(entry, found, ctx)) throw new AdminForbiddenError(`You may not add ${entry.schema.label} rows here`);
       }
     }
   }
