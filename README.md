@@ -917,6 +917,35 @@ export class EmployeeAdmin extends AdminResourceBase<Employee> {
   - **Read replicas.** Reads outside a transaction (that check after commit; with `transactions: false` the before and after images too) go through `dataSource.manager`, which TypeORM replication may send to a replica. A lagging replica then still shows a deleted row (no stamp), or shows an update as unchanged (a smaller diff, or no entry).
   - **Scopes that depend on a field.** A record's history is open to whoever may open the record now. A reader whose scope depends on a field (`ownerId`, a status) reads the values the record had before it entered their scope, in the fields they may view.
 
+## Writing less
+
+Things hosts tend to write by hand that the admin already does:
+
+- **Your own errors.** One `forRoot({ errorMapper })` turns your services' exceptions into admin errors everywhere (resource methods, hooks, actions, bulk actions, settings pages): no `try`/`catch` around each call.
+- **Records only your code writes** (orders, logs, snapshots): `@AdminResource(Entity, { readonly: true })`. No New, Save, Delete, editable cell or inline add and remove is offered and every write is a 403; actions still run. No need to throw from `create`/`update`/`delete` or declare empty forms.
+- **One DTO for create and update.** Without `form.update`, the create DTO is used for updates too and a PATCH is always checked as a partial. Write an update DTO only when updates take other fields.
+- **Typed overrides.** `override create(dto: CreateProductDto, ctx: AdminWriteContext)` and `AdminResourceBase<Product, number>`: no `dto as …`, no `ctx.manager!`, no `Number(id)` (see Transactions, context and errors).
+- **A shared base class with services.** Inject them as properties (`@Inject(CatalogOwnership) protected readonly ownership: CatalogOwnership`): Nest injects properties of a base class into every subclass, so subclasses need no constructor of their own just to pass a service up.
+- **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
+- **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
+
+## Upgrading to 0.7
+
+Nothing needs changing in an app on 0.6, except two type-only cases:
+
+- an override that returns `super.relationOptions(...)` under an explicit `: SelectQueryBuilder<any>` return type: drop the annotation (`relationOptions` may now be async);
+- code that names `AdminMenuSection['items']` as a type: wrap it in `NonNullable<…>` (a `{ group }` section's items are optional).
+
+New:
+
+- `translate` (Languages, theme and branding): your own i18n for every text you declare and for the UI's own texts, by key; UI languages the admin does not ship.
+- `readonlyFields(record, ctx)` and `this.updateFields` (Fields and forms): lock a record's fields from one place.
+- `AdminWriteContext` and `AdminResourceBase<T, Id>` (Transactions, context and errors); with `transactions: false` writes now get the DataSource's own `ctx.manager`.
+- `relationOptions` may be async, and relation ids in its `values` (and `values._parent`) have the key's type.
+- `@AdminCan('create')` on an inline child (Inlines): whether rows may be added under a parent; `_perm.inlines` on the parent's records.
+- Menu sections from groups (`{ group: 'settings' }`) and menu items by class (The menu).
+- Layout nodes and aside cards take an optional `key`, for `translate`.
+
 ## Upgrading to 0.4
 
 0.4 gives the admin a new look (the owner-admin design) and the features a shop owner's panel needs. All five packages are 0.4.0; upgrade them together. Every new feature is an option: an app that sets none of them gets the new look and today's behaviour, except for the points under "What a 0.3 app will notice".
