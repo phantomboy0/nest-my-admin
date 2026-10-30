@@ -21,7 +21,7 @@ const EXPORT_PAGE = 500;
 const PRINT_MAX = 100;
 import { ADMIN_OPTIONS, MAX_BULK } from '../constants.js';
 import { parseListQuery } from '../crud/list-query.js';
-import { buildMenu, checkMenu } from './menu.js';
+import { buildMenu, checkMenu, resolveMenu, type ResolvedMenu } from './menu.js';
 import { DashboardService } from '../dashboard/dashboard.service.js';
 import { WidgetRegistry } from '../dashboard/widget-registry.js';
 import { loadComputed, type CompiledComputed } from '../crud/computed-columns.js';
@@ -163,7 +163,7 @@ export class AdminApiService {
         resources: items,
         pages: groupPages,
       }));
-    const menu = this.options.menu && buildMenu(this.options.menu, text, groups.flatMap((group) => group.resources), groups.flatMap((group) => group.pages));
+    const menu = this.menu && buildMenu(this.menu, text, groups);
     // With widgets in the app, whether this user has a dashboard (it replaces the home page).
     const dashboard = this.widgets.list().length > 0 ? { dashboard: ctx ? this.dashboard.has(ctx) : true } : {};
     return { schemaVersion: 1, title: text(this.options.title, 'title'), locale, locales: this.options.locales, groups, ...dashboard, ...(menu ? { menu } : {}) };
@@ -228,7 +228,17 @@ export class AdminApiService {
 
   /** The menu's references are checked once every resource and settings page is registered. */
   onApplicationBootstrap(): void {
-    if (this.options.menu) checkMenu(this.options.menu, this.registry, this.pageRegistry);
+    if (!this.options.menu) return;
+    this.menu = resolveMenu(this.options.menu, this.registry, this.pageRegistry);
+    checkMenu(this.menu, this.registry, this.pageRegistry);
+  }
+
+  /** `options.menu` with its classes and groups resolved (at bootstrap, once everything is registered). */
+  private menu?: ResolvedMenu;
+
+  /** @internal The resolved menu (`@nest-my-admin/testing` crawls its badges). */
+  resolvedMenu(): ResolvedMenu | undefined {
+    return this.menu;
   }
 
   /**
@@ -238,8 +248,8 @@ export class AdminApiService {
   async badges(ctx: AdminContext): Promise<MenuBadges> {
     const out: MenuBadges = {};
     const perms = this.policy.permissionsOf(ctx);
-    for (const section of this.options.menu?.sections ?? []) {
-      for (const item of section.items) {
+    for (const section of this.menu?.sections ?? []) {
+      for (const item of section.items ?? []) {
         if (!('resource' in item) || !item.badge) continue;
         const entry = this.registry.get(item.resource);
         if (!perms.canOn(entry.schema.name, 'view')) continue;

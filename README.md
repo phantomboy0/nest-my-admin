@@ -69,6 +69,26 @@ export class SettingsModule {}
 - **One module per key.** When two modules configure the same key with a different label, icon or order, the first one Nest discovers (import order) wins and a warning is logged at boot. The same options twice are fine.
 - **`order` inside a group.** `@AdminResource(Entity, { order })` and `@AdminSettingsPage(name, { order })`: lower comes first, then the label in the reader's language; the default is 100, as for groups. A group lists its resources first and its settings pages after them, so `order` sorts resources among resources and pages among pages. The sidebar, the group's page, the home page and the command palette all show this order. `order` must be a finite number, or boot fails.
 
+#### The menu
+
+`forRoot({ menu })` replaces the module groups in the sidebar, the home page, group pages, breadcrumbs and the palette with your own sections; whatever is visible and placed nowhere goes into a last «Advanced» section, collapsed.
+
+```ts
+AdminModule.forRoot({
+  menu: {
+    sections: [
+      { key: 'sales', label: { en: 'Sales', fa: 'فروش' }, icon: 'shopping-cart', items: [{ resource: OrderAdmin, badge: { 'filter[status][eq]': 'paid' } }, { page: 'shop' }, { href: 'https://shop.example', label: 'Shop' }] },
+      { group: 'settings' },                        // an @AdminGroup: its label, icon and members
+      { group: 'catalog', items: [{ resource: 'product' }] }, // its label and icon, your items
+    ],
+  },
+});
+```
+
+- **Items** name a resource or a settings page, or give its class (`{ resource: OrderAdmin }`, `{ page: ShopSettingsPage }`); a class that is not registered fails boot. A `badge` is a list query whose count shows next to the item, for each user through the list's scoped count.
+- **`{ group: '<key>' }`** takes the label and icon from that `@AdminGroup` (and the section key from its key); whatever you give yourself wins. Without `items` the section lists the group's resources and then its settings pages, in the group's order, as each user may see them. An unknown group fails boot.
+- A section left with nothing the user may see is not shown.
+
 ### Customising lists
 
 Put row restrictions in `query(qb, ctx)`. It applies to every read path: the list, GET, PATCH, DELETE, restore and
