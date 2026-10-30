@@ -190,7 +190,15 @@ export interface RecordLinkConfig {
  * Base class for admin resources. Override `create`/`update` (and the finders) to route
  * admin operations through your own services, so business rules are never bypassed.
  */
-export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral> {
+/**
+ * `Id` is the type of a record id in `findOne`, `update`, `delete`, `restore` and `purge`: `number` for an integer
+ * primary key, `string` for bigint, uuid and text keys, `{ key: value }` for composite keys. The admin parses ids to
+ * that type before they reach you; the parameter only tells TypeScript.
+ *
+ * Write methods (`create`, `update`, `delete`, `restore`, `purge`, actions) always get a context with `manager` set:
+ * type the parameter of your override as `AdminWriteContext` to use it without `!`.
+ */
+export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral, Id extends RecordId = RecordId> {
   list?: ListConfig<T>;
   form?: FormConfig;
   /** Per-field labels, help, widgets, enum labels, `showIf`, `readonly`, `readonlyIf` (spec §5.2 `fields`). */
@@ -324,7 +332,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   /** `options.withDeleted` also finds records in the trash (restore and purge use it). */
-  async findOne(id: RecordId, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<T | null> {
+  async findOne(id: Id, ctx: AdminContext, options: { withDeleted?: boolean } = {}): Promise<T | null> {
     const where = typeof id === 'object' ? id : { [this.primaryKeys[0]!]: id };
     const qb = this.repositoryFor(ctx)
       .createQueryBuilder('entity')
@@ -362,7 +370,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them.
    * Relation and file fields arrive as in `create`.
    */
-  async update(id: RecordId, dto: object, ctx: AdminContext): Promise<T> {
+  async update(id: Id, dto: object, ctx: AdminContext): Promise<T> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeSave', dto, ctx, 'update');
@@ -382,7 +390,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
    * Moves the record to the trash when the entity has a @DeleteDateColumn, else removes it.
    * Overriding this skips the @BeforeDelete hooks; call `this.runHooks(...)` yourself to keep them.
    */
-  async delete(id: RecordId, ctx: AdminContext): Promise<void> {
+  async delete(id: Id, ctx: AdminContext): Promise<void> {
     const existing = await this.findOne(id, ctx);
     if (!existing) throw new AdminNotFoundError();
     const repo = this.repositoryFor(ctx);
@@ -393,7 +401,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   /** Takes a record out of the trash (soft-deletable entities only). */
-  async restore(id: RecordId, ctx: AdminContext): Promise<T> {
+  async restore(id: Id, ctx: AdminContext): Promise<T> {
     const repo = this.repositoryFor(ctx);
     const column = repo.metadata.deleteDateColumn;
     const existing = await this.findOne(id, ctx, { withDeleted: true });
@@ -403,7 +411,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral>
   }
 
   /** Removes a record for good, whether it is in the trash or not. Runs the @BeforeDelete hooks with `'hard'`. */
-  async purge(id: RecordId, ctx: AdminContext): Promise<void> {
+  async purge(id: Id, ctx: AdminContext): Promise<void> {
     const existing = await this.findOne(id, ctx, { withDeleted: true });
     if (!existing) throw new AdminNotFoundError();
     await this.runHooks('beforeDelete', existing, ctx, 'hard');

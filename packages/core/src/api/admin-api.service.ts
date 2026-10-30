@@ -43,7 +43,7 @@ import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import { scopedText } from '../i18n/texts.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry, type RegisteredResource } from '../registry/resource-registry.js';
-import type { AdminContext } from '../resource/admin-context.js';
+import { inAdminTransaction, type AdminContext, type AdminWriteContext } from '../resource/admin-context.js';
 import { AdminResourceBase, type ListParams, type RecordId, type RecordLinkConfig } from '../resource/admin-resource-base.js';
 import { PageRegistry } from '../pages/page-registry.js';
 import { PageService } from '../pages/page.service.js';
@@ -476,7 +476,7 @@ export class AdminApiService {
   }
 
   /** One transaction on the target's DataSource with `ctx.manager` set (see `WriteRunner.run`). */
-  private write<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
+  private write<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminWriteContext) => Promise<T>): Promise<T> {
     return this.writes.run(target, ctx, work);
   }
 
@@ -627,7 +627,7 @@ export class AdminApiService {
     const version = entry.schema.version;
     if (expected === undefined || !version) return;
     const manager = ctx.manager ?? entry.dataSource.manager;
-    const lock = ctx.manager && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type) ? ({ mode: 'pessimistic_write' } as const) : undefined;
+    const lock = inAdminTransaction(ctx) && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type) ? ({ mode: 'pessimistic_write' } as const) : undefined;
     const where = typeof id === 'object' ? id : { [entry.schema.primaryKeys[0]!]: id };
     const current = await manager.getRepository(entry.metadata.target).findOne({ where, withDeleted, ...(lock ? { lock } : {}) });
     if (!current) return; // the resource's own findOne answers 404

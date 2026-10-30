@@ -628,10 +628,18 @@ Every create, update and delete runs in one database transaction. Pass `ctx.mana
 join it — a hook or service that throws afterwards rolls everything back:
 
 ```ts
-create(dto: CreateProductDto, ctx: AdminContext) {
-  return this.products.create(dto, ctx.manager); // service: manager ? manager.getRepository(Product) : this.products
+class ProductAdmin extends AdminResourceBase<Product, number> {
+  override create(dto: CreateProductDto, ctx: AdminWriteContext) {
+    return this.products.create(dto, ctx.manager); // service: manager ? manager.getRepository(Product) : this.products
+  }
+  override update(id: number, dto: UpdateProductDto, ctx: AdminWriteContext) {
+    return this.products.update(id, dto, ctx.manager);
+  }
 }
 ```
+
+- **Typed parameters.** Your overrides may name their own types: the DTO class (`dto: CreateProductDto`, no cast), `AdminWriteContext` (a context whose `manager` is always set, so no `ctx.manager!`) and the id type through the second type parameter, `AdminResourceBase<Product, number>` (the admin already turns ids into the key's type: a number for an integer key, a string for bigint, uuid and text keys, `{ key: value }` for composite keys). `AdminContext` keeps working everywhere.
+- **`transactions: false`**: writes still get `ctx.manager`, the DataSource's own (not a transaction).
 
 Services that keep using their own injected repository still work, but on Postgres/MySQL they write outside the
 transaction, on a separate pooled connection, and can block on the admin transaction's locks (writing the same row or

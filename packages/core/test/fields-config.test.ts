@@ -229,7 +229,7 @@ describe(`readonlyFields (${TEST_DB})`, () => {
     const archived = (await http().post(locked).send({ name: 'old', status: 'archived' })).body;
     await http().get(`${locked}/${archived._id}`);
     await http().get(`${locked}/${archived._id}`);
-    expect(warn.mock.calls.filter(([message]) => String(message).includes('"nope"'))).toHaveLength(1);
+    expect(warn.mock.calls.filter(([message]: unknown[]) => String(message).includes('"nope"'))).toHaveLength(1);
   });
 
   test('a throwing readonlyFields locks the update form', async () => {

@@ -13,6 +13,7 @@ import type { RecordId } from '../resource/admin-resource-base.js';
 import { sensitiveFields } from '../schema/field-config.js';
 import type { AdminAudit, AuditInput } from './audit.service.js';
 import { diffRecords } from './diff.js';
+import { inAdminTransaction } from '../resource/admin-context.js';
 
 /** What the audit log keeps of one change between the host method's start and the entry. */
 interface AuditState {
@@ -82,7 +83,7 @@ export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState
       // A child saved inline with its parent says which parent (the parent's History can list it later).
       const input = change.parent ? { ...entry, meta: { ...entry.meta, parent: change.parent } } : entry;
       if (audit.joins(tx)) state.entryId = await audit.record(input, tx);
-      else if (tx.manager) state.pending = input;
+      else if (inAdminTransaction(tx)) state.pending = input;
       else await audit.recordAfter(input, tx);
     },
 

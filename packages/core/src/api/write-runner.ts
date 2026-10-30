@@ -2,7 +2,7 @@ import type { Logger } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 import { hostError } from '../http/error-response.js';
 import type { ResolvedAdminOptions } from '../options.js';
-import { AdminContext, runInAdminContext } from '../resource/admin-context.js';
+import { AdminContext, markTransaction, runInAdminContext, type AdminWriteContext } from '../resource/admin-context.js';
 import { keyOf, loadStored } from '../crud/stored-row.js';
 import type { StoredRow, WriteChange, WriteParticipant } from './write-participant.js';
 import { exclusive } from './write-queue.js';
@@ -34,7 +34,7 @@ export class WriteRunner {
    * The participants' `onCommit` runs once the transaction has committed and never when it rolls back;
    * `onRollback` runs only when it fails. A failing one is logged, never thrown.
    */
-  async run<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminContext) => Promise<T>): Promise<T> {
+  async run<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminWriteContext) => Promise<T>): Promise<T> {
     const committed = async (tx: AdminContext, run: () => Promise<T>): Promise<T> => {
       const steps: Step[] = [];
       this.open.set(tx, steps);
@@ -53,7 +53,11 @@ export class WriteRunner {
     };
     if (!this.options.transactions) {
       // Nothing to commit: the participants settle when the outermost write on this context is done.
-      return this.open.has(ctx) ? work(ctx) : committed(ctx, () => work(ctx));
+      // The write still gets a manager, the DataSource's own; it is not a transaction (`inAdminTransaction` says no).
+      // A nested write on this context: it got its manager from the outer one.
+      if (this.open.has(ctx)) return work(ctx as AdminWriteContext);
+      const plain: AdminWriteContext = { ...ctx, manager: target.dataSource.manager };
+      return committed(plain, () => runInAdminContext(plain, () => work(plain)));
     }
     const { dataSource } = target;
     // Re-entrant write (host code inside a write calls the API again on the same DataSource): join the outer
@@ -62,14 +66,15 @@ export class WriteRunner {
     // in TypeORM 1.x but is the only property that exists on both 0.3 and 1.x. The nested write's steps are
     // collected on the outer context, so they settle with the outer transaction.
     const outer = AdminContext.current();
-    if (outer?.manager && outer.manager.connection === dataSource) return work(outer);
+    if (outer?.manager && outer.manager.connection === dataSource) return work(outer as AdminWriteContext);
     // On a single-connection driver the admin's transactions never interleave: they queue (see `exclusive`).
     return exclusive(dataSource, () => {
       const transactional: AdminContext = { ...ctx };
       return committed(transactional, () =>
         dataSource.transaction(async (manager) => {
           transactional.manager = manager;
-          return runInAdminContext(transactional, () => work(transactional));
+          markTransaction(transactional);
+          return runInAdminContext(transactional, () => work(transactional as AdminWriteContext));
         }),
       );
     });

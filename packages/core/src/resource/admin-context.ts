@@ -12,7 +12,8 @@ export interface AdminContext {
   /** The underlying Node request (an Express request in v1). */
   request: IncomingMessage;
   /**
-   * The transaction's EntityManager while a create/update/delete runs (undefined for reads).
+   * The transaction's EntityManager while a create/update/delete runs (the DataSource's own with `transactions: false`;
+   * undefined for reads). Write methods get it typed as set (`AdminWriteContext`).
    * Use it in your services to write inside the admin's transaction. A service that ignores it and uses its
    * own repository writes on a separate pooled connection on Postgres/MySQL: outside the transaction, and able
    * to block on the admin transaction's locks (writing the same row or the same unique key blocks until the admin
@@ -30,6 +31,25 @@ export interface AdminContext {
   permissions?: EffectivePermissions;
   /** Whether the user holds a permission code (`order.view_all`, `reports.run`); superusers hold all. */
   can(code: string): boolean;
+}
+
+/**
+ * The context of a create, update, delete, action or settings-page save: `manager` is always set there (the
+ * transaction's, or the DataSource's own with `transactions: false`).
+ */
+export type AdminWriteContext = AdminContext & { manager: EntityManager };
+
+/** Contexts of an open admin transaction (not merely a write: with `transactions: false` a write has a manager but no transaction). */
+const transactional = new WeakSet<AdminContext>();
+
+/** @internal Marks `ctx` as running inside an admin transaction (`WriteRunner.run`). */
+export function markTransaction(ctx: AdminContext): void {
+  transactional.add(ctx);
+}
+
+/** @internal Whether `ctx` runs inside an admin transaction (row locks, audit entries in the same transaction). */
+export function inAdminTransaction(ctx: object): boolean {
+  return transactional.has(ctx as AdminContext);
 }
 
 /** The box is deactivated when the request ends, so timers and clients created inside it see no context. */

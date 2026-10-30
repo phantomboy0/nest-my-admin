@@ -7,7 +7,7 @@ import { hostError } from '../http/error-response.js';
 import { scopedText } from '../i18n/texts.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { AdminPolicy } from '../policy/admin-policy.service.js';
-import type { AdminContext } from '../resource/admin-context.js';
+import type { AdminContext, AdminWriteContext } from '../resource/admin-context.js';
 import { localizeDtoForm } from '../schema/dto-form.js';
 import { localizeLayout } from '../schema/field-config.js';
 import { loadPage, type PageRegistry, type RegisteredPage } from './page-registry.js';
@@ -154,7 +154,7 @@ export class PageService {
    * host's `save()` and what is stored afterwards. The participants see both: files resolve the uploads against
    * `before` and attach them to `after` (replaced objects are deleted after the commit).
    */
-  private async apply(page: RegisteredPage, dto: Record<string, unknown>, sent: string[], tx: AdminContext): Promise<{ before: Record<string, unknown>; after: Record<string, unknown> }> {
+  private async apply(page: RegisteredPage, dto: Record<string, unknown>, sent: string[], tx: AdminWriteContext): Promise<{ before: Record<string, unknown>; after: Record<string, unknown> }> {
     const before = await loadPage(page, tx);
     const secrets = [...sent, ...page.secrets.map((secret) => before[secret]).filter((value): value is string => typeof value === 'string')];
     try {

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { Injectable } from '@nestjs/common';
 import { ADMIN_PAGE_METADATA } from '../constants.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
-import type { AdminContext } from '../resource/admin-context.js';
+import type { AdminContext, AdminWriteContext } from '../resource/admin-context.js';
 import type { LayoutConfig } from '../schema/field-config.js';
 import type { AdminFieldOptions } from './admin-field.js';
 
@@ -54,7 +54,7 @@ export interface AdminSettingsPageOptions<T extends object = any> {
  */
 export interface AdminSettingsSource<T extends object = Record<string, unknown>> {
   load(ctx: AdminContext): Partial<T> | Promise<Partial<T>>;
-  save(changes: Partial<T>, ctx: AdminContext): void | Promise<void>;
+  save(changes: Partial<T>, ctx: AdminWriteContext): void | Promise<void>;
 }
 
 export interface AdminSettingsPageDefinition extends AdminSettingsPageOptions {

@@ -24,7 +24,7 @@ export {
 export { AdminField, BADGE_COLORS, WIDGETS, type AdminFieldOptions, type FileFieldOptions, type BadgeColor, type WidgetName } from './decorators/admin-field.js';
 export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutInlineConfig, LayoutSectionConfig, LayoutTabConfig } from './schema/field-config.js';
 export type { RegisteredInline } from './inlines/inline-config.js';
-export { AdminContext } from './resource/admin-context.js';
+export { AdminContext, type AdminWriteContext } from './resource/admin-context.js';
 export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from './decorators/admin-scope.js';
 export { AdminAction, type ActionOutcome, type AdminActionOptions } from './decorators/admin-action.js';
 export { AdminPrint, type AdminPrintOptions } from './decorators/admin-print.js';

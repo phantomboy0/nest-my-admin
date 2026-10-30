@@ -8,7 +8,7 @@ import type { AdminUser } from '../auth/auth-adapter.js';
 import { ADMIN_OPTIONS } from '../constants.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
-import { AdminContext } from '../resource/admin-context.js';
+import { AdminContext, inAdminTransaction } from '../resource/admin-context.js';
 import { fitChanges, type AuditChange } from './diff.js';
 import { NmaAuditEntry, type AuditMeta } from './entities.js';
 import { LoginFailures, WINDOW_MS } from './login-failures.js';
@@ -151,7 +151,7 @@ export class AdminAudit implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** Whether an entry recorded with `ctx` is written in its transaction (the transaction is on the audit log's DataSource). */
   joins(ctx: AuditContext): boolean {
-    return this.enabled && ctx.manager !== undefined && ctx.manager.connection === this.db;
+    return this.enabled && inAdminTransaction(ctx) && ctx.manager !== undefined && ctx.manager.connection === this.db;
   }
 
   /**
