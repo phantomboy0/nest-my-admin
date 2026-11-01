@@ -1,4 +1,8 @@
 import 'reflect-metadata';
+import type { ObjectLiteral } from 'typeorm';
+import type { AdminResourceBase } from '../resource/admin-resource-base.js';
+import type { AdminSourceBase } from '../resource/admin-source-base.js';
+import type { TypedClassDecorator } from './typed.js';
 import { Injectable } from '@nestjs/common';
 import { ADMIN_RESOURCE_METADATA } from '../constants.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
@@ -59,7 +63,7 @@ export interface AdminSourceOptions extends Omit<AdminResourceOptions, 'dataSour
  * extends AdminSourceBase and answers `findMany`/`findOne` (and `create`/`update`/`delete` when it allows them).
  * `row` is a class whose class-validator decorators describe a row's fields, like an action's input DTO.
  */
-export function AdminSource(row: Function, options: AdminSourceOptions = {}): ClassDecorator {
+export function AdminSource<R extends ObjectLiteral>(row: abstract new (...args: any[]) => R, options: AdminSourceOptions = {}): TypedClassDecorator<AdminSourceBase<R, any>> {
   return (target) => {
     const { primaryKey, ...rest } = options;
     const primaryKeys = primaryKey === undefined ? ['id'] : Array.isArray(primaryKey) ? [...primaryKey] : [primaryKey];
@@ -70,7 +74,7 @@ export function AdminSource(row: Function, options: AdminSourceOptions = {}): Cl
 }
 
 /** Marks a provider as an admin resource for `entity`. The class must extend AdminResourceBase. */
-export function AdminResource(entity: Function, options: AdminResourceOptions = {}): ClassDecorator {
+export function AdminResource<E extends ObjectLiteral>(entity: abstract new (...args: any[]) => E, options: AdminResourceOptions = {}): TypedClassDecorator<AdminResourceBase<E, any>> {
   return (target) => {
     const definition: AdminResourceDefinition = { ...options, entity };
     Reflect.defineMetadata(ADMIN_RESOURCE_METADATA, definition, target);

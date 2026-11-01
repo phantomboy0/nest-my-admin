@@ -4,6 +4,7 @@ import type { AdminErrorBody, AdminErrorCode } from '../contract.js';
 import { AdminConflictError, AdminError } from '../errors.js';
 import type { ErrorMapper } from '../options.js';
 import type { DbNames } from '../registry/db-names.js';
+import { describeValue } from '../host-contract.js';
 
 export interface ErrorResponse {
   status: number;
@@ -33,6 +34,8 @@ export function toErrorResponse(error: unknown, correlationId: string, logger: E
           logger.error(`[${correlationId}] errorMapper answered ${mapped.status} for: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
         }
         error = mapped;
+      } else if (mapped !== undefined) {
+        logger.error(`[${correlationId}] nest-my-admin: errorMapper must return an AdminError (AdminFieldError, AdminConflictError…) or undefined, but it returned ${describeValue(mapped)}; the error is answered as unmapped`);
       }
     } catch (mapperError) {
       logger.error(`[${correlationId}] errorMapper threw: ${mapperError instanceof Error ? (mapperError.stack ?? mapperError.message) : String(mapperError)}`);

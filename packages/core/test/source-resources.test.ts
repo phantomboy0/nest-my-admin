@@ -348,7 +348,8 @@ describe('boot checks', () => {
   });
 
   test('@AdminSource needs AdminSourceBase', async () => {
-    @AdminSource(BackupRow, { name: 'plain', primaryKey: 'file' })
+    // The types refuse it too; the cast stands for plain JavaScript.
+    @(AdminSource(BackupRow, { name: 'plain', primaryKey: 'file' }) as (target: Function) => void)
     class Plain {}
     await expect(boot(Plain)).rejects.toThrow('Plain is decorated with @AdminSource but does not extend AdminSourceBase');
   });

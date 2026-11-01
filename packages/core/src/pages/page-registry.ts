@@ -16,6 +16,7 @@ import { buildDtoForm, nestedProtected, type DtoForm } from '../schema/dto-form.
 import type { DtoClass } from '../schema/dto-fields.js';
 import { checkLayout, type FieldConfig, type LayoutConfig } from '../schema/field-config.js';
 import { humanize } from '../schema/humanize.js';
+import { describeValue, HostContractError, isRecordObject } from '../host-contract.js';
 
 export interface RegisteredPage {
   /** URL segment (`/api/pages/<name>`) and permission segment (`page.<name>`). */
@@ -170,6 +171,6 @@ export const unknownPage = (name: string): AdminNotFoundError => new AdminNotFou
 /** The page's stored values, as its `load()` gives them (secrets included: callers decide what leaves). */
 export async function loadPage(page: RegisteredPage, ctx: AdminContext): Promise<Record<string, unknown>> {
   const values: unknown = await page.source.load(ctx);
-  if (typeof values !== 'object' || values === null || Array.isArray(values)) throw new Error(`${page.className}.load() must return an object of the page's values`);
+  if (!isRecordObject(values)) throw new HostContractError(`${page.className}.load() must return an object of the page's values, but it returned ${describeValue(values)}`);
   return values as Record<string, unknown>;
 }

@@ -13,10 +13,17 @@ describe('createTexts', () => {
     expect(texts('نام', 'en', 'resource.product.fields.name.label')).toBe('Name');
   });
 
-  test('falls back on undefined, empty string or a non-string', () => {
-    for (const answer of [undefined, '', 42 as unknown as string]) {
+  test('falls back on undefined or an empty string', () => {
+    for (const answer of [undefined, '']) {
       const texts = createTexts({ locale: 'fa', translate: () => answer }, logger());
       expect(texts({ fa: 'نام', en: 'Name' }, 'en', 'k')).toBe(resolveText({ fa: 'نام', en: 'Name' }, 'en', 'fa'));
+    }
+  });
+
+  test('a non-string answer (an async translate) is a contract error, not a silent fallback', () => {
+    for (const answer of [42, Promise.resolve('Name')]) {
+      const texts = createTexts({ locale: 'fa', translate: () => answer as unknown as string }, logger());
+      expect(() => texts({ fa: 'نام', en: 'Name' }, 'en', 'k')).toThrow('nest-my-admin: translate must return a string or undefined at once');
     }
   });
 

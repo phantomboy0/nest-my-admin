@@ -524,8 +524,8 @@ export class OrderAdmin extends AdminResourceBase<Order> {
   - `target: 'record'` (the default): the method is `(record, input, ctx)` and gets one loaded entity. The button is in the record's detail header. With `bulk: true` it is also offered for a list selection.
   - `target: 'resource'`: the method is `(input, ctx)`. The button is on the list toolbar and runs once, without records.
   - `label` (default: the humanized name), `icon`, `variant: 'destructive'` (a red button), `confirm: true` or a question of your own (asked in a dialog before it runs). A destructive action, and any run on more than one record, is always asked about first, with a default question when `confirm` is not set.
-  - `input`: a DTO. Its properties become a form in the dialog, checked in the browser and validated on the server like any write (whitelisted; class-validator; `@AdminField` for labels, help and widgets). A property with a class initializer is optional and keeps its default. File, image, rich-text and secret fields are not allowed in an input.
-  - Return `{ message }` (a text or `{ en, fa }`) to say what happened: the UI shows it as a toast. Returning nothing gives a default "done".
+  - `input`: a DTO, and the type of the method's input parameter (boot fails when they differ). Left out, a DTO-class parameter is taken as the input. Its properties become a form in the dialog, checked in the browser and validated on the server like any write (whitelisted; class-validator; `@AdminField` for labels, help and widgets). A property with a class initializer is optional and keeps its default. File, image, rich-text and secret fields are not allowed in an input.
+  - Return `{ message }` (a text or `{ en, fa }`) to say what happened: the UI shows it as a toast. Returning nothing gives a default "done". Anything else is a compile error, and at run time an error that rolls the action back.
   - Names that collide with `create`, `update`, `delete`, `restore`, `purge` or a method of `AdminResourceBase`, and options that do not fit together (`bulk` on a resource action, `atomic` without `bulk`), fail at boot.
 - **Permissions.**
   - Each action has the code `{r}.action.{name}`. `{r}.*` and `*` cover it, `{r}.action.*` covers every action of the resource, and `*.update` or `{r}.update` do not.
@@ -968,6 +968,27 @@ Things hosts tend to write by hand that the admin already does:
 - **A shared base class with services.** Inject them as properties (`@Inject(CatalogOwnership) protected readonly ownership: CatalogOwnership`): Nest injects properties of a base class into every subclass, so subclasses need no constructor of their own just to pass a service up.
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
+
+## Upgrading to 0.9.0
+
+The contracts between the admin and your code are now enforced: the decorators' types refuse a method or class of the wrong shape at compile time, and the admin refuses a wrong value at run time (a 500 with `nest-my-admin: …` in the log, or a boot error) instead of reading it as something else. Code that already followed the docs keeps working; code that compiled only through `any` or plain JavaScript may now fail. What to check:
+
+- **Resource classes.** `@AdminResource(Entity)` needs a class that extends `AdminResourceBase<Entity>`, and `@AdminSource(Row)` one that extends `AdminSourceBase<Row>` (compile errors now, as well as the boot errors before).
+- **Actions.** A method returns nothing or `{ message }` (`ActionOutcome`), sync or async. Anything else (the record, a string, `{ mesage }`) fails the run and its writes are rolled back. The first parameter of a record action is one of the resource's rows (typed: `extend(inst: Instance, …)` on an `AdminResourceBase<Instance>`). The next parameter is the input: give it the type of `input`, or leave `input` out and the parameter's class becomes the form. `input` that is not the parameter's class (or a parent of it), and a record parameter of another class, fail at boot. `label.for` returns a text or `null`, never a Promise.
+- **Parameter types need `emitDecoratorMetadata`** (as Nest's own injection does; tsc, SWC and Bun emit it, esbuild, Vite and tsx do not). Without it, an action whose method takes an input parameter and sets no `input` fails at boot: set `input: SomeDto`, or `input: false` for an action that takes none.
+- **`@AdminScope`** returns a column map or a callback at once, never a Promise: an async scope used to mean «no restriction»; now it is an error.
+- **`@AdminCan`** returns `true` or `false` at once. A Promise or another value is an error (a rule that throws still means «no», with a warning).
+- **`@AdminPrint`** returns `` html`…` `` (or a Promise of it). A plain string is refused: it was not escaped.
+- **`readonlyIf`** returns a boolean, and `readonlyFields()` an array of names.
+- **`findMany`** of a resource, a source or an inline child returns `{ items, total }` (`total` may be left out); an array is refused.
+- **Computed columns:** `compute()` returns an object of values by id, and a badge's `map()` a `{ label, tone }` with a known tone.
+- **Widgets** return the data of their `type` (a stat's `value` is text); `@AdminWidget` needs a class with `load()` and `@AdminSettingsPage` one with `load()` and `save()`.
+- **Hooks:** `@BeforeSave`/`@AfterSave` take `(dto | entity, ctx, mode: 'create' | 'update')`, `@BeforeDelete` `(entity, ctx, mode: 'soft' | 'hard')`, and return nothing: a hook that returns a value (`return dto` in a `@BeforeSave` that meant to change it) is a compile error and fails the save. Change `dto` in place.
+- **Resource methods:** `query()` returns the query builder it was given, at once (an `async query()` is an error); a list tab's `where(qb, ctx)` adds to `qb` at once; `relationOptions()` returns the query builder (or a Promise of it); `findOne()` a record or `null`; `create()`/`update()`/`restore()` the record or nothing (then it is reloaded); `links()` an array of `{ label, href }` (a link that is not http(s) or relative is still left out, now with a warning).
+- **Module options and adapters:** `resolveRoles` (option or adapter) returns an array of role names (a string used to be read letter by letter); a thrown error still means «no roles». `authenticate()` returns `{ user }` or `null`; `getUser()` a user or `null`; a global scope's `appliesTo()` a boolean; `translate` a string or `undefined` at once (an async `translate` used to show the declared texts silently; a throw still falls back). An `errorMapper` that returns something other than an `AdminError` or `undefined` is logged as an error. `files.storage.publicUrl()` returns a URL or `undefined` at once, and `get()` `{ body, contentType, size }` or `null`.
+- **What the types cannot see:** two DTO classes with the same properties are the same type to TypeScript; the boot check (with the parameter types) tells them apart.
+
+New types: `ActionReturn` (what an action may return), `Awaitable<T>`, `RowOf<P>`, `TypedMethodDecorator<M>` and `TypedClassDecorator<I>` (for your own wrappers around the decorators).
 
 ## Upgrading to 0.8.1
 

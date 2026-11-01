@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import type { WhereExpressionBuilder } from 'typeorm';
 import { ADMIN_CAN_METADATA, ADMIN_SCOPES_METADATA } from '../constants.js';
+import type { AdminContext } from '../resource/admin-context.js';
+import type { RecordMethodDecorator, TypedMethodDecorator } from './typed.js';
 
 /**
  * What a scope returns: a column map (`{ ownerId: ctx.user.id }`; an array means IN, null means IS NULL), or a
@@ -12,7 +14,7 @@ export type ScopeCondition = Record<string, unknown> | ((where: WhereExpressionB
  * A named row scope (spec §6.4): `@AdminScope('own') own(ctx) { return { ownerId: ctx.user.id }; }`. Roles assign
  * scopes per resource and operation; the method runs per request and must not throw for a normal user.
  */
-export function AdminScope(name: string): MethodDecorator {
+export function AdminScope(name: string): TypedMethodDecorator<(ctx: AdminContext) => ScopeCondition> {
   return (target, propertyKey) => {
     const owner = target.constructor;
     const inherited = (Reflect.getMetadata(ADMIN_SCOPES_METADATA, owner) as Record<string, string | symbol> | undefined) ?? {};
@@ -32,7 +34,9 @@ export type RecordOperation = 'update' | 'delete';
  * (`@AdminCan('ship')`) rules that action the same way: `_perm.actions` lists it only where the rule agrees, and
  * running it elsewhere is a 403. Any other name fails at boot.
  */
-export function AdminCan(operation: RecordOperation | (string & {})): MethodDecorator {
+export function AdminCan(operation: 'create'): TypedMethodDecorator<(parent: any, ctx: AdminContext) => boolean>;
+export function AdminCan(operation: RecordOperation | (string & {})): RecordMethodDecorator<[ctx: AdminContext], boolean>;
+export function AdminCan(operation: string): TypedMethodDecorator<(record: any, ctx: AdminContext) => boolean> {
   return (target, propertyKey) => {
     const owner = target.constructor;
     const inherited = (Reflect.getMetadata(ADMIN_CAN_METADATA, owner) as Record<string, Array<string | symbol>> | undefined) ?? {};

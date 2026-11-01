@@ -7,6 +7,7 @@ import type { AuthCapabilities } from '../contract.js';
 import { AdminForbiddenError, AdminUnauthenticatedError } from '../errors.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import { OPEN_ADMIN_USER, type AdminAuthAdapter, type AdminPrincipal } from './auth-adapter.js';
+import { describeValue, HostContractError, isRecordObject } from '../host-contract.js';
 
 const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
@@ -68,7 +69,13 @@ export class AdminAuthService implements OnModuleInit {
   async principal(req: IncomingMessage): Promise<AdminPrincipal | null> {
     await (this.ready ??= this.resolve());
     if (this.open) return { user: OPEN_ADMIN_USER };
-    return (await this.adapterValue!.authenticate(req)) ?? null;
+    const principal: unknown = await this.adapterValue!.authenticate(req);
+    if (principal === null || principal === undefined) return null;
+    const user = (principal as { user?: { id?: unknown } }).user;
+    if (!isRecordObject(principal) || typeof user !== 'object' || user === null || (typeof user.id !== 'string' && typeof user.id !== 'number')) {
+      throw new HostContractError(`the auth adapter's authenticate() must return { user: { id, displayName, isSuperuser } } or null, but it returned ${describeValue(principal)}`);
+    }
+    return principal as unknown as AdminPrincipal;
   }
 
   /** The principal, or 401; mutating requests of cookie sessions must also carry the session's CSRF token (403). */

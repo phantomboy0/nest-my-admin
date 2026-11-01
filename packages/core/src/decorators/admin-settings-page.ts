@@ -5,6 +5,7 @@ import type { LocalizedText } from '../i18n/localized-text.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import type { LayoutConfig } from '../schema/field-config.js';
 import type { AdminFieldOptions } from './admin-field.js';
+import type { TypedClassDecorator } from './typed.js';
 
 export interface AdminSettingsPageOptions<T extends object = any> {
   /** `'Payments'` or `{ en: 'Payments', fa: 'پرداخت' }`. Defaults to the humanized page name. */
@@ -67,7 +68,7 @@ export interface AdminSettingsPageDefinition extends AdminSettingsPageOptions {
  * `save` (`AdminSettingsSource`). Viewing it needs `page.<name>`, saving `page.<name>.update`. The name is letters,
  * digits, `-` and `_`, and not the name of a resource.
  */
-export function AdminSettingsPage<T extends object>(name: string, options: AdminSettingsPageOptions<T>): ClassDecorator {
+export function AdminSettingsPage<T extends object>(name: string, options: AdminSettingsPageOptions<T>): TypedClassDecorator<AdminSettingsSource<T>> {
   return (target) => {
     const definition: AdminSettingsPageDefinition = { ...options, name };
     Reflect.defineMetadata(ADMIN_PAGE_METADATA, definition, target);

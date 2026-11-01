@@ -7,6 +7,7 @@ import type { ResolvedAdminOptions } from '../options.js';
 import { AdminPolicy } from '../policy/admin-policy.service.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import { WidgetRegistry, type RegisteredWidget } from './widget-registry.js';
+import { checkWidgetData } from './widget-data.js';
 
 const PERIODS = ['day', 'week', 'month', 'year', 'range'];
 const MAX_SPAN_MS = 366 * 24 * 60 * 60 * 1000;
@@ -39,7 +40,7 @@ export class DashboardService {
   async load(name: string, query: URLSearchParams, ctx: AdminContext): Promise<WidgetData> {
     const widget = this.visible(ctx).find((candidate) => candidate.name === name);
     if (!widget) throw new AdminNotFoundError(`Unknown widget "${name}"`);
-    return widget.source.load(parsePeriod(query), ctx);
+    return checkWidgetData(widget.type, await widget.source.load(parsePeriod(query), ctx), widget.className);
   }
 }
 

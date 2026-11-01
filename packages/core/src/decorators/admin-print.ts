@@ -4,6 +4,9 @@ import type { PrintSchema } from '../contract.js';
 import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import { humanize } from '../schema/humanize.js';
 import type { ScopedText } from '../i18n/texts.js';
+import type { HtmlString } from '../print/html.js';
+import type { AdminContext } from '../resource/admin-context.js';
+import type { Awaitable, RowOf, TypedMethodDecorator } from './typed.js';
 
 /** Paper sizes by name; any other string is used as the CSS `@page { size }` value. */
 export const PAPERS: Record<string, string> = { A4: 'A4', A5: 'A5', label: '100mm 150mm' };
@@ -34,7 +37,10 @@ export interface RegisteredPrint {
  * wraps it in a page sized for `paper` that prints itself. Printing needs `{resource}.view`, the user's row scopes and
  * `{resource}.print.{name}`; each printed record is written to the audit log. Throw an `HttpException` to refuse.
  */
-export function AdminPrint(options: AdminPrintOptions = {}): MethodDecorator {
+export function AdminPrint(
+  options?: AdminPrintOptions,
+): <P extends object, T extends (records: Array<RowOf<P>>, ctx: AdminContext) => Awaitable<HtmlString>>(target: P, propertyKey: string | symbol, descriptor: TypedPropertyDescriptor<T>) => void;
+export function AdminPrint(options: AdminPrintOptions = {}): TypedMethodDecorator<(records: any[], ctx: AdminContext) => Awaitable<HtmlString>> {
   return (target, propertyKey) => {
     if (typeof propertyKey !== 'string') throw new TypeError('@AdminPrint must decorate a method with a string name');
     const owner = target.constructor;

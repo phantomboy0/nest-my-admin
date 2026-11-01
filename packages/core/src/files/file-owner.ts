@@ -5,6 +5,7 @@ import type { AdminPolicy } from '../policy/admin-policy.service.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
 import type { AdminContext } from '../resource/admin-context.js';
 import type { FieldConfig } from '../schema/field-config.js';
+import { checkFoundRecord } from '../host-contract.js';
 
 /**
  * What files belong to: a resource (its records hold the keys), or anything else with file fields and one or more
@@ -64,7 +65,7 @@ export function resourceFileOwner(entry: RegisteredResource, policy: AdminPolicy
       if (level === undefined || level === 'hidden') return undefined;
       try {
         const id = parseRecordId(recordId, entry.schema);
-        const entity = await entry.resource.findOne(id, ctx);
+        const entity = checkFoundRecord(await entry.resource.findOne(id, ctx), `${entry.resource.constructor.name}.findOne()`);
         if (!entity) return undefined;
         await policy.requireInScope(entry, id, recordId, 'view', ctx); // a findOne override may ignore scopes
         return (entity as Record<string, unknown>)[field];

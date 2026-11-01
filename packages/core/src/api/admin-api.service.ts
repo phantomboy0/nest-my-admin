@@ -1,3 +1,5 @@
+import { HtmlString } from '../print/html.js';
+import { checkFindMany, checkFoundRecord, checkQueryBuilder, checkWriteResult, describeValue, HostContractError, isLocalizedText, isPlainObject as isPlainRecord, isRecordObject, isThenable } from '../host-contract.js';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, TabCounts, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
@@ -197,7 +199,7 @@ export class AdminApiService {
    */
   private async count(entry: RegisteredResource, params: ListParams, ctx: AdminContext): Promise<{ count: number; estimate: boolean } | undefined> {
     const overridden = entry.resource.findMany !== AdminResourceBase.prototype.findMany;
-    const found = overridden && this.policy.scoped(entry, 'view', ctx) ? await AdminResourceBase.prototype.findMany.call(entry.resource, params, ctx) : await entry.resource.findMany(params, ctx);
+    const found = checkFindMany(overridden && this.policy.scoped(entry, 'view', ctx) ? await AdminResourceBase.prototype.findMany.call(entry.resource, params, ctx) : await entry.resource.findMany(params, ctx), entry.className);
     return found.total === null || found.total === undefined ? undefined : { count: found.total, estimate: found.estimated === true };
   }
 
@@ -307,7 +309,7 @@ export class AdminApiService {
     // A relation sorted by its target's title column (`sort=customer` → `customer.name`).
     const sortPath = entry.sortPaths.get(params.sort.field);
     if (sortPath) params.sort = { ...params.sort, field: sortPath };
-    const found = await resource.findMany(params, ctx);
+    const found = checkFindMany(await resource.findMany(params, ctx), entry.className);
     const { total, estimated, hasMore, nextCursor } = found;
     let items = found.items;
     // A findMany override may ignore the scopes; rows outside them never leave (spec §6.4).
@@ -365,7 +367,7 @@ export class AdminApiService {
           pagination: 'offset',
         };
         try {
-          const { items, hasMore } = await entry.resource.findMany(params, ctx);
+          const { items, hasMore } = checkFindMany(await entry.resource.findMany(params, ctx), entry.className);
           if (items.length === 0) return undefined;
           return {
             resource: schema.name,
@@ -390,7 +392,7 @@ export class AdminApiService {
     this.policy.require(entry, 'view', ctx);
     const { schema, resource } = entry;
     const id = parseRecordId(rawId, schema);
-    const entity = await resource.findOne(id, ctx);
+    const entity = checkFoundRecord(await resource.findOne(id, ctx), `${resource.constructor.name}.findOne()`);
     if (!entity) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
     await this.policy.requireInScope(entry, id, rawId, 'view', ctx); // a findOne override may ignore scopes
     const record = await this.record(entry, entity, ctx);
@@ -588,7 +590,7 @@ export class AdminApiService {
       await this.policy.requireInScope(entry, id, rawId, 'view', tx);
       await this.policy.requireInScope(entry, id, rawId, 'update', tx);
       await this.checkVersion(entry, id, version, tx);
-      const existing = await resource.findOne(id, tx);
+      const existing = checkFoundRecord(await resource.findOne(id, tx), `${resource.constructor.name}.findOne()`);
       if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       this.policy.requireRecordRule(entry, 'update', existing, tx);
       await this.checkParentRules(entry, dto as Record<string, unknown>, tx, existing);
@@ -651,7 +653,7 @@ export class AdminApiService {
       await this.policy.requireInScope(entry, id, rawId, 'view', tx);
       await this.policy.requireInScope(entry, id, rawId, 'delete', tx);
       await this.checkVersion(entry, id, version, tx);
-      const existing = await resource.findOne(id, tx);
+      const existing = checkFoundRecord(await resource.findOne(id, tx), `${resource.constructor.name}.findOne()`);
       if (!existing) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
       this.policy.requireRecordRule(entry, 'delete', existing, tx);
       await this.change({ kind: 'delete', target: entry, existing, id }, tx, () => resource.delete(id, tx));
@@ -688,8 +690,8 @@ export class AdminApiService {
     // The target resource's query() restricts what may be picked, before this field's relationOptions().
     const targetEntry = this.registry.forEntity(target.target, entry.dataSource);
     // The target resource's query() and the user's view scopes there restrict what may be picked (spec §6.4).
-    const restricted = targetEntry ? this.policy.applyScopes(targetEntry.resource.query(qb, ctx), targetEntry, 'view', ctx) : qb;
-    return entry.resource.relationOptions(field, restricted, ctx, values);
+    const restricted = targetEntry ? this.policy.applyScopes(checkQueryBuilder(targetEntry.resource.query(qb, ctx), `${targetEntry.className}.query()`), targetEntry, 'view', ctx) : qb;
+    return checkQueryBuilder(await entry.resource.relationOptions(field, restricted, ctx, values), `${entry.className}.relationOptions()`);
   }
 
   /**
@@ -844,7 +846,7 @@ export class AdminApiService {
     const entities: object[] = [];
     for (const rawId of ids) {
       const id = parseRecordId(rawId, entry.schema);
-      const entity = await entry.resource.findOne(id, ctx);
+      const entity = checkFoundRecord(await entry.resource.findOne(id, ctx), `${entry.resource.constructor.name}.findOne()`);
       if (!entity) throw new AdminNotFoundError(`${entry.schema.label} "${rawId}" not found`);
       await this.policy.requireInScope(entry, id, rawId, 'view', ctx);
       entities.push(entity);
@@ -856,13 +858,15 @@ export class AdminApiService {
     } catch (error) {
       throw hostError(error);
     }
+    // Only `html` output (which escaped every value) is put on the page: a plain string may carry a record's text as markup.
+    if (!(body instanceof HtmlString)) throw new HostContractError(`${entry.className}.${printName} (@AdminPrint) returned ${describeValue(body)}; return html\`…\` (it escapes every value), with raw() around markup you trust`);
     const locale = ctx.locale ?? this.options.locale;
     const label = this.options.texts(print.label, locale, `resource.${entry.schema.name}.prints.${print.name}.label`);
     for (const entity of entities) {
       await this.audit.recordAfter({ event: printCode(entry.schema.name, printName), entry, recordId: recordIdOf(entity, entry.schema.primaryKeys), title: entry.title(entity) }, ctx);
     }
     const title = entities.length === 1 ? `${label} · ${entry.title(entities[0]!)}` : label;
-    return printPage({ title, body: String(body ?? ''), size: print.size, locale });
+    return printPage({ title, body: body.value, size: print.size, locale });
   }
 
   /**
@@ -889,7 +893,7 @@ export class AdminApiService {
     const items: object[] = [];
     let truncated = false;
     for (let page = 1; ; page++) {
-      const found = await entry.resource.findMany({ ...params, page, pageSize: EXPORT_PAGE, count: 'none', pagination: 'offset', after: undefined }, ctx);
+      const found = checkFindMany(await entry.resource.findMany({ ...params, page, pageSize: EXPORT_PAGE, count: 'none', pagination: 'offset', after: undefined }, ctx), entry.className);
       let batch = found.items;
       // A findMany override may ignore the scopes; rows outside them never leave (spec §6.4).
       if (scoped) {
@@ -967,12 +971,16 @@ export class AdminApiService {
     const locked = new Set<string>();
     for (const [name, options] of entry.fieldConfig) {
       if (!options.readonlyIf) continue;
+      let answer: unknown;
       try {
-        if (options.readonlyIf(entity)) locked.add(name);
+        answer = options.readonlyIf(entity);
       } catch (error) {
         locked.add(name);
         this.warnOnce(`${entry.className}.fields.${name}.readonlyIf threw (${error instanceof Error ? error.message : String(error)}); the field stays read-only`);
+        continue;
       }
+      if (typeof answer !== 'boolean') throw new HostContractError(`${entry.className}.fields.${name}.readonlyIf returned ${describeValue(answer)}; it answers at once with true or false (it cannot be async)`);
+      if (answer) locked.add(name);
     }
     let more: readonly string[];
     try {
@@ -981,6 +989,7 @@ export class AdminApiService {
       more = entry.schema.form.update;
       this.warnOnce(`${entry.className}.readonlyFields threw (${error instanceof Error ? error.message : String(error)}); the record stays read-only`);
     }
+    if (!Array.isArray(more)) throw new HostContractError(`${entry.className}.readonlyFields() returned ${describeValue(more)}; it answers at once with an array of field names (it cannot be async)`);
     const fields = new Set(entry.schema.fields.map((field) => field.name));
     for (const name of more) {
       if (fields.has(name) && !entry.schema.primaryKeys.includes(name)) locked.add(name);
@@ -998,8 +1007,16 @@ export class AdminApiService {
       this.warnOnce(`${entry.className}.links() threw: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     }
-    return (Array.isArray(links) ? links : [])
-      .filter((link) => typeof link?.href === 'string' && (/^https?:\/\//i.test(link.href) || !/^[a-z][a-z0-9+.-]*:/i.test(link.href.trim())))
+    if (!Array.isArray(links) || links.some((link) => !isRecordObject(link) || typeof link.href !== 'string' || !isLocalizedText(link.label))) {
+      throw new HostContractError(`${entry.className}.links() must return an array of { label, href }, but it returned ${describeValue(links)}`);
+    }
+    // A link of another scheme (javascript:, data:) is never shown: it would run in the admin.
+    return links
+      .filter((link) => {
+        const safe = /^https?:\/\//i.test(link.href) || !/^[a-z][a-z0-9+.-]*:/i.test(link.href.trim());
+        if (!safe) this.warnOnce(`${entry.className}.links(): "${link.href.slice(0, 40)}" is not an http(s) or relative URL; it is not shown`);
+        return safe;
+      })
       .map((link) => ({ label: this.options.texts(link.label, locale), href: link.href }));
   }
 
@@ -1019,8 +1036,9 @@ export class AdminApiService {
 
   /** Host services often return nothing from update(); fall back to reading the record. */
   private async reloadIfEmpty(entry: RegisteredResource, result: unknown, id: RecordId, ctx: AdminContext): Promise<object> {
+    checkWriteResult(result, `${entry.className}: create(), update() and restore()`);
     if (typeof result === 'object' && result !== null) return result;
-    const reloaded = await entry.resource.findOne(id, ctx);
+    const reloaded = checkFoundRecord(await entry.resource.findOne(id, ctx), `${entry.className}.findOne()`);
     if (!reloaded) throw new AdminNotFoundError(`${entry.schema.label} "${typeof id === 'object' ? encodeRecordId(Object.values(id)) : id}" not found`);
     return reloaded;
   }

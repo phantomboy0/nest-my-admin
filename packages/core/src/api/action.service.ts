@@ -4,6 +4,7 @@ import { MAX_BULK } from '../constants.js';
 import { parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { validateWrite } from '../crud/validate-write.js';
 import type { ActionOutcome, RegisteredAction } from '../decorators/admin-action.js';
+import { describeValue, HostContractError, isLocalizedText, checkFoundRecord } from '../host-contract.js';
 import { AdminBadRequestError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import { toErrorResponse } from '../http/error-response.js';
 import { resolveText } from '../i18n/localized-text.js';
@@ -66,7 +67,7 @@ export class ActionService {
 
   private async runOnResource(entry: RegisteredResource, action: RegisteredAction, input: ActionInput, ctx: AdminContext): Promise<ActionResourceResult> {
     const outcome = await this.host.writes.run(entry, ctx, (tx) =>
-      this.host.writes.change({ kind: 'action', target: entry, action: { definition: action, input: input.sent } }, tx, async () => methodOf(entry, action).call(entry.resource, await input.fresh(), tx), () => undefined),
+      this.host.writes.change({ kind: 'action', target: entry, action: { definition: action, input: input.sent } }, tx, async () => checkOutcome(await methodOf(entry, action).call(entry.resource, await input.fresh(), tx), entry, action), () => undefined),
     );
     return withMessage({}, messageOf(outcome, ctx, this.host.options));
   }
@@ -119,7 +120,7 @@ export class ActionService {
     const id = parseRecordId(rawId, schema);
     await policy.requireInScope(entry, id, rawId, 'view', tx);
     await policy.requireInScope(entry, id, rawId, 'update', tx);
-    const record = await resource.findOne(id, tx);
+    const record = checkFoundRecord(await resource.findOne(id, tx), `${resource.constructor.name}.findOne()`);
     if (!record) throw new AdminNotFoundError(`${schema.label} "${rawId}" not found`);
     // A per-record label of `null` means the action does not exist on this record (it is not offered there either).
     if (action.labelFor && action.labelFor(record) === null) throw new AdminNotFoundError(`"${action.name}" does not apply to ${schema.label} "${rawId}"`);
@@ -141,7 +142,7 @@ export class ActionService {
     const { outcome, reloaded } = await this.host.writes.change(
       { kind: 'action', target: entry, existing: record, id, action: { definition: action, input: input.sent } },
       tx,
-      async () => ({ outcome: await methodOf(entry, action).call(entry.resource, record, await input.fresh(), tx), reloaded: (await entry.resource.findOne(id, tx)) as object | null }),
+      async () => ({ outcome: checkOutcome(await methodOf(entry, action).call(entry.resource, record, await input.fresh(), tx), entry, action), reloaded: (checkFoundRecord(await entry.resource.findOne(id, tx), `${entry.resource.constructor.name}.findOne()`)) as object | null }),
       (result) => result.reloaded,
     );
     // The action may have deleted the record or moved it out of the user's scopes (a findOne override may ignore them).
@@ -223,11 +224,26 @@ async function validateInput(action: RegisteredAction, input: unknown): Promise<
   return validateWrite(structuredClone(input ?? {}), { allowed: action.form?.fields.map((field) => field.name) ?? [], dto: action.input, keepDefaults: true });
 }
 
-/** `ActionOutcome.message` in the request's language; anything else a method returns is ignored. */
+/** `ActionOutcome.message` in the request's language (the outcome was checked by `checkOutcome`). */
 function messageOf(outcome: unknown, ctx: AdminContext, options: ResolvedAdminOptions): string | undefined {
   const message = isPlainObject(outcome) ? (outcome as ActionOutcome).message : undefined;
-  const isText = typeof message === 'string' || (isPlainObject(message) && Object.values(message).every((text) => typeof text === 'string'));
-  return isText ? options.texts(message!, ctx.locale ?? options.locale) || undefined : undefined;
+  return message === undefined ? undefined : options.texts(message, ctx.locale ?? options.locale) || undefined;
+}
+
+
+/**
+ * What an action may answer: nothing, or `{ message }` with a text. Anything else (a record, a string, a typo such as
+ * `{ mesage }`) fails the action, inside its transaction, instead of being dropped without a word.
+ */
+function checkOutcome(outcome: unknown, entry: RegisteredResource, action: RegisteredAction): unknown {
+  if (outcome === undefined || outcome === null) return outcome;
+  const where = `${entry.className}.${action.name} (@AdminAction)`;
+  if (!isPlainObject(outcome)) throw new HostContractError(`${where} returned ${describeValue(outcome)}; an action returns nothing or { message }`);
+  const extra = Object.keys(outcome).filter((key) => key !== 'message');
+  if (extra.length > 0) throw new HostContractError(`${where} returned { ${Object.keys(outcome).join(', ')} }; an action returns nothing or { message } (${extra.map((key) => `"${key}"`).join(', ')} is not part of it)`);
+  const { message } = outcome as { message?: unknown };
+  if (message !== undefined && !isLocalizedText(message)) throw new HostContractError(`${where} returned a message that is ${describeValue(message)}; it must be a text ('Done' or { en, fa })`);
+  return outcome;
 }
 
 /** One message for a bulk run only when every record that ran gave the same one. */

@@ -742,7 +742,8 @@ describe('boot checks', () => {
 
   test('a page needs a form, load() and save(); its fields and layout are checked', async () => {
     await expect(boot([page('formless', { form: undefined })])).rejects.toThrow('BootPage: @AdminSettingsPage needs `form`: a DTO class');
-    @AdminSettingsPage('lazy', { form: NoticeDto })
+    // No save(): the types refuse it too; the cast stands for plain JavaScript.
+    @(AdminSettingsPage('lazy', { form: NoticeDto }) as (target: Function) => void)
     class LazyPage {
       load() {
         return {};

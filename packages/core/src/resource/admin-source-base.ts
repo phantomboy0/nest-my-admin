@@ -13,6 +13,9 @@ import { AdminResourceBase, type FilterCondition, type FilterValue, type FindMan
  * of AdminResourceBase (`query`, `buildListQuery`, `repository`, `restore`, `purge`) are not used.
  */
 export abstract class AdminSourceBase<T extends ObjectLiteral = ObjectLiteral, Id extends RecordId = RecordId> extends AdminResourceBase<T, Id> {
+  /** Types only: tells a source class from a table resource, so `@AdminSource` refuses a class that is not one. */
+  declare private readonly sourceResource: true;
+
   abstract override findMany(params: ListParams, ctx: AdminContext): Promise<FindManyResult<T>>;
 
   abstract override findOne(id: Id, ctx: AdminContext, options?: { withDeleted?: boolean }): Promise<T | null>;
