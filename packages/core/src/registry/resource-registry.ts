@@ -11,6 +11,8 @@ import { getAdminGroupOptions } from '../decorators/admin-group.js';
 import { getAdminResourceDefinition, type AdminResourceDefinition } from '../decorators/admin-resource.js';
 import { AdminNotFoundError } from '../errors.js';
 import { AdminResourceBase } from '../resource/admin-resource-base.js';
+import { AdminSourceBase } from '../resource/admin-source-base.js';
+import { sourceMetadata } from '../schema/source-metadata.js';
 import { buildResourceSchema } from '../schema/build-resource-schema.js';
 import { getAdminFieldOptions } from '../decorators/admin-field.js';
 import { nestedProtected, protectedInside, protectedOption, type ProtectedInside } from '../schema/dto-form.js';
@@ -34,8 +36,12 @@ export interface RegisteredResource {
   schema: ResourceSchema;
   resource: AdminResourceBase<any>;
   className: string;
+  /** The entity class; the row class of a source. */
   entity: Function;
-  dataSource: DataSource;
+  /** The entity's DataSource; absent for a source (`source: true`). */
+  dataSource?: DataSource;
+  /** An `@AdminSource`: rows from the class's own findMany/findOne, no table, no transaction. `metadata` is a stand-in built from the row class. */
+  source?: true;
   /** Database column and constraint names → entity properties (for mapping constraint errors to fields). */
   dbNames: DbNames;
   metadata: EntityMetadata;
@@ -133,6 +139,9 @@ export class ResourceRegistry implements OnModuleInit {
       }
       if (seen.has(instance)) continue;
       seen.add(instance);
+      if (definition.source && !(instance instanceof AdminSourceBase)) {
+        throw new Error(`${metatype.name} is decorated with @AdminSource but does not extend AdminSourceBase`);
+      }
       if (!(instance instanceof AdminResourceBase)) {
         throw new Error(`${metatype.name} is decorated with @AdminResource but does not extend AdminResourceBase`);
       }
@@ -204,8 +213,8 @@ export class ResourceRegistry implements OnModuleInit {
   readonly childQuery: ChildQuery = (entity, alias, ctx) => {
     const child = this.list().find((entry) => entry.entity === entity);
     if (child) return child.resource.readQuery(alias, ctx);
-    const owner = this.list().find((entry) => entry.dataSource.hasMetadata(entity));
-    const manager = ctx?.manager ?? owner?.dataSource.manager;
+    const owner = this.list().find((entry) => entry.dataSource?.hasMetadata(entity));
+    const manager = ctx?.manager ?? owner?.dataSource?.manager;
     if (!manager) throw new Error(`nest-my-admin: no DataSource holds ${entity.name}`);
     return manager.getRepository(entity).createQueryBuilder(alias);
   };
@@ -225,13 +234,13 @@ export class ResourceRegistry implements OnModuleInit {
   }
 
   /** The resource registered for an entity class on a DataSource (the first one, when several share it). */
-  forEntity(entity: Function | string, dataSource: DataSource): RegisteredResource | undefined {
+  forEntity(entity: Function | string, dataSource: DataSource | undefined): RegisteredResource | undefined {
     for (const entry of this.resources.values()) if (entry.entity === entity && entry.dataSource === dataSource) return entry;
     return undefined;
   }
 
   /** How records of an entity are titled: its resource's `title`, or the default for its columns. */
-  titleFor(metadata: EntityMetadata, dataSource: DataSource): TitleFn {
+  titleFor(metadata: EntityMetadata, dataSource: DataSource | undefined): TitleFn {
     const entry = this.forEntity(metadata.target, dataSource);
     if (entry) return entry.title;
     let title = this.defaultTitles.get(metadata);
@@ -306,23 +315,41 @@ export class ResourceRegistry implements OnModuleInit {
     resource: AdminResourceBase<any>,
     moduleGroup: string,
   ): void {
-    const dataSourceName = definition.dataSource ?? 'default';
-    let dataSource: DataSource;
-    try {
-      dataSource = this.moduleRef.get<DataSource>(getDataSourceToken(dataSourceName), { strict: false });
-    } catch {
-      throw new Error(`${className}: TypeORM DataSource "${dataSourceName}" not found; is TypeOrmModule.forRoot() imported?`);
+    const failed = (message: string): never => {
+      throw new Error(`${className}: ${message}`);
+    };
+    let dataSource: DataSource | undefined;
+    let metadata: EntityMetadata;
+    if (definition.source) {
+      // A source has no table: its columns come from the row class, and nothing is attached.
+      metadata = sourceMetadata(definition.entity, definition.source.primaryKeys, failed) as unknown as EntityMetadata;
+      checkSourceConfig(resource, failed);
+    } else {
+      const dataSourceName = definition.dataSource ?? 'default';
+      try {
+        dataSource = this.moduleRef.get<DataSource>(getDataSourceToken(dataSourceName), { strict: false });
+      } catch {
+        throw new Error(`${className}: TypeORM DataSource "${dataSourceName}" not found; is TypeOrmModule.forRoot() imported?`);
+      }
+      if (!dataSource.hasMetadata(definition.entity)) {
+        throw new Error(`${className}: entity ${definition.entity.name} is not registered in DataSource "${dataSourceName}"`);
+      }
+      metadata = dataSource.getMetadata(definition.entity);
+      resource.attachRepository(dataSource.getRepository(definition.entity));
     }
-    if (!dataSource.hasMetadata(definition.entity)) {
-      throw new Error(`${className}: entity ${definition.entity.name} is not registered in DataSource "${dataSourceName}"`);
-    }
-    const metadata = dataSource.getMetadata(definition.entity);
-    resource.attachRepository(dataSource.getRepository(definition.entity));
 
     const order = memberOrder(definition.order, (message) => {
       throw new Error(`${className}: ${message}`);
     });
     const schema = buildResourceSchema({ definition, resource, metadata, moduleGroup, className });
+    if (definition.source) {
+      // Only the writes the class implements are offered.
+      const writes = AdminSourceBase.writesOf(resource as AdminSourceBase);
+      if (!writes.create) schema.creatable = false;
+      if (!writes.create) schema.form.create = [];
+      if (!writes.update) schema.form.update = [];
+      schema.source = writes;
+    }
     resource.attachUpdateFields(() => schema.form.update);
     checkTabs(schema, resource.list?.tabs, (message) => {
       throw new Error(`${className}: ${message}`);
@@ -346,6 +373,7 @@ export class ResourceRegistry implements OnModuleInit {
     }
     // All-or-nothing is a promise only a transaction can keep.
     const atomic = [...actions.values()].find((action) => action.atomic);
+    if (atomic && definition.source) failed(`@AdminAction "${atomic.name}" is \`atomic\`, which needs a transaction; a source has no DataSource`);
     if (atomic && !this.options.transactions) {
       throw new Error(`${className}: @AdminAction "${atomic.name}" is \`atomic\`, which needs the admin's transactions; they are off (\`transactions: false\`)`);
     }
@@ -389,8 +417,9 @@ export class ResourceRegistry implements OnModuleInit {
       resource,
       className,
       entity: definition.entity,
-      dataSource,
-      dbNames: dbNamesFor(metadata),
+      ...(dataSource ? { dataSource } : {}),
+      dbNames: definition.source ? { columns: new Map(), constraints: new Map() } : dbNamesFor(metadata),
+      ...(definition.source ? { source: true as const } : {}),
       metadata,
       relations,
       title,
@@ -411,6 +440,12 @@ export class ResourceRegistry implements OnModuleInit {
       ...(definition.nav !== undefined ? { navOption: definition.nav } : {}),
       inlines: [],
     });
+    // Files belong to a stored record (they are attached, released and swept with it): a source has none.
+    if (definition.source) {
+      for (const [field, options] of this.resources.get(schema.name)!.fieldConfig) {
+        if (options.widget === 'file' || options.widget === 'image' || options.widget === 'richtext') failed(`fields.${field}: the "${options.widget}" widget is not available on an @AdminSource (it needs a database table)`);
+      }
+    }
   }
 
   /** Points each relation field at the resource of its target entity, now that every resource is registered. */
@@ -525,4 +560,24 @@ function checkExport(option: unknown, schema: ResourceSchema, fail: (message: st
   const max = config.max ?? EXPORT_MAX;
   if (typeof max !== 'number' || !Number.isInteger(max) || max < 1 || max > EXPORT_LIMIT) fail(`max must be an integer from 1 to ${EXPORT_LIMIT}`);
   return { columns: columns as string[], max: max as number };
+}
+
+/** What a source cannot have: everything that is a query on a table or needs a transaction. */
+function checkSourceConfig(resource: AdminResourceBase<any>, fail: (message: string) => never): void {
+  const list = resource.list;
+  const not = (what: string) => fail(`${what}: not available on an @AdminSource (it needs a database table)`);
+  if (list?.tabs?.length) not('list.tabs');
+  if (list?.computed && Object.keys(list.computed).length > 0) not('list.computed');
+  if (list?.pagination === 'keyset') not("list.pagination 'keyset'");
+  if (list?.count !== undefined && list.count !== 'exact') not(`list.count '${list.count}'`);
+  if (list?.export) not('list.export');
+  const layout = resource.form?.layout;
+  const main = layout && !Array.isArray(layout) && 'main' in layout ? layout.main : layout;
+  const hasInline = (node: unknown): boolean =>
+    Array.isArray(node) ? node.some(hasInline) : typeof node === 'object' && node !== null && ('inline' in node || Object.values(node).some(hasInline));
+  if (hasInline(main ?? [])) not('form.layout inlines');
+  if (layout && !Array.isArray(layout) && 'aside' in layout && layout.aside.some((card) => 'relation' in card && card.relation !== undefined)) not('form.layout relation aside cards');
+  for (const [field, options] of Object.entries((resource.fields ?? {}) as Record<string, { widget?: string; history?: unknown } | undefined>)) {
+    if (options?.history !== undefined) not(`fields.${field}.history`);
+  }
 }

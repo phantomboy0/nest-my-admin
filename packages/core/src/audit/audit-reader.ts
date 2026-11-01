@@ -305,7 +305,7 @@ export class AuditReader {
     }
     if (ids.size === 0) return new Set();
     let seen = new Set(ids.keys());
-    if (narrowed) {
+    if (narrowed && entry.dataSource) {
       const qb = entry.dataSource.getRepository(entry.metadata.target).createQueryBuilder('entity').withDeleted();
       // The ids go on last: a `query()` that starts its own `where()` must not leave the select unbounded.
       const restricted = this.policy.applyScopes(entry.resource.query(qb, ctx), entry, 'view', ctx).andWhereInIds([...ids.values()]);

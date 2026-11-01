@@ -47,7 +47,8 @@ export function resourceFileOwner(entry: RegisteredResource, policy: AdminPolicy
   return {
     name,
     keyPrefix: name,
-    dataSource: entry.dataSource,
+    // File fields are refused on sources at boot: an owner of files always has a DataSource.
+    dataSource: entry.dataSource!,
     fieldConfig: entry.fieldConfig,
     hasField: (field) => !field.includes('.') && entry.schema.fields.some((candidate) => candidate.name === field),
     recordId: (record) => recordIdOf(record, entry.schema.primaryKeys),

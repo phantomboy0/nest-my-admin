@@ -63,7 +63,8 @@ export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState
     async before(change, tx) {
       const { target } = change;
       if (!('schema' in target)) return { before: pageValues(target, change.existing) };
-      const manager = tx.manager ?? target.dataSource.manager;
+      // Sources never get here (WriteRunner.change skips the participants for them): a resource has its DataSource.
+      const manager = tx.manager ?? target.dataSource!.manager;
       // The stored row, read here: like "after", so the two compare column for column whatever the resource's
       // `findOne` selected, and the entity the host method is handed (and may change) is never the one serialized.
       // A purge is not handed its record at all: this reads it, from the trash if need be.
@@ -78,7 +79,7 @@ export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState
       const { target } = change;
       // A resource action names no record: there is no row to read.
       const named = 'schema' in target && !(change.kind === 'action' && state.recordId === undefined);
-      const entry = 'schema' in target ? await recordEntry(target, change, state, saved, named ? await row() : { gone: false }, tx.manager ?? target.dataSource.manager) : pageEntry(target, state, saved);
+      const entry = 'schema' in target ? await recordEntry(target, change, state, saved, named ? await row() : { gone: false }, tx.manager ?? target.dataSource!.manager) : pageEntry(target, state, saved);
       if (!entry) return;
       // A child saved inline with its parent says which parent (the parent's History can list it later).
       const input = change.parent ? { ...entry, meta: { ...entry.meta, parent: change.parent } } : entry;
@@ -92,7 +93,7 @@ export function auditParticipant(audit: AdminAudit): WriteParticipant<AuditState
       const { pending, entryId, recheck } = state;
       // What is committed now, on the DataSource's own manager. A read that fails is logged and stamps nothing.
       const event = 'schema' in target ? `${target.schema.name}.deleted` : '';
-      const ended = 'schema' in target && recheck !== undefined && (pending !== undefined || entryId !== undefined) && (await audit.leftNoRow(event, tx, () => loadStored(target, recheck, target.dataSource.manager)));
+      const ended = 'schema' in target && recheck !== undefined && (pending !== undefined || entryId !== undefined) && (await audit.leftNoRow(event, tx, () => loadStored(target, recheck, target.dataSource!.manager)));
       // The entry is in the table, but the insert answered no id to find it by: nothing to stamp, and that is said.
       if ('schema' in target && recheck !== undefined && pending === undefined && entryId === undefined) audit.unstamped(event, tx);
       // An entry that waited for the commit is written with the stamp; one that is in the table already gets it now.
@@ -142,7 +143,7 @@ async function withReturned(entry: RegisteredResource, entity: object, image: Re
 function unsure(entry: RegisteredResource, stored: object, manager: EntityManager): boolean {
   const trash = entry.metadata.deleteDateColumn;
   if (trash && trash.getEntityValue(stored) != null) return false;
-  return manager !== entry.dataSource.manager && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type);
+  return manager !== entry.dataSource!.manager && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource!.options.type);
 }
 
 /**

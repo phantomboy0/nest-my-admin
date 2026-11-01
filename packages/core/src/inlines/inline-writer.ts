@@ -220,7 +220,7 @@ export class InlineWriter {
 
     // Children of THIS parent that the user sees: the child's query() and the user's view scopes, as its findOne.
     const children = (): SelectQueryBuilder<any> => {
-      const manager = tx.manager ?? child.dataSource.manager;
+      const manager = tx.manager ?? child.dataSource!.manager; // a source has no relation, so it is never an inline child
       const qb = manager.getRepository(child.metadata.target).createQueryBuilder('nma_child');
       const restricted = policy.applyScopes(child.resource.query(qb, tx), child, 'view', tx);
       return restricted.andWhere(`nma_child.${inline.link} = :nmaInlineParent`, { nmaInlineParent: linkValue });

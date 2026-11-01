@@ -139,6 +139,11 @@ export class AdminPolicy implements OnApplicationBootstrap {
   require(entry: RegisteredResource, operation: ResourceOperation, ctx: AdminContext): void {
     this.requireReach(entry, ctx);
     if (operation !== 'view' && entry.schema.readonly) throw new AdminForbiddenError(`${entry.schema.label} records are read-only`);
+    const source = entry.schema.source;
+    if (source && (operation === 'create' || operation === 'update' || operation === 'delete') && !source[operation]) {
+      throw new AdminForbiddenError(`${entry.schema.label}: this source does not ${operation} records`);
+    }
+    if (source && operation === 'purge') throw new AdminForbiddenError(`${entry.schema.label}: a source has no trash`);
     if (!this.permissionsOf(ctx).canOn(entry.schema.name, operation)) {
       throw new AdminForbiddenError(`You may not ${operation === 'view' ? 'view' : operation} ${entry.schema.label} records`);
     }
@@ -252,10 +257,10 @@ export class AdminPolicy implements OnApplicationBootstrap {
     const editable = (name: string) => (levels.get(name) ?? 'hidden') === 'edit';
     const r = schema.name;
     const permissions = {
-      create: schema.creatable && perms.canOn(r, 'create'),
-      update: !schema.readonly && perms.canOn(r, 'update'),
-      delete: !schema.readonly && perms.canOn(r, 'delete'),
-      purge: !schema.readonly && perms.canOn(r, 'purge'),
+      create: schema.creatable && (schema.source?.create ?? true) && perms.canOn(r, 'create'),
+      update: !schema.readonly && (schema.source?.update ?? true) && perms.canOn(r, 'update'),
+      delete: !schema.readonly && (schema.source?.delete ?? true) && perms.canOn(r, 'delete'),
+      purge: !schema.readonly && !schema.source && perms.canOn(r, 'purge'),
     };
     const create = permissions.create ? schema.form.create.filter(editable) : [];
     const update = permissions.update ? schema.form.update.filter(editable) : [];
@@ -414,7 +419,8 @@ export class AdminPolicy implements OnApplicationBootstrap {
 
   /** Whether a query for `operation` needs restricting at all. */
   scoped(entry: RegisteredResource, operation: ScopedOperation, ctx: AdminContext | undefined): boolean {
-    if (!ctx?.permissions) return false;
+    // Row scopes are query filters: a source has no query, so they do not apply to it (documented).
+    if (!ctx?.permissions || entry.source) return false;
     return ctx.permissions.scopes(entry.schema.name, operation) !== 'all' || this.globalScopes(entry, ctx.permissions).length > 0;
   }
 
@@ -489,7 +495,7 @@ export class AdminPolicy implements OnApplicationBootstrap {
     const keys = entry.schema.primaryKeys;
     const all = new Set(ids.map((id) => recordIdOf(typeof id === 'object' ? id : { [keys[0]!]: id }, keys)));
     if (ids.length === 0 || !this.scoped(entry, operation, ctx)) return all;
-    const manager: EntityManager = ctx.manager ?? entry.dataSource.manager;
+    const manager: EntityManager = ctx.manager ?? entry.dataSource!.manager;
     const qb = manager.getRepository(entry.metadata.target).createQueryBuilder('nma_scope').whereInIds(ids);
     if (withDeleted) qb.withDeleted();
     this.applyScopes(qb, entry, operation, ctx);

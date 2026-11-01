@@ -448,8 +448,9 @@ export class AdminApiService {
     fields = fields.filter((field) => visible.has(field.name));
     const perms = await this.policy.recordPermissions(entry, entities, ctx);
     const titled = this.policy.titleVisible(entry, ctx);
-    const manager: EntityManager = ctx.manager ?? entry.dataSource.manager;
-    const loaded = fields.length > 0 ? await loadReferences(entry, entities, fields, { registry: this.registry, manager }) : undefined;
+    // A source has no relations or paths to load, and no DataSource to load them with.
+    const manager: EntityManager | undefined = ctx.manager ?? entry.dataSource?.manager;
+    const loaded = fields.length > 0 && manager ? await loadReferences(entry, entities, fields, { registry: this.registry, manager }) : undefined;
     const discriminator = entry.metadata.discriminatorColumn?.propertyName;
     const kindOf = (entity: object) =>
       entry.metadata.childEntityMetadatas.find((child) => child.target === entity.constructor)?.discriminatorValue ?? entry.metadata.discriminatorValue;
@@ -487,7 +488,7 @@ export class AdminApiService {
   }
 
   /** One transaction on the target's DataSource with `ctx.manager` set (see `WriteRunner.run`). */
-  private write<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminWriteContext) => Promise<T>): Promise<T> {
+  private write<T>(target: { dataSource?: DataSource }, ctx: AdminContext, work: (ctx: AdminWriteContext) => Promise<T>): Promise<T> {
     return this.writes.run(target, ctx, work);
   }
 
@@ -500,7 +501,8 @@ export class AdminApiService {
     const entry = this.registry.get(name);
     const { resource } = entry;
     // A read-only resource answers 403 (it refuses writes), not the 400 of a resource that cannot be created.
-    if (entry.schema.creatable || entry.schema.readonly) this.policy.require(entry, 'create', ctx);
+    // A source that does not create says so (403) too.
+    if (entry.schema.creatable || entry.schema.readonly || entry.source) this.policy.require(entry, 'create', ctx);
     else this.policy.requireReach(entry, ctx);
     const schema = this.view(entry, ctx).schema;
     if (!entry.schema.creatable) {
@@ -663,9 +665,10 @@ export class AdminApiService {
    */
   private async checkVersion(entry: RegisteredResource, id: RecordId, expected: number | undefined, ctx: AdminContext, withDeleted = false): Promise<void> {
     const version = entry.schema.version;
-    if (expected === undefined || !version) return;
-    const manager = ctx.manager ?? entry.dataSource.manager;
-    const lock = inAdminTransaction(ctx) && !SINGLE_CONNECTION_DRIVERS.has(entry.dataSource.options.type) ? ({ mode: 'pessimistic_write' } as const) : undefined;
+    const { dataSource } = entry;
+    if (expected === undefined || !version || !dataSource) return;
+    const manager = ctx.manager ?? dataSource.manager;
+    const lock = inAdminTransaction(ctx) && !SINGLE_CONNECTION_DRIVERS.has(dataSource.options.type) ? ({ mode: 'pessimistic_write' } as const) : undefined;
     const where = typeof id === 'object' ? id : { [entry.schema.primaryKeys[0]!]: id };
     const current = await manager.getRepository(entry.metadata.target).findOne({ where, withDeleted, ...(lock ? { lock } : {}) });
     if (!current) return; // the resource's own findOne answers 404
@@ -679,6 +682,7 @@ export class AdminApiService {
    */
   private async optionsQuery(entry: RegisteredResource, field: string, ctx: AdminContext, values: Record<string, unknown>): Promise<SelectQueryBuilder<any>> {
     const target = entry.relations.get(field)!.inverseEntityMetadata;
+    if (!entry.dataSource) throw new AdminNotFoundError(`${entry.schema.label} has no relation fields`);
     const manager = ctx.manager ?? entry.dataSource.manager;
     const qb = manager.getRepository(target.target).createQueryBuilder('option');
     // The target resource's query() restricts what may be picked, before this field's relationOptions().

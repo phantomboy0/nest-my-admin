@@ -95,7 +95,7 @@ export class InlineReader {
   /** This parent's children as the user may view them: the child's `query()`, the user's view scopes, the link. */
   private children(inline: RegisteredInline, value: unknown, ctx: AdminContext): SelectQueryBuilder<any> {
     const { child } = inline;
-    const manager = ctx.manager ?? child.dataSource.manager;
+    const manager = ctx.manager ?? child.dataSource!.manager; // a source has no relation, so it is never an inline child
     const qb = manager.getRepository(child.metadata.target).createQueryBuilder('nma_inline');
     return this.deps.policy.applyScopes(child.resource.query(qb, ctx), child, 'view', ctx).andWhere(`nma_inline.${inline.link} = :nmaInlineParent`, { nmaInlineParent: value });
   }
