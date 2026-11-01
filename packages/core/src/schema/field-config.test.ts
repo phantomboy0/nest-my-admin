@@ -61,6 +61,41 @@ describe('checkFieldConfig', () => {
   });
 });
 
+describe('default and fillFrom', () => {
+  test('defaults that fit the type pass and reach the schema', () => {
+    expect(check({ name: { default: 'main' }, price: { default: 9.5 }, active: { default: true }, status: { default: 'draft' } })).not.toThrow();
+    const out = applyFieldConfig(field('name', 'string'), { default: 'main' }, loc('en'));
+    expect(out.default).toBe('main');
+  });
+  test('a default must fit its field', () => {
+    expect(check({ name: { default: 3 } })).toThrow('fields.name.default: must be a string for a string field');
+    expect(check({ price: { default: 'cheap' } })).toThrow('fields.price.default: must be a number for a decimal field');
+    expect(check({ active: { default: 'yes' } })).toThrow('fields.active.default: must be true or false');
+    expect(check({ status: { default: 'gone' } })).toThrow('fields.status.default: must be one of draft, active');
+    expect(check({ gallery: { default: '[]' } })).toThrow('fields.gallery.default: json fields take no default');
+    expect(check({ name: { default: 'x', widget: 'password' } })).toThrow('the "password" widget takes no default');
+  });
+  test('date and datetime defaults', () => {
+    const dates = [field('day', 'date'), field('at', 'datetime')];
+    const run = (config: Record<string, object>) => () => checkFieldConfig(dates, new Map(Object.entries(config)), fail);
+    expect(run({ day: { default: '2026-01-31' }, at: { default: '2026-01-31T09:30:00Z' } })).not.toThrow();
+    expect(run({ day: { default: '31/01/2026' } })).toThrow('fields.day.default: must be a date');
+    expect(run({ at: { default: 'soon' } })).toThrow('fields.at.default: must be an ISO date and time');
+  });
+  test('fillFrom names real fields, fits text fields and never goes in a circle', () => {
+    expect(check({ slug: { fillFrom: '{name}.example.com' }, logo: { fillFrom: 'api.{slug}' } })).not.toThrow();
+    expect(applyFieldConfig(field('slug', 'string'), { fillFrom: '{name}.example.com' }, loc('en')).fillFrom).toBe('{name}.example.com');
+    expect(check({ slug: { fillFrom: '{nme}.example.com' } })).toThrow('fields.slug.fillFrom: unknown field "nme" (did you mean "name"?)');
+    expect(check({ slug: { fillFrom: 'example.com' } })).toThrow('fields.slug.fillFrom: name at least one field in braces');
+    expect(check({ slug: { fillFrom: '{slug}x' } })).toThrow('fields.slug.fillFrom: a field cannot fill itself from itself');
+    expect(check({ price: { fillFrom: '{name}' } })).toThrow('fields.price.fillFrom: only text fields fill themselves, got decimal');
+    expect(check({ slug: { fillFrom: '{gallery}' } })).toThrow('"gallery" is a json field');
+    expect(check({ slug: { fillFrom: '{name}', slugFrom: 'name' } })).toThrow('use either slugFrom or fillFrom');
+    expect(check({ slug: { fillFrom: '{name}', default: 'x' } })).toThrow('give it no default');
+    expect(check({ slug: { fillFrom: '{logo}' }, logo: { fillFrom: '{slug}' } })).toThrow('the fields fill each other in a circle (slug → logo → slug)');
+  });
+});
+
 describe('file fields', () => {
   test('file and image widgets fit string, text and json columns only', () => {
     expect(check({ logo: { widget: 'image', file: { accept: ['image/*'], maxBytes: 1000, visibility: 'public' } }, gallery: { widget: 'file', many: true } })).not.toThrow();

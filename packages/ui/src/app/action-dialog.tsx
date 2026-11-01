@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { OVERLAY_ANIMATED_CLASS } from '@/components/ui/overlay';
 import { Dialog } from 'radix-ui';
 import type { ActionSchema } from '@nest-my-admin/core/contract';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useT } from '@/i18n';
 import { actionQuestion } from '@/lib/actions';
 import { shownErrors } from '@/lib/form-errors';
+import { applyFills, noteTyped } from '@/lib/fill-from';
 import { toFormValues, toPayload, type FormValues } from '@/lib/form-values';
 import { isShown } from '@/lib/show-if';
 import { validatePayload } from '@/lib/validate';
@@ -37,7 +38,9 @@ interface ActionDialogProps {
 export function ActionDialog({ resource, action, count, subject, running, error, onRun, onClose }: ActionDialogProps) {
   const t = useT();
   const fields = action.input?.fields ?? [];
-  const [values, setValues] = useState<FormValues>(() => toFormValues(fields));
+  // A new form: each input starts at its `default`, and `fillFrom` inputs follow their template until typed in.
+  const typedFills = useRef(new Set<string>());
+  const [values, setValues] = useState<FormValues>(() => applyFills(fields, toFormValues(fields), typedFills.current));
   const [clientErrors, setClientErrors] = useState<Record<string, string[]>>({});
   // What the server said about the last run is shown until the next try, even one the checks here stop.
   const [superseded, setSuperseded] = useState(false);
@@ -62,7 +65,10 @@ export function ActionDialog({ resource, action, count, subject, running, error,
   function renderField(name: string): ReactNode | null {
     const field = shown.find((candidate) => candidate.name === name);
     if (!field || !action.input) return null;
-    const change = (value: FormValues[string]) => setValues((previous) => ({ ...previous, [name]: value }));
+    const change = (value: FormValues[string]) => {
+      noteTyped(fields, typedFills.current, name, value);
+      setValues((previous) => applyFills(fields, { ...previous, [name]: value }, typedFills.current));
+    };
     return field.type === 'object' ? (
       <ObjectInput resource={resource} field={field} path={name} pattern={name} value={values[name]} constraints={action.input.constraints} markRequired errors={fieldErrors} idPrefix="action" onChange={change} />
     ) : (

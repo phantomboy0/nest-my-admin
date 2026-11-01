@@ -29,7 +29,8 @@ export class ShipOrderDto {
 export class StaleDraftsDto {
   @AdminField({
     label: { en: 'Older than (days)', fa: 'قدیمی‌تر از (روز)' },
-    help: { en: '30 when left empty.', fa: 'اگر خالی بماند، ۳۰.' },
+    help: { en: 'Drafts nobody touched for this many days; 30 when left empty.', fa: 'پیش‌نویس‌هایی که این چند روز دست نخورده‌اند؛ اگر خالی بماند، ۳۰.' },
+    default: 30,
   })
   @IsOptional()
   @IsInt()

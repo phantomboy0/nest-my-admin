@@ -147,6 +147,7 @@ test('a resource action runs from the list toolbar with its form (M4-2)', async 
   await page.getByRole('button', { name: 'Cancel stale drafts' }).click();
   const dialog = page.getByRole('dialog', { name: 'Cancel stale drafts' });
   await expect(dialog).toContainText('Cancel every draft order older than this?');
+  await expect(dialog.getByLabel('Older than (days)')).toHaveValue('30'); // the field's `default`
   await dialog.getByLabel('Older than (days)').fill('400');
   await dialog.getByRole('button', { name: 'Cancel stale drafts' }).click();
   await expect(dialog.getByText('must be at most 365')).toBeVisible();

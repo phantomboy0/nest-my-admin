@@ -82,11 +82,11 @@ export function toDatetimeLocal(value: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** Record → the string/boolean values the inputs edit. */
+/** Record → the string/boolean values the inputs edit. Without a record (a new form) each field starts at its `default`. */
 export function toFormValues(fields: FieldSchema[], record?: AdminRecord): FormValues {
   const values: FormValues = {};
   for (const field of fields) {
-    const value = record?.[field.name];
+    const value = record ? record[field.name] : field.default;
     if (field.file) {
       // From `_files`, never from the stored keys: a copy of a record (Duplicate) has no `_files`, so it starts without files.
       const files = fileRefsOf(record, field.name).map(({ key, name, size, contentType, url }): FileValue => ({ key, name, size, contentType, url }));

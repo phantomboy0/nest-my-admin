@@ -196,12 +196,79 @@ export function checkFieldConfig(fields: FieldSchema[], config: Map<string, Fiel
     if (options.slugFrom !== undefined && !names.includes(options.slugFrom)) {
       fail(`fields.${name}.slugFrom: unknown field "${options.slugFrom}"${didYouMean(options.slugFrom, names)}`);
     }
+    if (options.default !== undefined) checkDefault(name, field!, options, fail);
+    if (options.fillFrom !== undefined) checkFillFrom(name, field!, options, fields, fail);
     if (options.enumLabels && field!.enumValues) {
       for (const value of Object.keys(options.enumLabels)) {
         if (!field!.enumValues.includes(value)) fail(`fields.${name}.enumLabels: "${value}" is not one of ${field!.enumValues.join(', ')}`);
       }
     }
   }
+  checkFillCycles(config, fail);
+}
+
+/** The names a `fillFrom` template reads: `{crm}.example.com` → `['crm']`. */
+export function fillFromNames(template: string): string[] {
+  return [...template.matchAll(/\{([^{}]*)\}/g)].map((match) => match[1]!);
+}
+
+const TEXT_TYPES: readonly FieldSchema['type'][] = ['string', 'text', 'uuid', 'other'];
+const NUMBER_TYPES: readonly FieldSchema['type'][] = ['number', 'bigint', 'decimal'];
+const NO_DEFAULT_WIDGETS: readonly WidgetName[] = ['password', 'file', 'image', 'richtext', 'json'];
+
+function checkDefault(name: string, field: FieldSchema, options: FieldConfig, fail: (message: string) => never): void {
+  const value = options.default;
+  const where = `fields.${name}.default`;
+  if (options.secret) fail(`${where}: a \`secret\` field cannot have a default`);
+  if (options.widget !== undefined && NO_DEFAULT_WIDGETS.includes(options.widget)) fail(`${where}: the "${options.widget}" widget takes no default`);
+  if (options.fillFrom !== undefined) fail(`${where}: a field with \`fillFrom\` fills itself; give it no default`);
+  const type = field.type;
+  if (TEXT_TYPES.includes(type)) {
+    if (typeof value !== 'string') fail(`${where}: must be a string for a ${type} field`);
+  } else if (type === 'enum') {
+    if (typeof value !== 'string' || !(field.enumValues ?? []).includes(value)) fail(`${where}: must be one of ${(field.enumValues ?? []).join(', ')}`);
+  } else if (NUMBER_TYPES.includes(type)) {
+    const ok = (typeof value === 'number' && Number.isFinite(value)) || (type !== 'number' && typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value));
+    if (!ok) fail(`${where}: must be a number for a ${type} field`);
+  } else if (type === 'boolean') {
+    if (typeof value !== 'boolean') fail(`${where}: must be true or false for a boolean field`);
+  } else if (type === 'date') {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value))) fail(`${where}: must be a date such as "2026-01-31"`);
+  } else if (type === 'datetime') {
+    if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) fail(`${where}: must be an ISO date and time such as "2026-01-31T09:30:00Z"`);
+  } else fail(`${where}: ${type} fields take no default`);
+}
+
+function checkFillFrom(name: string, field: FieldSchema, options: FieldConfig, fields: FieldSchema[], fail: (message: string) => never): void {
+  const where = `fields.${name}.fillFrom`;
+  const template = options.fillFrom!;
+  if (typeof template !== 'string') fail(`${where}: must be a template such as "{name}.example.com"`);
+  if (field.type !== 'string' && field.type !== 'text') fail(`${where}: only text fields fill themselves, got ${field.type}`);
+  if (options.slugFrom !== undefined) fail(`${where}: use either slugFrom or fillFrom`);
+  if (options.secret || options.widget === 'password') fail(`${where}: a secret or password field cannot fill itself`);
+  const used = fillFromNames(template);
+  if (used.length === 0) fail(`${where}: name at least one field in braces, such as "{name}.example.com"`);
+  const names = fields.map((candidate) => candidate.name);
+  for (const other of used) {
+    if (other === name) fail(`${where}: a field cannot fill itself from itself`);
+    const source = fields.find((candidate) => candidate.name === other);
+    if (!source) fail(`${where}: unknown field "${other}"${didYouMean(other, names)}`);
+    if (['object', 'relation', 'json'].includes(source!.type)) fail(`${where}: "${other}" is a ${source!.type} field; name text, number, enum or date fields`);
+  }
+}
+
+/** `fillFrom` chains must end: `a` from `{b}` and `b` from `{a}` would never settle. */
+function checkFillCycles(config: Map<string, FieldConfig>, fail: (message: string) => never): void {
+  const reads = new Map([...config].filter(([, options]) => typeof options.fillFrom === 'string').map(([name, options]) => [name, fillFromNames(options.fillFrom!)]));
+  const state = new Map<string, 'open' | 'done'>();
+  const visit = (name: string, path: string[]): void => {
+    if (state.get(name) === 'done' || !reads.has(name)) return;
+    if (state.get(name) === 'open') fail(`fields.${name}.fillFrom: the fields fill each other in a circle (${[...path, name].join(' → ')})`);
+    state.set(name, 'open');
+    for (const next of reads.get(name)!) visit(next, [...path, name]);
+    state.set(name, 'done');
+  };
+  for (const name of reads.keys()) visit(name, []);
 }
 
 function checkFileOptions(name: string, field: FieldSchema, options: FieldConfig, fail: (message: string) => never): void {
@@ -251,6 +318,8 @@ export function applyFieldConfig(field: FieldSchema, options: FieldConfig | unde
   if (options.colors) out.colors = { ...options.colors };
   if (options.showIf) out.showIf = { ...options.showIf };
   if (options.slugFrom !== undefined) out.slugFrom = options.slugFrom;
+  if (options.default !== undefined) out.default = options.default;
+  if (options.fillFrom !== undefined) out.fillFrom = options.fillFrom;
   if (options.warnIf !== undefined) out.warnIf = { empty: true, message: text(options.warnIf.message, 'warnIf.message') };
   if (options.widget === 'stepper') {
     const exclude = options.exclude ?? [];

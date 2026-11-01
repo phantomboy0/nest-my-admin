@@ -59,6 +59,18 @@ export interface AdminFieldOptions {
   warnIf?: { empty: true; message: LocalizedText };
   /** The `slug` widget fills itself from this field until someone edits it. */
   slugFrom?: string;
+  /**
+   * The value a new form starts with: an action's input form or a resource's create form (not a duplicate; settings
+   * pages show what is stored). A string for text, enum, date (`YYYY-MM-DD`) and datetime (ISO) fields, a
+   * number for number fields, `true`/`false` for booleans. The value is only a starting point: the DTO still validates it.
+   */
+  default?: string | number | boolean;
+  /**
+   * A text field fills itself from other fields of the same form until someone types in it: `'{crm}.example.com'`,
+   * `'api.{domain}'` (chains are fine). While a field it names is empty the value is empty too. Clearing the input
+   * makes it follow again; a field that already holds a value (a stored record) starts as typed.
+   */
+  fillFrom?: string;
   /** The unit shown with the `money` widget (display only): a code such as `USD`, or a unit and its position. Wins over the global `currency`. */
   currency?: string | AdminCurrency;
   /** `file` and `image` widgets: type, size and visibility limits; `richtext`: `maxBytes` and `visibility` of editor images. */
