@@ -40,7 +40,7 @@ const page = (name: string, options: Record<string, unknown> = {}) => {
   return GroupTestPage;
 };
 
-const resource = (entity: Function, options: Record<string, unknown> = {}) => {
+const resource = (entity: new () => object, options: Record<string, unknown> = {}) => {
   @AdminResource(entity, options as never)
   class GroupTestAdmin extends AdminResourceBase<object> {}
   return GroupTestAdmin;

@@ -7,6 +7,7 @@ import type { AdminRecord, ExplainRoleSource, FieldSchema, FormLayoutInline, For
 import { recordIdOf } from '../crud/record-id.js';
 import type { RegisteredAction } from '../decorators/admin-action.js';
 import { getCanRules, getScopes, type RecordOperation, type ScopeCondition } from '../decorators/admin-scope.js';
+import { checkBoolean, checkStringList, describeValue, HostContractError, isPlainObject, isThenable } from '../host-contract.js';
 import type { AdminResourceDefinition } from '../decorators/admin-resource.js';
 import { AdminForbiddenError, AdminForbiddenFieldsError, AdminNotFoundError } from '../errors.js';
 import type { AdminUser } from '../auth/auth-adapter.js';
@@ -79,15 +80,19 @@ export class AdminPolicy implements OnApplicationBootstrap {
   async forUser(user: AdminUser | undefined): Promise<EffectivePermissions> {
     if (!user || user.isSuperuser) return user ? OPEN : new EffectivePermissions([], false);
     let names: string[] = [];
+    let fromOptions: unknown;
+    let fromAdapter: unknown;
     try {
-      const fromOptions = (await this.options.resolveRoles?.(user)) ?? [];
-      const fromAdapter = (await this.auth.adapter?.resolveRoles?.(user)) ?? [];
-      const stored = await this.rbac.assignedRoleNames(String(user.id));
-      names = [...fromOptions, ...fromAdapter, ...stored];
+      fromOptions = await this.options.resolveRoles?.(user);
+      fromAdapter = await this.auth.adapter?.resolveRoles?.(user);
+      names = await this.rbac.assignedRoleNames(String(user.id));
     } catch (error) {
       this.warnOnce(`resolveRoles threw for user ${String(user.id)} (${error instanceof Error ? error.message : String(error)}); the user gets no roles`);
       names = [];
+      fromOptions = fromAdapter = undefined;
     }
+    // Outside the try: a wrong answer is the host's bug, not a failed lookup («no roles» would hide it).
+    names = [...checkStringList(fromOptions, 'the resolveRoles option'), ...checkStringList(fromAdapter, 'the auth adapter\'s resolveRoles()'), ...names];
     const roles: RoleDefinition[] = [];
     let known: Map<string, RoleDefinition>;
     try {
@@ -457,22 +462,30 @@ export class AdminPolicy implements OnApplicationBootstrap {
 
   private globalScopes(entry: RegisteredResource, perms: EffectivePermissions): GlobalScope[] {
     return this.options.globalScopes.filter(
-      (scope) => !(scope.exemptSuperusers && perms.superuser) && (scope.appliesTo ? scope.appliesTo({ name: entry.schema.name, entity: entry.entity, metadata: entry.metadata }) : true),
+      (scope) => !(scope.exemptSuperusers && perms.superuser) && (scope.appliesTo ? checkBoolean(scope.appliesTo({ name: entry.schema.name, entity: entry.entity, metadata: entry.metadata }), `global scope "${scope.name}" appliesTo()`) : true),
     );
   }
 
   private callScope(entry: RegisteredResource, name: string, ctx: AdminContext): ScopeCondition {
     const key = getScopes(entry.resource.constructor)[name]!;
-    return (entry.resource as unknown as Record<string | symbol, (ctx: AdminContext) => ScopeCondition>)[key]!.call(entry.resource, ctx);
+    const condition: unknown = (entry.resource as unknown as Record<string | symbol, (ctx: AdminContext) => ScopeCondition>)[key]!.call(entry.resource, ctx);
+    // An `async` scope would be read as an empty column map, «no restriction»: refuse it.
+    if (isThenable(condition) || !(typeof condition === 'function' || isPlainObject(condition))) {
+      throw new HostContractError(`${entry.className}.${String(key)} (@AdminScope("${name}")) returned ${describeValue(condition)}; a scope answers at once with a column map or a function (it cannot be async)`);
+    }
+    return condition as ScopeCondition;
   }
 
   /** A scope's result as SQL: a column map (array = IN, null = IS NULL, undefined = no rows) or a callback. */
   private condition(where: WhereExpressionBuilder, alias: string, entry: RegisteredResource, condition: ScopeCondition, what: string): void {
     if (typeof condition === 'function') {
-      condition(where, alias);
+      // Conditions added after the query ran would restrict nothing: the callback cannot be async either.
+      const added: unknown = condition(where, alias);
+      if (isThenable(added)) throw new HostContractError(`${entry.className}: the callback of ${what} returned a Promise; it adds its conditions at once (it cannot be async)`);
       return;
     }
-    if (typeof condition !== 'object' || condition === null) throw new Error(`${entry.className}: ${what} must return a column map or a function`);
+    // An `async` scope gives a Promise, which would read as an empty column map: «no restriction».
+    if (!isPlainObject(condition)) throw new HostContractError(`${entry.className}: ${what} returned ${describeValue(condition)}; it must answer at once with a column map or a function (it cannot be async)`);
     const entries = Object.entries(condition);
     if (entries.length === 0) {
       where.where('1 = 1');
@@ -513,12 +526,16 @@ export class AdminPolicy implements OnApplicationBootstrap {
   recordRule(entry: RegisteredResource, operation: RecordOperation | (string & {}), entity: object, ctx: AdminContext): boolean {
     const methods = entry.resource as unknown as Record<string | symbol, (record: object, ctx: AdminContext) => unknown>;
     for (const key of getCanRules(entry.resource.constructor, operation)) {
+      let answer: unknown;
       try {
-        if (methods[key]!.call(entry.resource, entity, ctx) !== true) return false;
+        answer = methods[key]!.call(entry.resource, entity, ctx);
       } catch (error) {
         this.warnOnce(`${entry.className}.${String(key)} (@AdminCan("${operation}")) threw: ${error instanceof Error ? error.message : String(error)}; the answer is no`);
         return false;
       }
+      // An `async` rule (a Promise) or a forgotten return (undefined) would quietly mean «no» everywhere.
+      if (typeof answer !== 'boolean') throw new HostContractError(`${entry.className}.${String(key)} (@AdminCan("${operation}")) returned ${describeValue(answer)}; a rule answers at once with true or false (it cannot be async)`);
+      if (!answer) return false;
     }
     return true;
   }

@@ -10,6 +10,7 @@ import { Logger } from '@nestjs/common';
 import type { AdminStorage } from './files/storage.js';
 import { checkCurrency, type AdminCurrency } from './schema/currency.js';
 import { DEFAULT_MAX_FILE_BYTES, MAX_FILE_BYTES } from './schema/field-config.js';
+import { describeValue, HostContractError } from './host-contract.js';
 
 export type { AdminCurrency } from './schema/currency.js';
 
@@ -306,7 +307,27 @@ function checkFiles(files: AdminFilesOptions | undefined): ResolvedAdminOptions[
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('nest-my-admin: files.maxBytes must be a positive number of bytes');
   if (maxBytes > MAX_FILE_BYTES) throw new Error(`nest-my-admin: files.maxBytes must be at most ${MAX_FILE_BYTES} bytes (2 GiB - 1)`);
   if (files.sanitizeHtml !== undefined && typeof files.sanitizeHtml !== 'function') throw new Error('nest-my-admin: files.sanitizeHtml must be a function');
-  return { ...files, maxBytes };
+  return { ...files, maxBytes, storage: checkedStorage(files.storage) };
+}
+
+/** The host's storage, with its answers checked where a wrong one would pass unnoticed (an async publicUrl). */
+function checkedStorage(storage: AdminStorage): AdminStorage {
+  const checked = Object.create(storage) as AdminStorage;
+  checked.publicUrl = (key) => {
+    const url: unknown = storage.publicUrl(key);
+    if (url === undefined || typeof url === 'string') return url;
+    throw new HostContractError(`files.storage.publicUrl() must return a URL or undefined at once, but it returned ${describeValue(url)}`);
+  };
+  checked.get = async (key) => {
+    const object: unknown = await storage.get(key);
+    if (object === null || object === undefined) return null;
+    const found = object as { body?: { pipe?: unknown }; contentType?: unknown; size?: unknown };
+    if (typeof found !== 'object' || typeof found.body?.pipe !== 'function' || typeof found.contentType !== 'string' || typeof found.size !== 'number') {
+      throw new HostContractError(`files.storage.get() must return { body: Readable, contentType, size } or null, but it returned ${describeValue(object)}`);
+    }
+    return object as Awaited<ReturnType<AdminStorage['get']>>;
+  };
+  return checked;
 }
 
 function checkAudit(audit: AdminAuditOptions | undefined): AdminAuditOptions | undefined {

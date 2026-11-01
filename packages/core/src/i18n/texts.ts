@@ -1,4 +1,5 @@
 import { resolveText, type LocalizedText } from './localized-text.js';
+import { describeValue, HostContractError } from '../host-contract.js';
 
 /**
  * Resolves a host text for a request (the `translate` option). `key` names the text when it has a stable identity
@@ -16,9 +17,9 @@ export function createTexts(options: { translate?: AdminTranslate; locale: strin
   if (!translate) return (text, locale) => resolveText(text, locale, defaultLocale);
   const warned = new Set<string>();
   return (text, locale, key) => {
+    let answer: unknown;
     try {
-      const answer = translate(key === undefined ? { text, locale } : { key, text, locale });
-      if (typeof answer === 'string' && answer !== '') return answer;
+      answer = translate(key === undefined ? { text, locale } : { key, text, locale });
     } catch (error) {
       // Keyless texts are often built from data (action messages): one warning for all of them keeps this set small.
       const name = key ?? '(texts without a key)';
@@ -26,6 +27,11 @@ export function createTexts(options: { translate?: AdminTranslate; locale: strin
         warned.add(name);
         logger.warn(`translate threw for "${name}" (${error instanceof Error ? error.message : String(error)}); the declared text is shown`);
       }
+      return resolveText(text, locale, defaultLocale);
+    }
+    if (typeof answer === 'string' && answer !== '') return answer;
+    if (answer !== undefined && answer !== '') {
+      throw new HostContractError(`translate must return a string or undefined at once, but it returned ${describeValue(answer)} for "${key ?? resolveText(text, locale, defaultLocale)}"`);
     }
     return resolveText(text, locale, defaultLocale);
   };

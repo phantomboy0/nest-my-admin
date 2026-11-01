@@ -14,6 +14,7 @@ import type { AdminContext } from '../resource/admin-context.js';
 import type { AdminRbac, RbacManager } from './rbac.service.js';
 import type { AdminAudit } from '../audit/audit.service.js';
 import { diffPlain, type AuditChange } from '../audit/diff.js';
+import { checkFoundRecord } from '../host-contract.js';
 
 interface State {
   req: AdminRequest;
@@ -79,7 +80,7 @@ export function addRbacRoutes<S extends State>(
   });
   const findUser = async (id: string): Promise<AdminUserRecord> => {
     const adapter = auth.adapter;
-    const user = adapter?.getUser ? await adapter.getUser(id) : (await rbac.knownUserIds()).includes(id) ? { id, displayName: id, isSuperuser: false } : null;
+    const user = adapter?.getUser ? checkFoundRecord(await adapter.getUser(id), "the auth adapter's getUser()") : (await rbac.knownUserIds()).includes(id) ? { id, displayName: id, isSuperuser: false } : null;
     if (!user) throw new AdminNotFoundError(`User "${id}" not found`);
     return user;
   };

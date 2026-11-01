@@ -11,6 +11,9 @@ import type { LocalizedText } from '../i18n/localized-text.js';
 import type { FieldsConfig, LayoutConfig } from '../schema/field-config.js';
 import type { FieldPath } from '../schema/field-paths.js';
 import { getHooks, type HookKind } from '../decorators/hooks.js';
+import { checkQueryBuilder, describeValue, HostContractError, isThenable } from '../host-contract.js';
+
+const HOOK_NAMES: Record<HookKind, string> = { beforeSave: 'BeforeSave', afterSave: 'AfterSave', beforeDelete: 'BeforeDelete' };
 import { AdminContext } from './admin-context.js';
 
 /** A record's key: the value for single-key entities, `{ key: value, … }` for composite primary keys. */
@@ -240,7 +243,7 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral,
 
   /** `query()` and then the signed-in user's row scopes: what every read of this resource starts from. */
   private restrict(qb: SelectQueryBuilder<T>, ctx: AdminContext | undefined): SelectQueryBuilder<T> {
-    const restricted = this.query(qb, ctx as AdminContext);
+    const restricted = checkQueryBuilder(this.query(qb, ctx as AdminContext), `${this.constructor.name}.query()`);
     return this.#scoper ? this.#scoper(restricted, ctx) : restricted;
   }
 
@@ -290,7 +293,13 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral,
     const qb = this.restrict(repository.createQueryBuilder(alias), context);
     const sorter = this.#computedSort;
     // The tab's own restriction (a tab with `where`); its filters arrive as normal filter params.
-    if (params.tab) this.list?.tabs?.find((tab) => tab.key === params.tab)?.where?.(qb, context as AdminContext);
+    if (params.tab) {
+      const tab = this.list?.tabs?.find((candidate) => candidate.key === params.tab);
+      const added: unknown = tab?.where?.(qb, context as AdminContext);
+      if (added !== undefined && (isThenable(added) || added !== qb)) {
+        throw new HostContractError(`${this.constructor.name} list tab "${tab!.key}": where(qb, ctx) adds its conditions to qb at once and returns nothing, but it returned ${describeValue(added)}`);
+      }
+    }
     return applyListParams(qb, params, repository.metadata, sorter && ((query, field) => sorter(query, field, context)));
   }
 
@@ -423,6 +432,11 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral,
   /** Runs @BeforeSave/@AfterSave/@BeforeDelete methods in declaration order (parent class first). */
   protected async runHooks(kind: HookKind, ...args: unknown[]): Promise<void> {
     const methods = this as unknown as Record<string | symbol, (...hookArgs: unknown[]) => unknown>;
-    for (const key of getHooks(this.constructor, kind)) await methods[key]!.apply(this, args);
+    for (const key of getHooks(this.constructor, kind)) {
+      const returned = await methods[key]!.apply(this, args);
+      if (returned !== undefined) {
+        throw new HostContractError(`${this.constructor.name}.${String(key)}: a @${HOOK_NAMES[kind]} hook returns nothing, but it returned ${describeValue(returned)}`);
+      }
+    }
   }
 }

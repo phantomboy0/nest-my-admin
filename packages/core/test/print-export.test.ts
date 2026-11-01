@@ -176,7 +176,7 @@ describe(`printing records (${TEST_DB})`, () => {
   test('boot checks', () => {
     class Admin extends AdminResourceBase<Invoice> {
       @AdminPrint() markPaid() {
-        return '';
+        return html``;
       }
     }
     expect(() => resolvePrints(Admin, ['markPaid'], (message) => {

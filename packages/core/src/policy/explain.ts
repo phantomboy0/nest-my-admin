@@ -8,6 +8,7 @@ import { EffectivePermissions, type FieldLevel } from './effective.js';
 import { RESOURCE_OPERATIONS, actionCode, codeMatches, pageCode, type RoleDefinition, type ScopedOperation } from './roles.js';
 import type { AdminPolicy } from './admin-policy.service.js';
 import { bootText } from '../i18n/texts.js';
+import { checkFoundRecord } from '../host-contract.js';
 
 const SCOPED: ScopedOperation[] = ['view', 'update', 'delete'];
 
@@ -129,7 +130,7 @@ async function explainRecord(policy: AdminPolicy, entry: RegisteredResource, raw
   }
   const keys = entry.schema.primaryKeys;
   // A source's row exists when its own findOne finds it.
-  const stored = entry.dataSource ? await entry.dataSource.manager.getRepository(entry.metadata.target).createQueryBuilder('nma_explain').whereInIds([id]).getOne() : await entry.resource.findOne(id, ctx);
+  const stored = entry.dataSource ? await entry.dataSource.manager.getRepository(entry.metadata.target).createQueryBuilder('nma_explain').whereInIds([id]).getOne() : checkFoundRecord(await entry.resource.findOne(id, ctx), `${entry.resource.constructor.name}.findOne()`);
   const exists = stored !== null;
   const key = recordIdOf(typeof id === 'object' ? id : { [keys[0]!]: id }, keys);
   const inScope = async (operation: ScopedOperation) => (await policy.allowedIds(entry, [id], operation, ctx)).has(key);
@@ -139,7 +140,7 @@ async function explainRecord(policy: AdminPolicy, entry: RegisteredResource, raw
   if (!exists) reasons.view = 'missing';
   else if (!perms.canOn(r, 'view')) reasons.view = 'permission';
   else {
-    found = await entry.resource.findOne(id, ctx);
+    found = checkFoundRecord(await entry.resource.findOne(id, ctx), `${entry.resource.constructor.name}.findOne()`);
     view = found !== null && (await inScope('view'));
     if (!view) reasons.view = 'scope';
   }

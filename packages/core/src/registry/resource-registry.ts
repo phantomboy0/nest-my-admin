@@ -357,9 +357,14 @@ export class ResourceRegistry implements OnModuleInit {
     const computed = checkComputed(resource.list?.computed as Record<string, ComputedColumn> | undefined, metadata, (name) => schema.fields.find((field) => field.name === name)?.enumValues, (message) => {
       throw new Error(`${className}: ${message}`);
     });
-    const actions = resolveActions(resource.constructor, BASE_MEMBERS, (message) => {
-      throw new Error(`${className}: ${message}`);
-    });
+    const actions = resolveActions(
+      resource.constructor,
+      BASE_MEMBERS,
+      (message) => {
+        throw new Error(`${className}: ${message}`);
+      },
+      definition.entity as Function,
+    );
     // Action inputs picked like one of the resource's relation fields (`@AdminField({ pickFrom })`).
     for (const action of actions.values()) {
       if (!action.form) continue;

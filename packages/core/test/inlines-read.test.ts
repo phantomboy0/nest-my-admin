@@ -550,14 +550,14 @@ class PairItemAdmin extends AdminResourceBase<PairItem> {}
 class FarLineAdmin extends AdminResourceBase<OrderLine> {}
 
 /** A parent resource of `entity` whose layout holds `node`. */
-function parentWith(entity: Function, node: LayoutInlineConfig): Provider {
+function parentWith(entity: new () => object, node: LayoutInlineConfig): Provider {
   @AdminResource(entity, { name: 'bad-parent' })
   class BadParentAdmin extends AdminResourceBase {
     override form: FormConfig = { layout: [node] };
   }
   return BadParentAdmin;
 }
-const boot = (entity: Function, node: LayoutInlineConfig, providers: Provider[]) =>
+const boot = (entity: new () => object, node: LayoutInlineConfig, providers: Provider[]) =>
   createTestApp({ entities: [Product, Shirt, Order, OrderLine, Lonely, Sticker, LineNote, Pair, PairItem], providers: [...providers, parentWith(entity, node)] });
 
 describe(`boot errors (${TEST_DB})`, () => {

@@ -17,6 +17,7 @@ import { AUDIT_FILTERS, parseAuditQuery } from './audit-query.js';
 import { AdminAudit } from './audit.service.js';
 import type { AuditChange } from './diff.js';
 import { NmaAuditEntry } from './entities.js';
+import { checkQueryBuilder, checkFoundRecord } from '../host-contract.js';
 
 /** Entries per page. */
 export const AUDIT_PAGE_SIZE = 50;
@@ -308,7 +309,7 @@ export class AuditReader {
     if (narrowed && entry.dataSource) {
       const qb = entry.dataSource.getRepository(entry.metadata.target).createQueryBuilder('entity').withDeleted();
       // The ids go on last: a `query()` that starts its own `where()` must not leave the select unbounded.
-      const restricted = this.policy.applyScopes(entry.resource.query(qb, ctx), entry, 'view', ctx).andWhereInIds([...ids.values()]);
+      const restricted = this.policy.applyScopes(checkQueryBuilder(entry.resource.query(qb, ctx), `${entry.className}.query()`), entry, 'view', ctx).andWhereInIds([...ids.values()]);
       const found = await restricted.select(keys.map((key) => `${restricted.alias}.${key}`)).getMany();
       const within = new Set(found.map((row) => recordIdOf(row as object, keys)));
       seen = new Set([...seen].filter((raw) => within.has(raw)));
@@ -319,7 +320,7 @@ export class AuditReader {
       for (const raw of [...seen]) {
         let found: unknown;
         try {
-          found = await entry.resource.findOne(ids.get(raw)!, ctx, { withDeleted: true });
+          found = checkFoundRecord(await entry.resource.findOne(ids.get(raw)!, ctx, { withDeleted: true }), `${entry.resource.constructor.name}.findOne()`);
         } catch {
           found = null;
         }

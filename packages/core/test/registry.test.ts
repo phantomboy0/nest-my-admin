@@ -46,7 +46,8 @@ describe('ResourceRegistry', () => {
   });
 
   test('rejects @AdminResource classes that do not extend AdminResourceBase', async () => {
-    @AdminResource(Widget, { name: 'plain' })
+    // The types refuse it too; the cast stands for plain JavaScript.
+    @(AdminResource(Widget, { name: 'plain' }) as (target: Function) => void)
     class PlainAdmin {}
     @Module({ providers: [PlainAdmin] })
     class PlainModule {}

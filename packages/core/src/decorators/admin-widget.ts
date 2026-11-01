@@ -4,6 +4,7 @@ import { ADMIN_WIDGET_METADATA } from '../constants.js';
 import type { WidgetData, WidgetParams, WidgetType } from '../contract.js';
 import type { LocalizedText } from '../i18n/localized-text.js';
 import type { AdminContext } from '../resource/admin-context.js';
+import type { TypedClassDecorator } from './typed.js';
 
 export interface AdminWidgetOptions {
   type: WidgetType;
@@ -29,7 +30,7 @@ export interface AdminWidgetDefinition extends AdminWidgetOptions {
 }
 
 /** A dashboard widget: a provider whose `load` answers its data. The dashboard replaces the home page once one exists. */
-export function AdminWidget(name: string, options: AdminWidgetOptions): ClassDecorator {
+export function AdminWidget(name: string, options: AdminWidgetOptions): TypedClassDecorator<AdminWidgetSource> {
   return (target) => {
     Reflect.defineMetadata(ADMIN_WIDGET_METADATA, { ...options, name } satisfies AdminWidgetDefinition, target);
     Injectable()(target);

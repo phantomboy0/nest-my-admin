@@ -6,6 +6,8 @@ import type { ComputedColumn, ComputedSource } from '../resource/admin-resource-
 import { resolvePath } from '../schema/relation-fields.js';
 import { recordIdOf } from './record-id.js';
 import { serializeValue } from './serialize.js';
+import { describeValue, HostContractError, isPlainObject } from '../host-contract.js';
+import { TONES } from '../dashboard/widget-data.js';
 
 type RelationMeta = EntityMetadata['relations'][number];
 
@@ -223,7 +225,8 @@ export async function loadComputed(
         for (const row of rows) byRow.set(recordIdOf(row, keys), row[source.field] === source.on);
         return byRow;
       case 'compute': {
-        const values = await source.fn(rows, ctx);
+        const values: unknown = await source.fn(rows, ctx);
+        if (!isPlainObject(values)) throw new HostContractError(`list.computed: compute()${source.fn.name && source.fn.name !== 'compute' ? ` (${source.fn.name})` : ''} returned ${describeValue(values)}; it answers an object of values by record id ({ [id]: value })`);
         for (const row of rows) byRow.set(recordIdOf(row, keys), values[recordIdOf(row, keys)] ?? null);
         return byRow;
       }
@@ -239,9 +242,12 @@ export async function loadComputed(
       if (subline) cell.subline = subline.get(id) ?? null;
       if (previous) cell.previous = previous.get(id) ?? null;
       if (compiled.column.map) {
-        const mapped = compiled.column.map(value, row);
-        cell.label = text(mapped.label);
-        cell.tone = mapped.tone;
+        const mapped: unknown = compiled.column.map(value, row);
+        const where = `list.computed.${compiled.key}.map()`;
+        if (!isPlainObject(mapped)) throw new HostContractError(`${where} returned ${describeValue(mapped)}; it answers { label, tone }`);
+        if (mapped.tone !== undefined && !TONES.includes(mapped.tone as never)) throw new HostContractError(`${where} returned the tone ${describeValue(mapped.tone)}; a tone is one of ${TONES.join(', ')}`);
+        cell.label = text(mapped.label as LocalizedText);
+        cell.tone = mapped.tone as ComputedValue['tone'];
       }
       out.get(id)![compiled.key] = cell;
     }

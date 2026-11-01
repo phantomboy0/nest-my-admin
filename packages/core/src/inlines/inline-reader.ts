@@ -1,3 +1,4 @@
+import { checkFindMany, checkQueryBuilder } from '../host-contract.js';
 import type { SelectQueryBuilder } from 'typeorm';
 import type { AdminRecord, InlineRows } from '../contract.js';
 import { recordIdOf } from '../crud/record-id.js';
@@ -54,7 +55,7 @@ export class InlineReader {
       count: 'none',
       pagination: 'offset',
     };
-    const found = await child.resource.findMany(params, ctx);
+    const found = checkFindMany(await child.resource.findMany(params, ctx), child.className);
     if (child.resource.findMany !== AdminResourceBase.prototype.findMany) return this.overridden(inline, value, found, ctx);
     const truncated = found.hasMore === true || found.items.length > inline.max;
     const items = found.items.slice(0, inline.max);
@@ -97,6 +98,6 @@ export class InlineReader {
     const { child } = inline;
     const manager = ctx.manager ?? child.dataSource!.manager; // a source has no relation, so it is never an inline child
     const qb = manager.getRepository(child.metadata.target).createQueryBuilder('nma_inline');
-    return this.deps.policy.applyScopes(child.resource.query(qb, ctx), child, 'view', ctx).andWhere(`nma_inline.${inline.link} = :nmaInlineParent`, { nmaInlineParent: value });
+    return this.deps.policy.applyScopes(checkQueryBuilder(child.resource.query(qb, ctx), `${child.className}.query()`), child, 'view', ctx).andWhere(`nma_inline.${inline.link} = :nmaInlineParent`, { nmaInlineParent: value });
   }
 }

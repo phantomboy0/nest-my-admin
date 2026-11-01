@@ -70,3 +70,16 @@ describe('files', () => {
     expect(() => resolveAdminOptions({ files: { storage, maxBytes: 0 } })).toThrow('files.maxBytes must be a positive number of bytes');
   });
 });
+
+describe('files.storage answers', () => {
+  const storage = (overrides: object) => ({ put: async () => {}, get: async () => null, delete: async () => {}, publicUrl: () => undefined, ...overrides });
+  test('an async publicUrl or a get() of another shape is a contract error', async () => {
+    const asyncUrl = resolveAdminOptions({ files: { storage: storage({ publicUrl: async () => 'https://cdn/x' }) as never } }).files!.storage;
+    expect(() => asyncUrl.publicUrl('x')).toThrow('nest-my-admin: files.storage.publicUrl() must return a URL or undefined at once');
+    const badGet = resolveAdminOptions({ files: { storage: storage({ get: async () => Buffer.from('x') }) as never } }).files!.storage;
+    await expect(badGet.get('x')).rejects.toThrow('nest-my-admin: files.storage.get() must return { body: Readable, contentType, size } or null');
+    const fine = resolveAdminOptions({ files: { storage: storage({ publicUrl: (key: string) => `https://cdn/${key}` }) as never } }).files!.storage;
+    expect(fine.publicUrl('x')).toBe('https://cdn/x');
+    expect(await fine.get('x')).toBeNull();
+  });
+});

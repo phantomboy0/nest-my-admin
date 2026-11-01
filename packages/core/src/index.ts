@@ -27,7 +27,8 @@ export type { FieldConfig, FieldsConfig, LayoutConfig, LayoutInlineConfig, Layou
 export type { RegisteredInline } from './inlines/inline-config.js';
 export { AdminContext, type AdminWriteContext } from './resource/admin-context.js';
 export { AdminCan, AdminScope, type RecordOperation, type ScopeCondition } from './decorators/admin-scope.js';
-export { AdminAction, type ActionOutcome, type AdminActionOptions } from './decorators/admin-action.js';
+export { AdminAction, type ActionOutcome, type ActionReturn, type AdminActionOptions } from './decorators/admin-action.js';
+export type { Awaitable, RowOf, TypedClassDecorator, TypedMethodDecorator } from './decorators/typed.js';
 export { AdminPrint, type AdminPrintOptions } from './decorators/admin-print.js';
 export { html, raw, escapeHtml, HtmlString } from './print/html.js';
 export { AdminSettingsPage, type AdminSettingsPageOptions, type AdminSettingsSource } from './decorators/admin-settings-page.js';

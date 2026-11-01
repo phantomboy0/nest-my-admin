@@ -28,7 +28,7 @@ import { OrderStatusLogAdmin } from './order-status-log.admin.js';
  * API answers 403), and an exception thrown by the method is shown to the user as the reason.
  */
 /** Applies a decorator only in the configured demo (not with `NMA_DEMO_PLAIN=1`). */
-const onlyOwner = (decorator: MethodDecorator): MethodDecorator => (process.env.NMA_DEMO_PLAIN === '1' ? () => undefined : decorator);
+const onlyOwner = <D extends (...args: any[]) => void>(decorator: D): D => (process.env.NMA_DEMO_PLAIN === '1' ? ((() => undefined) as unknown as D) : decorator);
 
 const plainDemo = process.env.NMA_DEMO_PLAIN === '1';
 

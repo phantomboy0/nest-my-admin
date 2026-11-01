@@ -14,6 +14,7 @@ import type { RecordId } from '../resource/admin-resource-base.js';
 import { MAX_INLINE_ROWS } from '../schema/field-config.js';
 import type { WriteChange } from '../api/write-participant.js';
 import type { RegisteredInline } from './inline-config.js';
+import { checkQueryBuilder, checkFoundRecord } from '../host-contract.js';
 
 /** What the writer needs of `AdminApiService` (its write participants, checks and serializer). */
 export interface InlineWriterDeps {
@@ -222,7 +223,7 @@ export class InlineWriter {
     const children = (): SelectQueryBuilder<any> => {
       const manager = tx.manager ?? child.dataSource!.manager; // a source has no relation, so it is never an inline child
       const qb = manager.getRepository(child.metadata.target).createQueryBuilder('nma_child');
-      const restricted = policy.applyScopes(child.resource.query(qb, tx), child, 'view', tx);
+      const restricted = policy.applyScopes(checkQueryBuilder(child.resource.query(qb, tx), `${child.className}.query()`), child, 'view', tx);
       return restricted.andWhere(`nma_child.${inline.link} = :nmaInlineParent`, { nmaInlineParent: linkValue });
     };
 
@@ -277,7 +278,7 @@ export class InlineWriter {
       // Then each row as the child's own PATCH and DELETE read it: its findOne (an override may refuse a row or load
       // more). That entity is what @AdminCan, readonlyIf, relationOptions() values and the participants see.
       for (const [canonical, entry] of named) {
-        const entity = await child.resource.findOne(entry.id, tx);
+        const entity = checkFoundRecord(await child.resource.findOne(entry.id, tx), `${child.resource.constructor.name}.findOne()`);
         if (!entity) throw notFound(entry.raw);
         rows.set(canonical, entity);
       }
