@@ -104,12 +104,25 @@ export interface UiPageOptions {
   title?: LocalizedText;
 }
 
+/** Pictures uploaded in the admin (`appearance`), read on every page load: they win over `branding.logo`. */
+export type UiPictures = () => { logo: string | null; favicon: string | null };
+
+/** A `<link rel="icon">` in `<head>` (replacing the build's own, if any). */
+export function withFavicon(html: string, href: string): string {
+  const link = `<link rel="icon" href="${escapeAttribute(href)}">`;
+  const withoutOwn = html.replace(/<link\b[^>]*\brel\s*=\s*["']?(?:shortcut )?icon["']?[^>]*>/gi, '');
+  return withoutOwn.replace(/<\/head\s*>/i, (close) => link + close);
+}
+
 export class UiAssets {
   private readonly root: string;
   /** index.html as served: in the admin's default locale, with `<base href>` and the runtime config. */
-  private readonly indexHtml: string;
+  private indexHtml: string;
+  /** The page before the runtime config, and the pictures the cached `indexHtml` was made with. */
+  private readonly localized: string;
+  private madeFor = '';
 
-  constructor(distDir: string, private readonly runtime: AdminRuntimeConfig, page: UiPageOptions = {}) {
+  constructor(distDir: string, private readonly runtime: AdminRuntimeConfig, page: UiPageOptions = {}, private readonly pictures?: UiPictures) {
     this.root = resolve(distDir);
     const indexPath = join(this.root, 'index.html');
     // index.html as built, or the "missing build" page.
@@ -118,7 +131,22 @@ export class UiAssets {
     // saved another choice, which lives in their browser where the server cannot see it), so `lang`, `dir` and the
     // title are right from the first byte for everyone who has not switched. `Accept-Language` is not consulted.
     const title = resolveText(page.title ?? runtime.title, runtime.locale, runtime.locale);
-    this.indexHtml = injectRuntime(localizeDocument(template, { locale: runtime.locale, title }), runtime);
+    this.localized = localizeDocument(template, { locale: runtime.locale, title });
+    this.indexHtml = injectRuntime(this.localized, runtime);
+  }
+
+  /** The page with the pictures uploaded now (made again only when they change). */
+  private page(): string {
+    if (!this.pictures) return this.indexHtml;
+    const now = this.pictures();
+    const key = `${now.logo ?? ''}|${now.favicon ?? ''}`;
+    if (key !== this.madeFor) {
+      const runtime = now.logo ? { ...this.runtime, branding: { ...this.runtime.branding, logo: now.logo } } : this.runtime;
+      const html = injectRuntime(this.localized, runtime);
+      this.indexHtml = now.favicon ? withFavicon(html, now.favicon) : html;
+      this.madeFor = key;
+    }
+    return this.indexHtml;
   }
 
   /** Serves a file, 404s a missing /assets/* file, and falls back to index.html for client-side routes. */
@@ -134,7 +162,7 @@ export class UiAssets {
     }
     // One page for every request: no `Vary` (a host's own `Vary` header is left as it is).
     res.setHeader('Content-Language', this.runtime.locale);
-    this.send(req, res, 200, 'text/html; charset=utf-8', this.indexHtml, 'no-cache');
+    this.send(req, res, 200, 'text/html; charset=utf-8', this.page(), 'no-cache');
   }
 
   private sendFile(file: string, pathname: string, req: AdminRequest, res: ServerResponse): void {

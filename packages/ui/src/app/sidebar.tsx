@@ -159,9 +159,8 @@ function Brand({ title, logo, rail, onClose }: { title: string; logo?: string; r
   const mark = logo ? (
     <img src={logo} alt="" className="size-[30px] shrink-0 rounded-control object-contain" />
   ) : (
-    <span aria-hidden className="flex size-[30px] shrink-0 items-center justify-center rounded-control bg-primary font-bold text-primary-foreground">
-      {[...title.trim()][0] ?? ''}
-    </span>
+    // No logo: the admin's own mark (the same picture as the default tab icon).
+    <img src="favicon.svg" alt="" className="size-[30px] shrink-0 object-contain" />
   );
   return (
     <div className={cn('flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border', rail ? 'justify-center' : 'px-4')}>

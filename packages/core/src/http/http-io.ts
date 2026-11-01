@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { AdminBadRequestError } from '../errors.js';
+import { AdminBadRequestError, AdminPayloadTooLargeError } from '../errors.js';
 
 /** A Node request, possibly with a body already parsed by the host's body parser. */
 export type AdminRequest = IncomingMessage & { body?: unknown };
@@ -39,4 +39,21 @@ function parseJson(text: string): unknown {
   } catch {
     throw new AdminBadRequestError('Request body is not valid JSON');
   }
+}
+
+/** The raw body of an upload, refused (413) past `limit` bytes. A body the host already read as a Buffer is used as is. */
+export async function readRawBody(req: AdminRequest, limit: number): Promise<Buffer> {
+  if (Buffer.isBuffer(req.body)) {
+    if (req.body.length > limit) throw new AdminPayloadTooLargeError(`The file is larger than ${limit} bytes`);
+    return req.body;
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+    size += buffer.length;
+    if (size > limit) throw new AdminPayloadTooLargeError(`The file is larger than ${limit} bytes`);
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
 }

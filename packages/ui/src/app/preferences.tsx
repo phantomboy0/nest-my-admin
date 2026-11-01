@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Languages, Monitor, Moon, Sun } from 'lucide-react';
+import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { useLocale } from '@/i18n';
 import { ACCENT_EVENT, THEME_EVENT, applyAccent, flipTheme, readAccent, readTheme, saveAccent, saveTheme, type ThemeChoice } from '@/lib/theme';
@@ -190,7 +191,80 @@ export function AccentPicker() {
         </div>
       )}
       {save.isError && <p className="text-xs text-destructive">{describeError(save.error)}</p>}
+      {appearance?.manage && <BrandPictures logo={appearance.logo} favicon={appearance.favicon} />}
     </div>
+  );
+}
+
+/**
+ * The logo (sidebar and sign-in page) and the browser tab's icon, for everyone: upload or remove. The page is loaded
+ * again after a change, since both are part of it.
+ */
+function BrandPictures({ logo, favicon }: { logo: string | null; favicon: string | null }) {
+  const { t } = useLocale();
+  const remove = useMutation({
+    mutationFn: (kind: PictureKind) => api.removePicture(kind),
+    onSuccess: () => window.location.reload(),
+    onError: (error) => toast(describeError(error), 'error'),
+  });
+  const row = (kind: PictureKind, current: string | null) => (
+    <div className="flex items-center gap-1.5">
+      <span className="w-14 text-xs text-muted-foreground">{t(kind === 'logo' ? 'display.logo' : 'display.favicon')}</span>
+      {current && <img src={current} alt="" className="size-6 rounded object-contain" />}
+      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => openPictureInput(kind)}>
+        {t('display.uploadPicture')}
+      </Button>
+      {current && (
+        <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" disabled={remove.isPending} onClick={() => remove.mutate(kind)}>
+          {t('display.removePicture')}
+        </Button>
+      )}
+    </div>
+  );
+  return (
+    <div className="flex flex-col gap-1.5 pt-1">
+      {row('logo', logo)}
+      {row('favicon', favicon)}
+    </div>
+  );
+}
+
+type PictureKind = 'logo' | 'favicon';
+/** Like the colour window, the file window outlives the menu: one input in the layout (`<PictureInput />`). */
+let pictureInput: HTMLInputElement | null = null;
+let pictureKind: PictureKind = 'logo';
+
+function openPictureInput(kind: PictureKind): void {
+  if (!pictureInput) return;
+  pictureKind = kind;
+  pictureInput.value = '';
+  pictureInput.click();
+}
+
+export function PictureInput() {
+  // Only for those who may change the look (never while viewing as someone): a read-only page has no file input.
+  const manage = useSession().data?.appearance?.manage === true;
+  if (!manage) return null;
+  return (
+    <input
+      ref={(element) => {
+        pictureInput = element;
+      }}
+      type="file"
+      accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon,.ico"
+      tabIndex={-1}
+      aria-hidden
+      data-testid="picture-input"
+      className="pointer-events-none fixed bottom-0 start-0 size-px opacity-0"
+      onChange={(event) => {
+        const file = event.currentTarget.files?.[0];
+        if (!file) return;
+        api.setPicture(pictureKind, file).then(
+          () => window.location.reload(),
+          (error: Error) => toast(describeError(error), 'error'),
+        );
+      }}
+    />
   );
 }
 
