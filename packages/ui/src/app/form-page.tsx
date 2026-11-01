@@ -23,6 +23,7 @@ import { shownErrors } from '@/lib/form-errors';
 import { useLocale, useT } from '@/i18n';
 import { formatCell } from '@/lib/format';
 import { hasInlineErrors, inlineErrorsOf, inlinePayload, inlineRowsOf, type InlineErrors, type InlineRowsState } from '@/lib/inline-changes';
+import { applyFills, initiallyTyped, noteTyped } from '@/lib/fill-from';
 import { dependencyValues, toFormValues, toPayload, withoutImages, type FormValue, type FormValues } from '@/lib/form-values';
 import { useRecord, useSchema, useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
@@ -136,12 +137,18 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   const names = fields.map((field) => field.name);
   // What the user started from: the loaded record (or, after "Load theirs", the record as it was then).
   const [base, setBase] = useState<AdminRecord | undefined>(record);
-  const [initial, setInitial] = useState<FormValues>(() => toFormValues(fields, record ?? (source ? copyOf(schema, source) : undefined)));
+  const [initial, setInitial] = useState<FormValues>(() => {
+    const start = toFormValues(fields, record ?? (source ? copyOf(schema, source) : undefined));
+    return applyFills(fields, start, initiallyTyped(fields, start));
+  });
   const [values, setValues] = useState<FormValues>(initial);
+  // `fillFrom` fields follow their template until someone types in them; a value they start with counts as typed.
+  const typedFills = useRef(initiallyTyped(fields, initial));
   // «Edit» in view mode unlocks fields the form held no values for: start them from the record.
   useEffect(() => {
     if (!editing || !record) return;
     const next = toFormValues(fields, record);
+    typedFills.current = initiallyTyped(fields, next);
     setInitial(next);
     setValues(next);
   }, [editing]);
@@ -166,6 +173,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   const typedSlugs = useRef(new Set(fields.filter((field) => field.widget === 'slug' && initial[field.name] !== '').map((field) => field.name)));
 
   function change(name: string, value: FormValue) {
+    noteTyped(fields, typedFills.current, name, value);
     setValues((previous) => {
       const next = { ...previous, [name]: value };
       if (typeof value === 'string') {
@@ -173,7 +181,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
           if (field.slugFrom === name && !typedSlugs.current.has(field.name)) next[field.name] = slugify(value);
         }
       }
-      return next;
+      return applyFills(fields, next, typedFills.current);
     });
     if (fields.some((field) => field.name === name && field.widget === 'slug')) typedSlugs.current.add(name);
   }
@@ -203,6 +211,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
       if (then === 'stay' && mode === 'edit') {
         // Continue from what was stored; the record query refetches for `_readonly` and `_links`.
         const next = toFormValues(fields, stored);
+        typedFills.current = initiallyTyped(fields, next);
         const nextRows = rowsOf(stored);
         setBase(stored);
         setInitial(next);
@@ -298,6 +307,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   /** Drop the edits and continue from the stored record. */
   function loadTheirs(current: AdminRecord) {
     const next = toFormValues(fields, current);
+    typedFills.current = initiallyTyped(fields, next);
     setConflict(null);
     setBase(current);
     setInitial(next);

@@ -53,6 +53,10 @@ export interface FieldSchema {
   showIf?: Record<string, string | number | boolean | null | Array<string | number | boolean | null>>;
   /** The slug widget fills itself from this field until edited. */
   slugFrom?: string;
+  /** The value a new form starts with (action inputs and create forms). */
+  default?: string | number | boolean;
+  /** A template of other fields (`{crm}.example.com`) this text field fills itself from until someone types in it. */
+  fillFrom?: string;
   /**
    * `stepper` widget: the steps in order, the values that are not steps (shown as a badge), and whether records carry
    * `_steps` (when each step was reached, from the history child).

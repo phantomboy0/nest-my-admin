@@ -328,7 +328,7 @@ export class ProductAdmin extends AdminResourceBase<Product> {
     - A widget that does not fit the type (`money` on a boolean) fails at boot.
   - `colors` for badges: gray, red, amber, green, blue, purple or pink.
   - `currency` for money: display only. Money is grouped as you leave the input, and the commas are dropped when saving.
-- **Validation at boot.** Unknown fields, widgets and colours fail at boot with a did-you-mean hint, and so do `showIf`/`slugFrom` names and enum labels for values the column does not have.
+- **Validation at boot.** Unknown fields, widgets and colours fail at boot with a did-you-mean hint, and so do `showIf`/`slugFrom`/`fillFrom` names, defaults that do not fit their field and enum labels for values the column does not have.
 - **Read-only fields.**
   - `readonly: true` shows the field on edit forms as text with a lock and removes it from `form.update`.
   - `readonlyIf(record)` runs on the server for every record. Records carry `_readonly` (the fields it locks), and a PATCH that sends a locked field is a 422 `{ field: ['is read-only'] }` before your `update` runs. That covers inline cell edits too.
@@ -343,6 +343,8 @@ export class ProductAdmin extends AdminResourceBase<Product> {
   - Create ignores it.
 - **`showIf`** hides a field while other fields do not hold the given value (or one of the values), evaluated live in the browser. A hidden field is not sent and not checked. It is presentation, not a permission: the server keeps the stored value.
 - **`slugFrom`** makes the slug widget fill itself from another field. It keeps the letters of every script and stops once someone types in it, or when it already holds a value.
+- **`default`** is the value a new form starts with: an action's input form, or a resource's create form (a duplicate starts from the copied record). It must fit the field (a string for text, enum, date and datetime fields, a number, or `true`/`false`); the DTO still validates whatever is sent.
+- **`fillFrom`** makes a text field fill itself from other fields of the same form, as the user types: `domain: { fillFrom: '{crm}.example.com' }`, `apiDomain: { fillFrom: 'api.{domain}' }` (chains are fine, circles fail at boot). The value is empty while a field it names is empty. It stops following once someone types in it and follows again when they clear it; a field that already holds a value (a stored record) starts as typed. It works in action dialogs too, where `slugFrom` does not.
 - **Layout.**
   - `form.layout` has sections (a title, and 1–3 columns on wide screens, one on phones) and tabs.
   - Every name must be on a form and listed once. Fields left out go into a last section.
