@@ -83,7 +83,7 @@ export function LoginPage() {
       <div className="flex flex-1 items-start justify-center px-4 pt-[10vh]">
         <form onSubmit={submit} noValidate className="flex w-full max-w-sm flex-col gap-4 rounded-xl border bg-background p-6 shadow-sm" aria-labelledby="login-title">
           <div className="flex flex-col items-center gap-2 text-center">
-            {logo && <img src={logo} alt="" className="size-10 rounded-md object-contain" />}
+            <img src={logo ?? 'favicon.svg'} alt="" className="size-10 rounded-md object-contain" />
             <p className="text-sm text-muted-foreground">{brandName(locale)}</p>
             <h1 id="login-title" className="text-[22px] font-bold">
               {t(step === 'otp' ? 'auth.otpTitle' : 'auth.title')}

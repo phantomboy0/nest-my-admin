@@ -129,6 +129,10 @@ export const api = {
   meta: () => request<MetaResponse>('/meta'),
   menuBadges: () => request<MenuBadges>('/menu/badges'),
   dashboard: () => request<DashboardResponse>('/dashboard'),
+  /** The logo or favicon for everyone: the file itself is the body. */
+  setPicture: (kind: 'logo' | 'favicon', file: File) =>
+    request<{ logo: string | null; favicon: string | null }>(`/appearance/${kind}`, { method: 'PUT', body: file, headers: { 'Content-Type': pictureType(file) } }),
+  removePicture: (kind: 'logo' | 'favicon') => request<{ logo: string | null; favicon: string | null }>(`/appearance/${kind}`, { method: 'DELETE' }),
   setAppearance: (accent: string | null) => request<{ accent: string | null }>('/appearance', { method: 'PUT', body: JSON.stringify({ accent }) }),
   widget: (name: string, params: WidgetParams) => request<WidgetData>(`/dashboard/${encodeURIComponent(name)}?${new URLSearchParams({ ...params })}`),
   tabCounts: (resource: string) => request<TabCounts>(`/resources/${encodeURIComponent(resource)}/tab-counts`),
@@ -209,3 +213,11 @@ export const api = {
   update: (resource: string, id: string, body: Record<string, unknown>, version?: unknown) =>
     request<AdminRecord>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'PATCH', body: JSON.stringify(body), headers: ifMatch(version) }),
 };
+
+/** A picture's media type; browsers leave it empty (or vary) for .ico files. */
+export function pictureType(file: { name: string; type: string }): string {
+  if (/\.ico$/i.test(file.name)) return 'image/x-icon';
+  if (file.type) return file.type;
+  if (/\.svg$/i.test(file.name)) return 'image/svg+xml';
+  return 'application/octet-stream';
+}

@@ -50,3 +50,29 @@ test('the colour window keeps working after the menu closes and the page changes
   await openAccountMenu(page);
   await page.getByRole('group', { name: 'Accent colour' }).getByRole('button', { name: 'Default' }).click();
 });
+
+test('a superuser uploads a logo and a tab icon for everyone, and removes them', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'the sidebar is a drawer on phones');
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  await page.goto('/admin/');
+  const mark = page.getByRole('complementary').locator('img').first();
+  await expect(mark).toHaveAttribute('src', 'favicon.svg'); // the admin's own mark when there is no logo
+  await openAccountMenu(page);
+  await page.getByRole('button', { name: 'Upload' }).first().click();
+  await page.getByTestId('picture-input').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: png });
+  await expect(mark).toHaveAttribute('src', /^appearance\/logo\?v=/);
+  expect((await page.request.get(`/admin/${await mark.getAttribute('src')}`)).headers()['content-type']).toBe('image/png');
+
+  await openAccountMenu(page);
+  await page.getByRole('button', { name: 'Upload' }).nth(1).click();
+  await page.getByTestId('picture-input').setInputFiles({ name: 'icon.png', mimeType: 'image/png', buffer: png });
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', /^appearance\/favicon\?v=/);
+
+  for (let i = 0; i < 2; i++) {
+    await openAccountMenu(page);
+    await page.getByRole('button', { name: 'Remove' }).first().click();
+    await page.waitForLoadState('load');
+  }
+  await expect(mark).toHaveAttribute('src', 'favicon.svg');
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', 'favicon.svg');
+});

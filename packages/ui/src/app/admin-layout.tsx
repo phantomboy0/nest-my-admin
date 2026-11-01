@@ -3,7 +3,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Eye } from 'lucide-react';
 import { Header } from '@/app/header';
-import { AccentInput } from '@/app/preferences';
+import { AccentInput, PictureInput } from '@/app/preferences';
 import { Sidebar } from '@/app/sidebar';
 import { navGroups } from '@/lib/menu';
 import { applyAccent } from '@/lib/theme';
@@ -127,6 +127,7 @@ function Shell() {
     <div className="flex min-h-svh bg-background text-foreground">
       {/* The custom accent's colour input: outside every menu, so the browser's colour window keeps working. */}
       <AccentInput />
+      <PictureInput />
       <aside className={cn('sticky top-0 hidden h-svh shrink-0 border-e border-sidebar-border bg-sidebar text-sidebar-foreground md:block', nav.railCollapsed ? 'w-16' : 'w-64')}>
         <Sidebar title={title} logo={logo} groups={groups} menu={menu} rail={nav.railCollapsed} />
       </aside>

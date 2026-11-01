@@ -392,6 +392,10 @@ export const fa: Messages = {
   'display.defaultAccent': 'پیش‌فرض',
   'display.accentForEveryone': 'برای همه',
   'display.resetForEveryone': 'بازگشت برای همه',
+  'display.logo': 'لوگو',
+  'display.favicon': 'آیکون زبانه',
+  'display.uploadPicture': 'بارگذاری',
+  'display.removePicture': 'حذف',
   'display.latinDigits': 'لاتین 123',
   'display.persianDigits': 'فارسی ۱۲۳',
 

@@ -969,6 +969,10 @@ Things hosts tend to write by hand that the admin already does:
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
 
+## Upgrading to 0.8.1
+
+Nothing to change. New: with `appearance` on, whoever holds `appearance.manage` uploads the **logo** (sidebar and sign-in page) and the **tab icon** (favicon) from the account menu, for everyone (PNG, JPEG, GIF, WebP, ICO or SVG, up to 512 KB; stored in `nma_setting`, served at `<path>/appearance/logo` and `/appearance/favicon`). An uploaded logo wins over `branding.logo`. Without a logo the sidebar shows the admin's own mark instead of the first letter of the title, and it is the default tab icon.
+
 ## Upgrading to 0.8.0
 
 Nothing to change. New: [source resources](#source-resources): `@AdminSource(RowClass, …)` and `AdminSourceBase` give rows that are not database rows (an HTTP API, files, live state) the list, record page, forms and actions of a table; `inMemoryList` searches, filters, sorts and pages rows fetched whole.

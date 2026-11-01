@@ -20,7 +20,7 @@ import { AuditReader } from '../audit/audit-reader.js';
 import { addAuditRoutes } from '../audit/audit-routes.js';
 import { addMenuRoutes } from '../api/menu-routes.js';
 import { addDashboardRoutes } from '../dashboard/dashboard-routes.js';
-import { AdminAppearance } from '../appearance/appearance.service.js';
+import { AdminAppearance, appearanceImageType, MAX_APPEARANCE_IMAGE_BYTES } from '../appearance/appearance.service.js';
 import { DashboardService } from '../dashboard/dashboard.service.js';
 import { AdminAudit, clientOf } from '../audit/audit.service.js';
 import type { AuditMeta } from '../audit/entities.js';
@@ -36,7 +36,7 @@ import type { ResolvedAdminOptions } from '../options.js';
 import { ResourceRegistry } from '../registry/resource-registry.js';
 import { createAdminContext, runInAdminContext, type AdminContext } from '../resource/admin-context.js';
 import { codeForStatus, toErrorResponse } from './error-response.js';
-import { readJsonBody, sendJson, type AdminRequest } from './http-io.js';
+import { readJsonBody, readRawBody, sendJson, type AdminRequest } from './http-io.js';
 import { Router } from './router.js';
 import { UiAssets, resolveUiDist } from './ui-assets.js';
 import { AdminApiService } from '../api/admin-api.service.js';
@@ -54,6 +54,10 @@ interface RequestState {
 
 /** The only API routes that answer without a session: reading it (to learn you are signed out) and logging in. */
 const PUBLIC_ROUTES = new Set(['GET /api/session', 'POST /api/session']);
+/** The logo/favicon uploads: their body is the picture, and the route checks it is an image type. */
+const IMAGE_ROUTE = /^PUT \/api\/appearance\/[^/]+$/;
+/** An uploaded logo or favicon, served to anyone (the sign-in page and the browser tab need it). */
+const IMAGE_PATH = /^\/appearance\/([^/]+)$/;
 
 // Methods that carry a JSON body. DELETE is never a CORS "simple" request, so a foreign page cannot send one without a preflight.
 const BODY_METHODS = new Set(['POST', 'PATCH', 'PUT']);
@@ -278,6 +282,14 @@ export class AdminHttpServer implements OnModuleInit {
     addAuditRoutes(this.router, { reader: auditReader });
     addMenuRoutes(this.router, { api: this.api });
     addDashboardRoutes(this.router, { dashboard: this.dashboard });
+    // The logo and favicon: the picture itself is the body (an image type: never a CORS "simple" request).
+    this.router.add('PUT', '/api/appearance/:kind', async ({ req, res, ctx }, p) => {
+      const type = appearanceImageType(req.headers['content-type']);
+      if (!type) throw new AdminUnsupportedMediaTypeError('Upload a PNG, JPEG, GIF, WebP, ICO or SVG picture');
+      const data = await readRawBody(req, MAX_APPEARANCE_IMAGE_BYTES);
+      sendJson(res, 200, await this.appearance.setImage(p.kind!, type, data, ctx));
+    });
+    this.router.add('DELETE', '/api/appearance/:kind', async ({ res, ctx }, p) => sendJson(res, 200, await this.appearance.setImage(p.kind!, undefined, null, ctx)));
     this.router.add('PUT', '/api/appearance', async ({ req, res, ctx }) => sendJson(res, 200, await this.appearance.setAccent((((await readJsonBody(req)) ?? {}) as { accent?: unknown }).accent ?? null, ctx)));
     addRbacRoutes(this.router, { rbac: this.rbac, auth: this.auth, api: this.api, policy: this.policy, registry: this.registry, audit: this.audit });
   }
@@ -336,7 +348,7 @@ export class AdminHttpServer implements OnModuleInit {
       auth: this.auth.capabilities,
       rbac: { enabled, view: enabled && (permissions.can('rbac.view') || permissions.can('rbac.manage')), manage: enabled && permissions.can('rbac.manage') },
       audit: { enabled: this.audit.enabled, view: this.audit.enabled && permissions.can('audit.view') },
-      ...(this.appearance.enabled ? { appearance: { accent: this.appearance.current(), manage: !viewAs && permissions.can('appearance.manage') } } : {}),
+      ...(this.appearance.enabled ? { appearance: { accent: this.appearance.current(), manage: !viewAs && permissions.can('appearance.manage'), ...this.appearance.imageUrls() } } : {}),
       permissionsVersion: this.rbac.permissionsVersion,
       ...(viewAs ? { viewAs: { by: toSessionUser(viewAs.by) } } : {}),
     };
@@ -366,6 +378,7 @@ export class AdminHttpServer implements OnModuleInit {
         ...(Object.keys(messages).length > 0 ? { messages } : {}),
       },
       { title: this.options.title },
+      this.appearance.enabled ? () => this.appearance.imageUrls() : undefined,
     );
     adapter.use(this.options.path, (req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void) => {
       this.handle(req, res, next).catch((error: unknown) => {
@@ -414,7 +427,7 @@ export class AdminHttpServer implements OnModuleInit {
         // Only JSON can be sent by a script; forms and text/plain are CORS "simple" requests a foreign page could forge.
         // Uploads carry the raw file instead; FilesService.upload refuses the simple types itself.
         const route = `${req.method} ${pathname.replace(/\/+$/, '')}`;
-        if (BODY_METHODS.has(req.method ?? '') && route !== UPLOAD_ROUTE && !isJsonContentType(req.headers['content-type'])) {
+        if (BODY_METHODS.has(req.method ?? '') && route !== UPLOAD_ROUTE && !IMAGE_ROUTE.test(route) && !isJsonContentType(req.headers['content-type'])) {
           throw new AdminUnsupportedMediaTypeError('Content-Type must be application/json');
         }
         resourceName = match.params.resource;
@@ -435,6 +448,21 @@ export class AdminHttpServer implements OnModuleInit {
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         next();
+        return;
+      }
+      const picture = IMAGE_PATH.exec(pathname);
+      if (picture && this.appearance.enabled) {
+        const image = this.appearance.image(picture[1]!);
+        if (!image) throw new AdminNotFoundError('No such picture');
+        res.statusCode = 200;
+        res.setHeader('Content-Type', image.type);
+        res.setHeader('Content-Length', image.data.length);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        // Opened on its own (an SVG is a document), nothing in it may run or load.
+        res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+        // The URL carries ?v=<hash>: a new picture has a new URL, so this one may be cached for good.
+        res.setHeader('Cache-Control', url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache');
+        res.end(req.method === 'HEAD' ? undefined : image.data);
         return;
       }
       this.ui!.serve(pathname, req, res);

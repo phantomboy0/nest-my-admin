@@ -390,6 +390,10 @@ export const en = {
   'display.defaultAccent': 'Default',
   'display.accentForEveryone': 'Use for everyone',
   'display.resetForEveryone': 'Reset for everyone',
+  'display.logo': 'Logo',
+  'display.favicon': 'Tab icon',
+  'display.uploadPicture': 'Upload',
+  'display.removePicture': 'Remove',
   'display.latinDigits': 'Latin 123',
   'display.persianDigits': 'Persian ۱۲۳',
 

@@ -619,8 +619,11 @@ export interface SessionResponse {
   rbac: { enabled: boolean; view: boolean; manage: boolean };
   /** The audit log (with `audit`): is it on (records have a history), and may this user read the audit page (`audit.view`). */
   audit: { enabled: boolean; view: boolean };
-  /** With `appearance`: the admin-wide accent colour (null: the host's branding), and whether this user may change it. */
-  appearance?: { accent: string | null; manage: boolean };
+  /**
+   * With `appearance`: the admin-wide accent colour (null: the host's branding), whether this user may change it, and
+   * the uploaded logo and favicon (URLs relative to the admin; null: none, so `branding.logo` and the build's icon).
+   */
+  appearance?: { accent: string | null; manage: boolean; logo: string | null; favicon: string | null };
   /** Changes when roles or memberships change: refetch meta and schemas. */
   permissionsVersion: number;
   /** A superuser looking through another user's eyes (`X-View-As`): `user` is the target, `by` the superuser. Read-only. */
