@@ -128,7 +128,8 @@ async function explainRecord(policy: AdminPolicy, entry: RegisteredResource, raw
     return { id: raw, exists: false, view: false, update: false, delete: false, reasons: { view: 'missing', update: 'missing', delete: 'missing' } };
   }
   const keys = entry.schema.primaryKeys;
-  const stored = await entry.dataSource.manager.getRepository(entry.metadata.target).createQueryBuilder('nma_explain').whereInIds([id]).getOne();
+  // A source's row exists when its own findOne finds it.
+  const stored = entry.dataSource ? await entry.dataSource.manager.getRepository(entry.metadata.target).createQueryBuilder('nma_explain').whereInIds([id]).getOne() : await entry.resource.findOne(id, ctx);
   const exists = stored !== null;
   const key = recordIdOf(typeof id === 'object' ? id : { [keys[0]!]: id }, keys);
   const inScope = async (operation: ScopedOperation) => (await policy.allowedIds(entry, [id], operation, ctx)).has(key);

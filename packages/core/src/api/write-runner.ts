@@ -34,7 +34,7 @@ export class WriteRunner {
    * The participants' `onCommit` runs once the transaction has committed and never when it rolls back;
    * `onRollback` runs only when it fails. A failing one is logged, never thrown.
    */
-  async run<T>(target: { dataSource: DataSource }, ctx: AdminContext, work: (ctx: AdminWriteContext) => Promise<T>): Promise<T> {
+  async run<T>(target: { dataSource?: DataSource }, ctx: AdminContext, work: (ctx: AdminWriteContext) => Promise<T>): Promise<T> {
     const committed = async (tx: AdminContext, run: () => Promise<T>): Promise<T> => {
       const steps: Step[] = [];
       this.open.set(tx, steps);
@@ -51,6 +51,12 @@ export class WriteRunner {
       await this.settle(steps.filter((step) => step.done), 'onCommit', tx);
       return result;
     };
+    if (!target.dataSource) {
+      // An @AdminSource: no DataSource, so no transaction and no manager (`ctx.manager` stays unset in its methods).
+      if (this.open.has(ctx)) return work(ctx as AdminWriteContext);
+      const plain = { ...ctx } as AdminWriteContext;
+      return committed(plain, () => runInAdminContext(plain, () => work(plain)));
+    }
     if (!this.options.transactions) {
       // Nothing to commit: the participants settle when the outermost write on this context is done.
       // The write still gets a manager, the DataSource's own; it is not a transaction (`inAdminTransaction` says no).
@@ -88,6 +94,9 @@ export class WriteRunner {
   async change<T>(change: WriteChange, tx: AdminContext, method: () => Promise<T>, savedOf: (result: T) => object | null | undefined = asObject): Promise<T> {
     const steps = this.open.get(tx);
     if (!steps) throw new Error('nest-my-admin: a change was made outside a write');
+    // A source's rows are not in a table: no file is attached to them and the audit log does not record them.
+    // (A settings page has a `source` too: its load/save provider. Only a resource's `source: true` marks an @AdminSource.)
+    if ('schema' in change.target && change.target.source === true) return method();
     const mine: Step[] = [];
     for (const participant of this.participants) {
       const state = await participant.before(change, tx);
@@ -131,6 +140,7 @@ async function storedRow(change: WriteChange, saved: object | null | undefined, 
   if (!('schema' in target)) return { gone: false };
   const key = change.id ?? (change.existing ? keyOf(target, change.existing) : saved ? keyOf(target, saved) : undefined);
   if (key === undefined) return { gone: false };
+  if (!target.dataSource) return { gone: false };
   const stored = await loadStored(target, key, tx.manager ?? target.dataSource.manager);
   return { key, ...(stored ? { stored } : {}), gone: !stored };
 }

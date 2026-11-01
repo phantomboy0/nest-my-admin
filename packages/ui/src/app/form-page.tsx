@@ -167,7 +167,8 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
   // With the audit log on, an existing record has a History tab next to its form. The form stays mounted under it,
   // so edits, the unsaved-changes guard and ⌘S are the same on either tab.
   const session = useSession();
-  const hasHistory = mode === 'edit' && id !== undefined && session.data?.audit.enabled === true;
+  // A source's rows are not in the audit log (`schema.source`): no History tab for them.
+  const hasHistory = mode === 'edit' && id !== undefined && session.data?.audit.enabled === true && !schema.source;
   const tab: RecordTab = hasHistory ? openTab : 'details';
   // Slug fields fill themselves from `slugFrom` until someone types in them (or they already hold a value).
   const typedSlugs = useRef(new Set(fields.filter((field) => field.widget === 'slug' && initial[field.name] !== '').map((field) => field.name)));

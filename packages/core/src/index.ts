@@ -5,7 +5,8 @@ export type { AdminTranslate } from './i18n/texts.js';
 export { ResourceRegistry, type RegisteredGroup, type RegisteredResource } from './registry/resource-registry.js';
 export type { DbNames } from './registry/db-names.js';
 export { AdminGroup, type AdminGroupOptions } from './decorators/admin-group.js';
-export { AdminResource, type AdminResourceOptions } from './decorators/admin-resource.js';
+export { AdminResource, AdminSource, type AdminResourceOptions, type AdminSourceOptions } from './decorators/admin-resource.js';
+export { AdminSourceBase, inMemoryList } from './resource/admin-source-base.js';
 export {
   AdminResourceBase,
   type FilterCondition,

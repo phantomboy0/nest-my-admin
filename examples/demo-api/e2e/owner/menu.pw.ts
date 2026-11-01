@@ -10,7 +10,7 @@ async function sidebar(page: Page) {
 test('section pages follow the menu (Task 5; the home cards are in dashboard.pw.ts: the admin’s home is the dashboard)', async ({ page }) => {
   await page.goto('/admin/g/sales');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sales');
-  await expect(page.getByRole('main').getByRole('link')).toHaveText([/^Order/, /^Invoice/]);
+  await expect(page.getByRole('main').getByRole('link')).toHaveText([/^Order/, /^Invoice/, /^Couriers/]);
   // Order lines are edited on their order: no card, no section.
   await page.goto('/admin/g/advanced');
   await expect(page.getByRole('main').getByRole('link')).toHaveText([/^Order status log/, /^Employee/]);

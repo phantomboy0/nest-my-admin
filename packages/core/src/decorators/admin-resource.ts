@@ -45,6 +45,28 @@ export interface AdminResourceOptions {
 
 export interface AdminResourceDefinition extends AdminResourceOptions {
   entity: Function;
+  /** Set by `@AdminSource`: the rows come from the class's own `findMany`/`findOne`, not from a table. */
+  source?: { primaryKeys: string[] };
+}
+
+export interface AdminSourceOptions extends Omit<AdminResourceOptions, 'dataSource'> {
+  /** The row property (or properties) that identify a row. Default `id`. */
+  primaryKey?: string | string[];
+}
+
+/**
+ * Marks a provider as an admin resource whose rows are not database rows (an HTTP API, files, live state): the class
+ * extends AdminSourceBase and answers `findMany`/`findOne` (and `create`/`update`/`delete` when it allows them).
+ * `row` is a class whose class-validator decorators describe a row's fields, like an action's input DTO.
+ */
+export function AdminSource(row: Function, options: AdminSourceOptions = {}): ClassDecorator {
+  return (target) => {
+    const { primaryKey, ...rest } = options;
+    const primaryKeys = primaryKey === undefined ? ['id'] : Array.isArray(primaryKey) ? [...primaryKey] : [primaryKey];
+    const definition: AdminResourceDefinition = { ...rest, entity: row, source: { primaryKeys } };
+    Reflect.defineMetadata(ADMIN_RESOURCE_METADATA, definition, target);
+    Injectable()(target);
+  };
 }
 
 /** Marks a provider as an admin resource for `entity`. The class must extend AdminResourceBase. */

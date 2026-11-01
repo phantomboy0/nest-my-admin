@@ -490,6 +490,8 @@ export interface ResourceSchema {
    * `POST …/:id/restore` brings one back and `DELETE …/:id?purge=true` removes it for good.
    */
   softDelete: boolean;
+  /** Set for an `@AdminSource` (rows that are not database rows): which writes its class implements. */
+  source?: { create: boolean; update: boolean; delete: boolean };
   form: {
     create: string[];
     update: string[];

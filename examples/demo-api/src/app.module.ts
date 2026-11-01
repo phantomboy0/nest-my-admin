@@ -42,7 +42,7 @@ const plain = process.env.NMA_DEMO_PLAIN === '1';
                   label: { en: 'Sales', fa: 'فروش' },
                   icon: 'shopping-cart',
                   // Paid orders wait to be shipped.
-                  items: [{ resource: 'order', badge: { 'filter[status][eq]': 'paid' } }, { resource: 'invoice' }],
+                  items: [{ resource: 'order', badge: { 'filter[status][eq]': 'paid' } }, { resource: 'invoice' }, { resource: 'courier' }],
                 },
                 {
                   key: 'products',

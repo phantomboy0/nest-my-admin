@@ -615,6 +615,39 @@ export class ShopSettingsPage implements AdminSettingsSource<ShopSettingsDto> {
 - **Names.** Letters, digits, `-` and `_`; not the name of a resource, an operation (`view`, `update`, …) or a resource's custom permission. Because page codes start with `page.`, **a resource cannot be named `page` in an admin with settings pages**: boot fails and suggests `@AdminResource(Page, { name: 'content-page' })`.
 - **API.** `GET /api/pages/:name` answers `{ schema, values, secrets, files }`, and `PATCH /api/pages/:name` takes the changed keys and answers the same.
 
+### Source resources
+
+Rows that are not database rows (DNS records behind an HTTP API, files on disk, live container status) get the same list, record page, forms and actions as a table: `@AdminSource(RowClass, options)` on a class that extends `AdminSourceBase`. The demo's couriers (`examples/demo-api/src/sales/courier.source.ts`) are one.
+
+```ts
+export class DnsRow {
+  @IsString() id: string;
+  @IsString() name: string;
+  @IsIn(['a', 'cname', 'txt']) type: string;
+  @IsString() value: string;
+}
+
+@AdminSource(DnsRow, { name: 'dns', label: 'DNS records', title: 'name' }) // primaryKey: 'id' by default
+export class DnsAdmin extends AdminSourceBase<DnsRow, string> {
+  list: ListConfig<DnsRow> = { columns: ['name', 'type', 'value'], search: ['name', 'value'], filters: ['type'], sort: 'name' };
+  form = { create: CreateDnsDto, update: UpdateDnsDto };
+
+  constructor(private readonly dns: DnsClient) { super(); }
+
+  async findMany(params: ListParams) { return inMemoryList(await this.dns.all(), params); }
+  async findOne(id: string) { return (await this.dns.all()).find((row) => row.id === id) ?? null; }
+  override async create(dto: object) { return this.dns.create(dto as CreateDnsDto); }
+  override async update(id: string, dto: object) { return this.dns.update(id, dto as UpdateDnsDto); }
+  override async delete(id: string) { await this.dns.delete(id); }
+}
+```
+
+- **The row class** is the schema: one field per property with a class-validator decorator, typed like a DTO's (`@IsIn` is an enum, `@IsInt` an integer, `@IsDate` a date). `@AdminField` and `fields` set labels, help and widgets. `primaryKey` names the id property (or several); it defaults to `id`.
+- **`findMany(params, ctx)`** answers a page: `{ items, total }`. `params` carries the search (`term` and the `list.search` fields), the filters, the sort and the page. `inMemoryList(rows, params)` does all of it for rows fetched whole; an API that searches and pages itself can be asked directly. **`findOne(id, ctx)`** answers one row, or `null` (a 404).
+- **Writes are opt-in.** Override `create`, `update` and `delete` to allow them. A source that does not is offered no New, Save or Delete, and the API refuses them with 403 whatever the roles say. Throw `AdminFieldError` to refuse a value (422 on the field), as anywhere.
+- **No DataSource.** `ctx.manager` is never set and writes run without a transaction: a source writes to its own system, which the admin cannot roll back. Actions (record, bulk and resource actions), permissions, global search and the command palette work as on a table. Row scopes do not apply, and writes to a source are not in the audit log. `@BeforeSave`, `@AfterSave` and `@BeforeDelete` run only if your `create`, `update` and `delete` call `this.runHooks(...)`, as for any override.
+- **Refused at boot**, with a sentence: list tabs, computed columns, keyset paging, a `count` other than exact, export, inlines, relation cards, form history, file/image/rich-text widgets and atomic actions. They need a database.
+
 ### Inlines
 
 A parent's form can edit its child records (a product's variants, specifications and pictures; an order's lines), and one Save writes the parent and every change to its children in **one transaction**. The child is an ordinary resource, with its own permissions, scopes, fields, DTOs, hooks and service overrides; the parent's layout places it:
@@ -935,6 +968,10 @@ Things hosts tend to write by hand that the admin already does:
 - **A shared base class with services.** Inject them as properties (`@Inject(CatalogOwnership) protected readonly ownership: CatalogOwnership`): Nest injects properties of a base class into every subclass, so subclasses need no constructor of their own just to pass a service up.
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
+
+## Upgrading to 0.8.0
+
+Nothing to change. New: [source resources](#source-resources): `@AdminSource(RowClass, …)` and `AdminSourceBase` give rows that are not database rows (an HTTP API, files, live state) the list, record page, forms and actions of a table; `inMemoryList` searches, filters, sorts and pages rows fetched whole.
 
 ## Upgrading to 0.7.4
 
