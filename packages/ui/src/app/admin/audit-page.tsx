@@ -5,7 +5,6 @@ import type { ResourceSchema } from '@nest-my-admin/core/contract';
 import { Alert, PageTitle } from '@/app/admin/shared';
 import { AuditEntries } from '@/app/audit-entries';
 import { DateInput } from '@/app/date-input';
-import { selectClass } from '@/app/filter-bar';
 import { PageMessage } from '@/components/page-message';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +14,7 @@ import { ApiError, api, describeError } from '@/lib/api';
 import { auditFilterChanges, auditNames, auditQueryFromUrl, clearAuditFilters, hasAuditFilters, type AuditFilter } from '@/lib/audit';
 import { withChanges } from '@/lib/list-state';
 import { useMeta, useSession } from '@/lib/queries';
+import { Select } from '@/components/ui/select';
 
 /** Events worth suggesting; the filter takes any event, or a family with `.*`. */
 const EVENT_HINTS = ['auth.*', 'auth.login', 'auth.login_failed', 'auth.view_as', 'rbac.*', 'rbac.role.changed', 'rbac.user_roles.changed', 'page.*'];
@@ -88,16 +88,17 @@ export function AuditPage() {
         />
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="audit-resource">{t('audit.filter.resource')}</Label>
-          <select id="audit-resource" className={selectClass} value={resource} onChange={(event) => set('resource', event.target.value)}>
-            <option value="">{t('common.all')}</option>
-            {/* A resource from the URL that this reader's meta does not list stays selectable (the answer is empty). */}
-            {resource && !resources.some((candidate) => candidate.name === resource) && <option value={resource}>{resource}</option>}
-            {resources.map((candidate) => (
-              <option key={candidate.name} value={candidate.name}>
-                {candidate.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            id="audit-resource"
+            value={resource}
+            onValueChange={(value) => set('resource', value)}
+            options={[
+              { value: '', label: t('common.all') },
+              // A resource from the URL that this reader's meta does not list stays selectable (the answer is empty).
+              ...(resource && !resources.some((candidate) => candidate.name === resource) ? [{ value: resource, label: resource }] : []),
+              ...resources.map((candidate) => ({ value: candidate.name, label: candidate.label })),
+            ]}
+          />
         </div>
         <TextFilter
           label={t('audit.filter.record')}

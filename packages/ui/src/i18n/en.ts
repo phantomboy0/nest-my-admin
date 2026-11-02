@@ -90,6 +90,10 @@ export const en = {
   'list.editCell': 'Edit {name}: {value}',
 
   'action.running': 'Running…',
+
+  'action.choicesFailed': 'The choices could not be loaded: {error}',
+
+  'action.choicesRetry': 'Try again',
   'action.confirm': 'Run “{action}”?',
   'action.confirmRecord': 'Run “{action}” on {name}?',
   'action.confirmSelected': 'Run “{action}” on {count} records?',

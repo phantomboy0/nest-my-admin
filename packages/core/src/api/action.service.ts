@@ -1,13 +1,13 @@
 import type { Logger } from '@nestjs/common';
-import type { ActionBulkResult, ActionRecordResult, ActionResourceResult, ActionResult, AdminRecord } from '../contract.js';
+import type { ActionBulkResult, ActionChoicesResponse, ActionRecordResult, ActionResourceResult, ActionResult, AdminRecord } from '../contract.js';
 import { MAX_BULK } from '../constants.js';
 import { parseRecordId, recordIdOf } from '../crud/record-id.js';
 import { validateWrite } from '../crud/validate-write.js';
 import type { ActionOutcome, RegisteredAction } from '../decorators/admin-action.js';
-import { describeValue, HostContractError, isLocalizedText, checkFoundRecord } from '../host-contract.js';
-import { AdminBadRequestError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
+import { checkFoundRecord, describeValue, HostContractError, isLocalizedText, isRecordObject } from '../host-contract.js';
+import { AdminBadRequestError, AdminFieldError, AdminForbiddenError, AdminNotFoundError, AdminValidationError } from '../errors.js';
 import { toErrorResponse } from '../http/error-response.js';
-import { resolveText } from '../i18n/localized-text.js';
+import { resolveText, type LocalizedText } from '../i18n/localized-text.js';
 import type { ResolvedAdminOptions } from '../options.js';
 import type { AdminPolicy } from '../policy/admin-policy.service.js';
 import type { RegisteredResource } from '../registry/resource-registry.js';
@@ -55,6 +55,7 @@ export class ActionService {
     // Validated once up front (a 422 before anything runs); every run then gets an instance of its own, and the
     // first one, which no method ever sees, is what the participants of the write are told was sent.
     const input: ActionInput = { sent: await validateInput(action, request.input), fresh: () => validateInput(action, request.input) };
+    await this.checkChoices(entry, action, input.sent, ctx);
     if (action.target === 'resource') {
       if (request.ids !== undefined) throw new AdminBadRequestError(`"${label}" runs on the resource, not on records: send no ids`);
       return this.runOnResource(entry, action, input, ctx);
@@ -63,6 +64,48 @@ export class ActionService {
     if (ids.length === 1) return this.runOnOne(entry, action, label, ids[0]!, input, ctx);
     if (!action.bulk) throw new AdminBadRequestError(`"${label}" runs on one record at a time`);
     return action.atomic ? this.runTogether(entry, action, label, ids, input, ctx) : this.runEach(entry, action, label, ids, input, ctx);
+  }
+
+  /**
+   * `GET …/actions/:action/choices/:field`: the dropdown of an input field, for whoever may run the action. The
+   * method is the resource's (`@AdminAction({ choices })`), called with the request's context.
+   */
+  async choices(entry: RegisteredResource, name: string, field: string, ctx: AdminContext): Promise<ActionChoicesResponse> {
+    const { policy, options } = this.host;
+    policy.requireReach(entry, ctx);
+    const action = entry.actions.get(name);
+    if (!action) throw new AdminNotFoundError(`${entry.schema.label} has no action "${name}"`);
+    policy.requireAction(entry, action, options.texts(action.label, ctx.locale ?? options.locale, `resource.${entry.schema.name}.actions.${action.name}.label`), ctx);
+    if (!action.choices?.has(field)) throw new AdminNotFoundError(`"${name}" has no choices for "${field}"`);
+    const locale = ctx.locale ?? options.locale;
+    return { items: (await this.readChoices(entry, action, field, ctx)).map((choice) => ({ value: choice.value, label: options.texts(choice.label, locale) })) };
+  }
+
+  private async readChoices(entry: RegisteredResource, action: RegisteredAction, field: string, ctx: AdminContext): Promise<Array<{ value: string; label: LocalizedText }>> {
+    const method = action.choices!.get(field)!;
+    const where = `${entry.className}.${method}() (choices of @AdminAction "${action.name}" field "${field}")`;
+    const answer: unknown = await (entry.resource as unknown as Record<string, (ctx: AdminContext) => unknown>)[method]!(ctx);
+    if (!Array.isArray(answer)) throw new HostContractError(`${where} must return an array of choices, but it returned ${describeValue(answer)}`);
+    return answer.map((choice) => {
+      if (typeof choice === 'string' || typeof choice === 'number') return { value: String(choice), label: String(choice) };
+      if (isRecordObject(choice) && (typeof choice.value === 'string' || typeof choice.value === 'number') && (choice.label === undefined || isLocalizedText(choice.label))) {
+        return { value: String(choice.value), label: (choice.label as LocalizedText | undefined) ?? String(choice.value) };
+      }
+      throw new HostContractError(`${where}: a choice is a string or { value, label }, but one is ${describeValue(choice)}`);
+    });
+  }
+
+  /** A choice field's value must still be one of its choices when the action runs. */
+  private async checkChoices(entry: RegisteredResource, action: RegisteredAction, sent: object, ctx: AdminContext): Promise<void> {
+    if (!action.choices) return;
+    const errors: Record<string, string[]> = {};
+    for (const field of action.choices.keys()) {
+      const value = (sent as Record<string, unknown>)[field];
+      if (value === undefined || value === null || value === '') continue;
+      const choices = await this.readChoices(entry, action, field, ctx);
+      if (!choices.some((choice) => choice.value === String(value))) errors[field] = ['is not one of the choices'];
+    }
+    if (Object.keys(errors).length > 0) throw new AdminFieldError(errors);
   }
 
   private async runOnResource(entry: RegisteredResource, action: RegisteredAction, input: ActionInput, ctx: AdminContext): Promise<ActionResourceResult> {

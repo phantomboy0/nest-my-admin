@@ -17,6 +17,7 @@ import { activeFilterCount, clearFilters, filterKey, hasActiveFilters, restoreFi
 import { useIsMobile } from '@/lib/use-media';
 import { cn } from '@/lib/utils';
 import { enumLabel } from '@/lib/widgets';
+import { Select } from '@/components/ui/select';
 
 interface FilterBarProps {
   schema: ResourceSchema;
@@ -26,8 +27,6 @@ interface FilterBarProps {
   trailing?: ReactNode;
 }
 
-export const selectClass =
-  'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
 const RANGE_TYPES = new Set(['number', 'decimal', 'bigint', 'date', 'datetime']);
 
 export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps) {
@@ -190,16 +189,15 @@ function SortSelect({ schema, params, onChange }: FilterBarProps) {
   return (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor="list-sort">{t('filters.sortBy')}</Label>
-      <select id="list-sort" className={selectClass} value={current} onChange={(event) => onChange({ sort: event.target.value, page: null, after: null })}>
-        {schema.list.sortable.flatMap((name) => [
-          <option key={name} value={name}>
-            {t('filters.ascending', { name: label(name) })}
-          </option>,
-          <option key={`-${name}`} value={`-${name}`}>
-            {t('filters.descending', { name: label(name) })}
-          </option>,
+      <Select
+        id="list-sort"
+        value={current}
+        onValueChange={(sort) => onChange({ sort, page: null, after: null })}
+        options={schema.list.sortable.flatMap((name) => [
+          { value: name, label: t('filters.ascending', { name: label(name) }) },
+          { value: `-${name}`, label: t('filters.descending', { name: label(name) }) },
         ])}
-      </select>
+      />
     </div>
   );
 }
@@ -234,16 +232,18 @@ function NullFilter({ field, params, onChange }: Pick<FilterControlProps, 'field
   const t = useT();
   const key = filterKey(field.name, 'isNull');
   return (
-    <select
+    <Select
       aria-label={t('filters.emptyValues', { field: field.label })}
-      className={cn(selectClass, 'h-7 text-xs text-muted-foreground')}
+      size="sm"
+      className="text-muted-foreground"
       value={params.get(key) ?? ''}
-      onChange={(event) => onChange({ [key]: event.target.value || null })}
-    >
-      <option value="">{t('filters.any')}</option>
-      <option value="true">{t('filters.onlyEmpty')}</option>
-      <option value="false">{t('filters.hideEmpty')}</option>
-    </select>
+      onValueChange={(value) => onChange({ [key]: value || null })}
+      options={[
+        { value: '', label: t('filters.any') },
+        { value: 'true', label: t('filters.onlyEmpty') },
+        { value: 'false', label: t('filters.hideEmpty') },
+      ]}
+    />
   );
 }
 
@@ -321,14 +321,12 @@ function MainFilterControl({ inline, touch, resource, field, operators, params, 
     return (
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={id}>{field.label}</Label>
-        <select id={id} className={selectClass} value={params.get(key) ?? ''} onChange={(event) => onChange({ [key]: event.target.value || null })}>
-          <option value="">{t('common.all')}</option>
-          {options.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
+        <Select
+          id={id}
+          value={params.get(key) ?? ''}
+          onValueChange={(value) => onChange({ [key]: value || null })}
+          options={[{ value: '', label: t('common.all') }, ...options.map(([value, label]) => ({ value, label }))]}
+        />
       </div>
     );
   }

@@ -537,6 +537,13 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 - **Selections.** A bulk action runs on up to 100 records.
   - By default each record gets its own transaction: the answer is `{ ok, failed: [{ id, code, message }], message? }`, and one failure does not stop the others. The list shows how many ran and why the others did not.
   - `atomic: true` runs them all in one transaction: every record is checked first, and one failure is the answer, with nothing applied. It needs the admin's transactions (boot fails with `transactions: false`). The confirmation says "all or nothing".
+- **A dropdown from live data.** `choices: { field: 'methodName' }` turns an input field into a dropdown whose options a method of the resource gives when the dialog opens: the branches of a repository, the services a provider offers today.
+  ```ts
+  @AdminAction({ target: 'resource', input: DeployDto, choices: { backendRef: 'backendBranches' } })
+  async deploy(input: DeployDto) { … }
+  async backendBranches(ctx: AdminContext) { return this.github.branches('api'); } // strings, or { value, label }
+  ```
+  The method runs for whoever may run the action (`GET …/actions/:action/choices/:field`), sync or async. A run reads the choices again and refuses a value that is not one of them (422 on the field). The field keeps its `default` while the list loads. Field names are checked against `input` by the types and at boot, and the method must exist.
 - **Picking a record.** `@AdminField({ pickFrom: 'categoryId' })` on an input property shows the same picker as the resource's own relation field `categoryId`; the property receives the chosen id (validate it with `@IsInt()`, and check it exists in the method).
 - **Refusing.** Throw from the method:
   - an `HttpException` below 500 answers with its status and message (409 is `CONFLICT`, 400 is `BUSINESS_RULE`), and the UI shows the message;
@@ -968,6 +975,10 @@ Things hosts tend to write by hand that the admin already does:
 - **A shared base class with services.** Inject them as properties (`@Inject(CatalogOwnership) protected readonly ownership: CatalogOwnership`): Nest injects properties of a base class into every subclass, so subclasses need no constructor of their own just to pass a service up.
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
+
+## Upgrading to 0.9.1
+
+Nothing to change. New: `@AdminAction({ choices })` (see Actions): an input field whose dropdown a resource method fills when the dialog opens, re-checked when the action runs. Every dropdown in the dashboard (forms, filters, sort, page size, inline cell edits, language, roles, audit, debugger, the editor's heading level) is now the dashboard's own list, styled like the rest and right to left in Persian, instead of the browser's native `<select>`. Tests that drove a native select (`selectOption`) click the field, then the option (`getByRole('option', { name })`).
 
 ## Upgrading to 0.9.0
 

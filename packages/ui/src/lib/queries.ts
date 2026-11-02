@@ -57,6 +57,10 @@ export const useOptions = (resource: string, field: string, search: string, enab
     placeholderData: keepPreviousData,
   });
 
+/** An action input's dropdown, read when its dialog opens (fresh each time: branches, files and the like change). */
+export const useActionChoices = (resource: string, action: string, field: string) =>
+  useQuery({ queryKey: ['action-choices', resource, action, field], queryFn: () => api.actionChoices(resource, action, field), staleTime: 0, gcTime: 0, retry: 1 });
+
 /** Titles of related records known only by id (relation filters restored from the URL). */
 export const useRelationRefs = (resource: string, field: string, ids: string[]) =>
   useQuery({

@@ -80,6 +80,7 @@ export function ActionDialog({ resource, action, count, subject, running, error,
         errors={fieldErrors[name]}
         constraints={action.input.constraints[name]}
         idPrefix="action"
+        action={action.name}
         onChange={change}
       />
     );

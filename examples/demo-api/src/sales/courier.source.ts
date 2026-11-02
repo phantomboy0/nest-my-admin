@@ -33,6 +33,10 @@ export class UpdateCourierDto {
 
 export class QuoteDto {
   @AdminField({ label: { en: 'Weight (kg)', fa: 'وزن (کیلو)' } }) @IsInt() @Min(1) kg: number;
+  @AdminField({ label: { en: 'Speed', fa: 'سرعت' }, default: 'standard', help: { en: 'The provider’s services, read when the dialog opens.', fa: 'خدمات شرکت حمل، هنگام باز شدن پنجره خوانده می‌شود.' } })
+  @IsOptional()
+  @IsString()
+  speed?: string;
 }
 
 /** The provider: rows live in its memory, as they would behind an HTTP API. */
@@ -79,8 +83,18 @@ export class CourierAdmin extends AdminSourceBase<CourierRow, string> {
     provider.delete(code);
   }
 
-  @AdminAction({ label: { en: 'Quote', fa: 'استعلام قیمت' }, input: QuoteDto })
+  /** The quote's speed is a dropdown of the services the provider offers today (`choices`). */
+  @AdminAction({ label: { en: 'Quote', fa: 'استعلام قیمت' }, input: QuoteDto, choices: { speed: 'services' } })
   async quote(row: CourierRow, input: QuoteDto): Promise<ActionOutcome> {
-    return { message: `${row.name}: ${(row.pricePerKg * input.kg).toLocaleString('en-US')} for ${input.kg} kg` };
+    const express = input.speed === 'express';
+    return { message: `${row.name}: ${(row.pricePerKg * input.kg * (express ? 2 : 1)).toLocaleString('en-US')} for ${input.kg} kg${express ? ' (express)' : ''}` };
+  }
+
+  /** What the provider offers: asked when the Quote dialog opens. */
+  async services() {
+    return [
+      { value: 'standard', label: { en: 'Standard', fa: 'عادی' } },
+      { value: 'express', label: { en: 'Express (×2)', fa: 'فوری (×۲)' } },
+    ];
   }
 }

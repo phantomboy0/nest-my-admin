@@ -14,6 +14,7 @@ import { runtimeConfig } from '@/lib/config';
 import { useSession } from '@/lib/queries';
 import { catalogCodes, grants, togglePermission } from '@/lib/role-draft';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
 
 type FieldRule = NonNullable<RbacRole['fields']>[string][string];
 type ScopedOp = 'view' | 'update' | 'delete';
@@ -177,24 +178,25 @@ function RoleEditor({ catalog, role }: { catalog: RbacCatalog; role?: RbacRole }
                                   <div className="flex flex-col gap-2">
                                     <h3 className="text-xs font-medium text-muted-foreground">{t('rbac.fields')}</h3>
                                     {resource.fields.map((field) => (
-                                      <label key={field.name} className="flex items-center justify-between gap-3">
+                                      <div key={field.name} className="flex items-center justify-between gap-3">
                                         <span>
                                           {field.label}
                                           {field.restricted && <span className="ms-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-300">{t('rbac.restricted')}</span>}
                                         </span>
-                                        <select
-                                          className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+                                        <Select
+                                          className="w-auto min-w-36"
                                           value={fields[resource.name]?.[field.name] ?? ''}
                                           disabled={readOnly}
                                           aria-label={t('rbac.fieldRule', { field: field.label })}
-                                          onChange={(event) => setField(resource.name, field.name, event.target.value as FieldRule | '')}
-                                        >
-                                          <option value="">{t(field.restricted ? 'rbac.rule.defaultHidden' : 'rbac.rule.default')}</option>
-                                          <option value="hidden">{t('rbac.rule.hidden')}</option>
-                                          <option value="readonly">{t('rbac.rule.readonly')}</option>
-                                          <option value="edit">{t('rbac.rule.edit')}</option>
-                                        </select>
-                                      </label>
+                                          onValueChange={(value) => setField(resource.name, field.name, value as FieldRule | '')}
+                                          options={[
+                                            { value: '', label: t(field.restricted ? 'rbac.rule.defaultHidden' : 'rbac.rule.default') },
+                                            { value: 'hidden', label: t('rbac.rule.hidden') },
+                                            { value: 'readonly', label: t('rbac.rule.readonly') },
+                                            { value: 'edit', label: t('rbac.rule.edit') },
+                                          ]}
+                                        />
+                                      </div>
                                     ))}
                                   </div>
                                   <div className="flex flex-col gap-3">

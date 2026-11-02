@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { useLocale, type MessageKey } from '@/i18n';
 import { api, describeError } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
 
 type Level = 'hidden' | 'view' | 'edit';
 const LEVEL_KEY: Record<Level, MessageKey> = { hidden: 'rbac.rule.hidden', view: 'rbac.rule.readonly', edit: 'rbac.rule.edit' };
@@ -79,14 +80,13 @@ export function DebuggerPage() {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="debug-resource">{t('debugger.resource')}</Label>
-          <select id="debug-resource" className="h-9 rounded-md border bg-background px-2 text-sm" value={draftResource} onChange={(event) => setDraftResource(event.target.value)}>
-            <option value="">—</option>
-            {(catalog.data?.resources ?? []).map((item) => (
-              <option key={item.name} value={item.name}>
-                {item.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            id="debug-resource"
+            className="h-9"
+            value={draftResource}
+            onValueChange={setDraftResource}
+            options={[{ value: '', label: '—' }, ...(catalog.data?.resources ?? []).map((item) => ({ value: item.name, label: item.label }))]}
+          />
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="debug-record">{t('debugger.record')}</Label>

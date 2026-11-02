@@ -34,6 +34,8 @@ export interface FieldSchema {
   integer?: boolean;
   /** An action input picked like this relation field of the resource (`@AdminField({ pickFrom })`): its options endpoint. */
   optionsField?: string;
+  /** An action input with a dropdown whose options come from `GET /resources/:name/actions/:action/choices/:field` (`@AdminAction({ choices })`). */
+  choices?: true;
   /** Set when `type` is `relation`. */
   relation?: RelationSchema;
   /** Set when `type` is `object`: the group's fields, named relative to it (`city` in `address`). */
@@ -1007,4 +1009,9 @@ export interface AdminRuntimeConfig {
   currency?: { unit: LocalizedLabel; position: 'after' | 'before' };
   /** UI texts the host rewords through `translate` (`ui.<key>`), per locale; only the overridden keys. */
   messages?: Record<string, Record<string, string>>;
+}
+
+/** `GET /resources/:name/actions/:action/choices/:field`: the options of an action input's dropdown. */
+export interface ActionChoicesResponse {
+  items: Array<{ value: string; label: string }>;
 }

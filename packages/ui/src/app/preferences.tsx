@@ -8,6 +8,7 @@ import { ACCENT_EVENT, THEME_EVENT, applyAccent, flipTheme, readAccent, readThem
 import { api, describeError } from '@/lib/api';
 import { useSession } from '@/lib/queries';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
 
 const LANGUAGE_NAMES: Record<string, string> = { en: 'English', fa: 'فارسی' };
 
@@ -48,21 +49,16 @@ export function LocaleSwitch() {
   const { t, locale, locales, setLocale } = useLocale();
   if (locales.length < 2) return null;
   return (
-    <label className="flex items-center gap-1.5 text-[13px]">
+    <div className="flex items-center gap-1.5 text-[13px]">
       <Languages className="size-4 text-muted-foreground" aria-hidden />
-      <span className="sr-only">{t('shell.language')}</span>
-      <select
-        className="h-8 flex-1 rounded-control border border-input bg-card px-2 text-[13px]"
+      <Select
+        aria-label={t('shell.language')}
+        className="flex-1"
         value={locale}
-        onChange={(event) => setLocale(event.target.value)}
-      >
-        {locales.map((code) => (
-          <option key={code} value={code} lang={code}>
-            {LANGUAGE_NAMES[code] ?? code}
-          </option>
-        ))}
-      </select>
-    </label>
+        onValueChange={setLocale}
+        options={locales.map((code) => ({ value: code, label: LANGUAGE_NAMES[code] ?? code, lang: code }))}
+      />
+    </div>
   );
 }
 

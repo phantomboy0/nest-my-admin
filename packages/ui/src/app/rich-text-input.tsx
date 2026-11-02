@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useT } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { Select } from '@/components/ui/select';
 
 export interface RichTextInputProps {
   id: string;
@@ -184,23 +185,18 @@ function Toolbar({ editor, label, images, onImages }: ToolbarProps) {
   return (
     <div className="border-b">
       <div role="toolbar" aria-label={label} className="flex flex-wrap items-center gap-0.5 p-1">
-        <select
+        <Select
           aria-label={t('editor.paragraph')}
-          className="h-7 rounded-md border border-input bg-transparent px-1.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          value={state.block}
-          onChange={(event) => {
-            const level = Number(event.target.value) as 0 | 2 | 3 | 4;
+          size="sm"
+          className="w-auto min-w-28"
+          value={String(state.block)}
+          onValueChange={(value) => {
+            const level = Number(value) as 0 | 2 | 3 | 4;
             if (level === 0) chain().setParagraph().run();
             else chain().setHeading({ level }).run();
           }}
-        >
-          <option value={0}>{t('editor.paragraph')}</option>
-          {[2, 3, 4].map((level) => (
-            <option key={level} value={level}>
-              {t('editor.heading', { level })}
-            </option>
-          ))}
-        </select>
+          options={[{ value: '0', label: t('editor.paragraph') }, ...[2, 3, 4].map((level) => ({ value: String(level), label: t('editor.heading', { level }) }))]}
+        />
         <Tool label={t('editor.bold')} pressed={state.bold} onClick={() => chain().toggleBold().run()} icon={<Bold />} />
         <Tool label={t('editor.italic')} pressed={state.italic} onClick={() => chain().toggleItalic().run()} icon={<Italic />} />
         <Tool label={t('editor.strike')} pressed={state.strike} onClick={() => chain().toggleStrike().run()} icon={<Strikethrough />} />
