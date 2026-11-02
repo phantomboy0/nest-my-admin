@@ -92,6 +92,7 @@ const plain = process.env.NMA_DEMO_PLAIN === '1';
         // The E2E run signs in many times from one address within a minute (the default allows 20).
         ...(process.env.NMA_LOGIN_ATTEMPTS_PER_MINUTE ? { loginAttemptsPerMinute: Number(process.env.NMA_LOGIN_ATTEMPTS_PER_MINUTE) } : {}),
         issuer: 'Demo shop',
+        ...(process.env.NMA_ISSUER_IMAGE ? { issuerImage: process.env.NMA_ISSUER_IMAGE } : {}),
       }),
     }),
     CatalogModule,

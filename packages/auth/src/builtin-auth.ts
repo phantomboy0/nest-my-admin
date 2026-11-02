@@ -54,13 +54,24 @@ export interface BuiltinAuthOptions {
   secretKey?: string;
   /** The name authenticator apps show next to the code. Default `nest-my-admin`. */
   issuer?: string;
+  /** An http(s) URL of the logo, sent as `image=` in the two-factor QR code. Only some authenticator apps read it; Ente Auth and others use their own icons, matched on `issuer`. */
+  issuerImage?: string;
   /** @internal Tests: the clock and a cheaper hash. */
   now?: () => Date;
   /** @internal */
   scrypt?: typeof SCRYPT;
 }
 
-type Resolved = Required<Omit<BuiltinAuthOptions, 'dataSource' | 'bootstrapSuperuser' | 'lockout' | 'password' | 'now' | 'scrypt' | 'secretKey'>> & {
+function checkIssuerImage(image: string | undefined): string | undefined {
+  if (image === undefined) return undefined;
+  if (!URL.canParse(image) || !['http:', 'https:'].includes(new URL(image).protocol)) {
+    throw new Error(`builtinAuth: issuerImage must be an absolute http(s) URL, got "${image}"`);
+  }
+  return image;
+}
+
+type Resolved = Required<Omit<BuiltinAuthOptions, 'dataSource' | 'bootstrapSuperuser' | 'lockout' | 'password' | 'now' | 'scrypt' | 'secretKey' | 'issuerImage'>> & {
+  issuerImage: string | undefined;
   lockoutAttempts: number;
   lockoutMs: number;
   password: PasswordPolicy;
@@ -117,6 +128,7 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
       now: options.now ?? (() => new Date()),
       scrypt: options.scrypt ?? SCRYPT,
       issuer: options.issuer ?? 'nest-my-admin',
+      issuerImage: checkIssuerImage(options.issuerImage),
     };
     this.box = new SecretBox(options.secretKey);
     this.limiter = new RateLimiter(this.options.loginAttemptsPerMinute, 60_000);
@@ -298,7 +310,7 @@ export class BuiltinAuthAdapter implements AdminAuthAdapter {
     if (!this.box.encrypts) this.warnOnce('two-factor keys are stored unencrypted; set builtinAuth({ secretKey }) to encrypt them');
     const secret = newTotpSecret();
     await this.users.update({ id: user.id }, { totpPending: this.box.seal(base32Encode(secret)) });
-    return { secret: base32Encode(secret), otpauthUrl: otpauthUrl(this.options.issuer, user.username, secret) };
+    return { secret: base32Encode(secret), otpauthUrl: otpauthUrl(this.options.issuer, user.username, secret, this.options.issuerImage) };
   }
 
   async confirmTwoFactor(principal: AdminPrincipal, code: string): Promise<{ recoveryCodes: string[] }> {
