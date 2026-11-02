@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { choose, expectChosen } from '../shell.js';
 
 /** Couriers are an @AdminSource: rows from a (pretend) provider, not a table. The pages work as on any resource. */
 test('a source resource: list, search, filter, create, edit, action, delete', async ({ page, isMobile }) => {
@@ -22,7 +23,7 @@ test('a source resource: list, search, filter, create, edit, action, delete', as
   await page.getByRole('link', { name: 'New' }).click();
   await page.getByLabel('Code').fill('snp');
   await page.getByLabel('Name').fill('Snapp Box');
-  await page.getByLabel('Zone').selectOption('domestic');
+  await choose(page.getByLabel('Zone'), 'domestic');
   await page.getByLabel('Price per kg').fill('30000');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/courier$/);
@@ -39,9 +40,10 @@ test('a source resource: list, search, filter, create, edit, action, delete', as
   await page.getByRole('button', { name: 'Quote' }).click();
   await page.getByRole('dialog').getByLabel('Weight (kg)').fill('3');
   const speed = page.getByRole('dialog').getByLabel('Speed');
-  await expect(speed).toHaveValue('standard');
-  await expect(speed.getByRole('option', { name: 'Express (×2)' })).toBeAttached();
-  await speed.selectOption('express');
+  await expectChosen(speed, 'standard');
+  await speed.click();
+  await page.getByRole('option', { name: 'Express (×2)' }).click();
+  await expectChosen(speed, 'express');
   await page.getByRole('dialog').getByRole('button', { name: 'Quote' }).click();
   await expect(page.getByText('Snapp Box: 180,000 for 3 kg (express)')).toBeVisible();
 

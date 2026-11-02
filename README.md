@@ -976,9 +976,9 @@ Things hosts tend to write by hand that the admin already does:
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
 
-## Upgrading to 0.10.0
+## Upgrading to 0.9.1
 
-Nothing to change. New: `@AdminAction({ choices })` (see Actions): an input field whose dropdown a resource method fills when the dialog opens, re-checked when the action runs.
+Nothing to change. New: `@AdminAction({ choices })` (see Actions): an input field whose dropdown a resource method fills when the dialog opens, re-checked when the action runs. Every dropdown in the dashboard (forms, filters, sort, page size, inline cell edits, language, roles, audit, debugger, the editor's heading level) is now the dashboard's own list, styled like the rest and right to left in Persian, instead of the browser's native `<select>`. Tests that drove a native select (`selectOption`) click the field, then the option (`getByRole('option', { name })`).
 
 ## Upgrading to 0.9.0
 

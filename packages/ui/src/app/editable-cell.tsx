@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AdminRecord, FieldSchema, ListResponse, ResourceSchema } from '@nest-my-admin/core/contract';
 import { useT } from '@/i18n';
@@ -10,6 +10,7 @@ import { toFormValues, toPayload } from '@/lib/form-values';
 import { validatePayload } from '@/lib/validate';
 import { cn } from '@/lib/utils';
 import { enumLabel } from '@/lib/widgets';
+import { Select } from '@/components/ui/select';
 
 interface EditableCellProps {
   schema: ResourceSchema;
@@ -32,6 +33,7 @@ export function EditableCell({ schema, item, field }: EditableCellProps) {
   const initial = toFormValues([field], item)[field.name] as string | boolean;
   const [draft, setDraft] = useState<string | boolean>(initial);
   const [error, setError] = useState<string | null>(null);
+  const picked = useRef(false);
 
   const save = useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
@@ -67,7 +69,7 @@ export function EditableCell({ schema, item, field }: EditableCellProps) {
     save.mutate(payload);
   }
 
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       commit();
@@ -109,23 +111,29 @@ export function EditableCell({ schema, item, field }: EditableCellProps) {
     const options: Array<[string, string]> =
       field.type === 'boolean' ? [['true', t('common.yes')], ['false', t('common.no')]] : (field.enumValues ?? []).map((value) => [value, enumLabel(field, value)]);
     control = (
-      <select
-        {...common}
+      <Select
+        aria-label={field.label}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        autoFocus
+        defaultOpen
+        disabled={save.isPending}
+        size="sm"
+        className="min-w-20"
         value={String(draft)}
-        onChange={(event) => {
-          const value = field.type === 'boolean' ? event.target.value === 'true' : event.target.value;
+        onValueChange={(raw) => {
+          picked.current = true;
+          const value = field.type === 'boolean' ? raw === 'true' : raw;
           setDraft(value);
           commit(value);
         }}
-        onBlur={() => setEditing(false)}
-      >
-        {field.nullable && field.type === 'enum' && <option value="">{t('common.empty')}</option>}
-        {options.map(([value, label]) => (
-          <option key={value} value={value}>
-            {label}
-          </option>
-        ))}
-      </select>
+        // Closed without a pick (Escape, a click outside): back to the value. A pick saves, and the save ends editing.
+        onOpenChange={(open) => {
+          if (open) picked.current = false;
+          else if (!picked.current) setEditing(false);
+        }}
+        options={[...(field.nullable && field.type === 'enum' ? [{ value: '', label: t('common.empty') }] : []), ...options.map(([value, label]) => ({ value, label }))]}
+      />
     );
   } else if (field.type === 'date') {
     // Saved when a day is picked, or on Enter / leaving the text; Escape cancels.

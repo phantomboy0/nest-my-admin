@@ -1,4 +1,4 @@
-import { openAccountMenu } from './shell.js';
+import { choose, expectChosen, openAccountMenu } from './shell.js';
 import { expect, test, type Browser, type Page } from '@playwright/test';
 
 /** The session's CSRF token as a header, for writes through `page.request` (it shares the signed-in cookie). */
@@ -200,7 +200,7 @@ test('the audit page lists everything and filters by actor, kept in the URL (M4-
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(page).toHaveURL(/\/admin\/-\/audit$/);
   await expect(page.getByLabel('Actor (user id)')).toHaveValue('');
-  await page.getByLabel('Resource', { exact: true }).selectOption('order');
+  await choose(page.getByLabel('Resource', { exact: true }), 'order');
   await page.getByLabel('Record id').fill(decodeURIComponent(id));
   await page.getByLabel('Record id').press('Enter');
   await expect(page).toHaveURL(/resource=order/);
@@ -217,11 +217,11 @@ test('the audit page lists everything and filters by actor, kept in the URL (M4-
   await expect(entries(page)).toHaveCount(1);
   await page.reload();
   await expect(entries(page)).toHaveCount(1);
-  await expect(page.getByLabel('Resource', { exact: true })).toHaveValue('order');
+  await expectChosen(page.getByLabel('Resource', { exact: true }), 'order');
   await expect(page.getByLabel('Actor (user id)')).toHaveValue(adminId);
 
   // Another resource drops the record id; what is left is everything the admin did, and only that.
-  await page.getByLabel('Resource', { exact: true }).selectOption('');
+  await choose(page.getByLabel('Resource', { exact: true }), '');
   await expect(page.getByLabel('Record id')).toBeDisabled();
   await expect(page).not.toHaveURL(/record=/);
   await expect(entries(page).first()).toBeVisible();

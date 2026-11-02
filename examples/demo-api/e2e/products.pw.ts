@@ -1,4 +1,4 @@
-import { openAccountMenu } from './shell.js';
+import { choose, openAccountMenu } from './shell.js';
 import { expect, test, type Page } from '@playwright/test';
 import { totpCode } from '@nest-my-admin/auth';
 
@@ -70,7 +70,7 @@ test('deep link refresh works and errors are shown where they belong', async ({ 
   await expect(page.locator('#field-price-error')).toContainText('decimal');
 
   await page.getByLabel('Price').fill('10');
-  await page.getByLabel('Status').selectOption('active');
+  await choose(page.getByLabel('Status'), 'active');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Active products need stock');
   await expect(page).toHaveURL(/\/admin\/product\/new$/);
@@ -324,7 +324,7 @@ test('the stock log pages forward and back with a cursor', async ({ page, isMobi
 test('switching to Persian turns the page right-to-left and survives a reload', async ({ page, isMobile }) => {
   await page.goto('/admin');
   await openAccountMenu(page);
-  await page.getByLabel('Language').selectOption('fa');
+  await choose(page.getByLabel('Language'), 'fa');
   await page.keyboard.press('Escape');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.locator('html')).toHaveAttribute('lang', 'fa');
@@ -385,7 +385,7 @@ test('bulk delete reports what it could not delete', async ({ page, isMobile }, 
     await page.getByLabel('Sku').fill(`${name.replace(' ', '-')}-${tag}`);
     await page.getByLabel('Price').fill('1');
     await page.getByLabel('Stock', { exact: true }).fill('1');
-    await page.getByLabel('Status').selectOption(status);
+    await choose(page.getByLabel('Status'), status);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page).toHaveURL(/\/admin\/product$/);
   }
@@ -426,7 +426,7 @@ test('cells are edited in place; a refused change shows why and keeps the value 
 
   const row = page.getByRole('row').filter({ hasText: sku });
   await row.getByRole('button', { name: 'Edit Status: draft' }).click();
-  await row.getByLabel('Status').selectOption('active');
+  await choose(row.getByLabel('Status'), 'active');
   await expect(row.getByRole('alert')).toContainText('Active products need stock');
   await expect(row.getByRole('button', { name: 'Edit Status: draft' })).toBeVisible();
 
@@ -486,13 +486,15 @@ test('labels, help and enum labels follow the language; statuses are badges (M2-
   await expect(row.locator('[data-color="gray"]')).toHaveText('Archived');
   await page.goto('/admin/product/new');
   await openAccountMenu(page);
-  await page.getByLabel('Language').selectOption('fa');
+  await choose(page.getByLabel('Language'), 'fa');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('textbox', { name: 'نام', exact: true })).toBeVisible();
   await expect(page.getByText('نشانی محصول در فروشگاه.')).toBeVisible();
   const status = page.getByLabel('وضعیت');
-  await expect(status.getByRole('option', { name: 'پیش‌نویس' })).toHaveAttribute('value', 'draft');
   await expect(page.getByRole('tab', { name: 'کاتالوگ' })).toBeVisible();
+  await status.click();
+  await expect(page.getByRole('option', { name: 'پیش‌نویس' })).toHaveAttribute('data-value', 'draft');
+  await page.keyboard.press('Escape');
 });
 
 test('money is grouped, the slug follows the name, and showIf hides a field that is then not sent (M2-3 Review Focus 3)', async ({ page }, testInfo) => {
@@ -507,13 +509,13 @@ test('money is grouped, the slug follows the name, and showIf hides a field that
   await expect(page.getByLabel('Price')).toHaveValue('1,234.50');
 
   await expect(page.getByLabel('Released on', { exact: true })).toHaveCount(0);
-  await page.getByLabel('Status').selectOption('active');
+  await choose(page.getByLabel('Status'), 'active');
   await page.getByLabel('Released on', { exact: true }).fill('2024-05-01');
-  await page.getByLabel('Status').selectOption('draft');
+  await choose(page.getByLabel('Status'), 'draft');
   await expect(page.getByLabel('Released on', { exact: true })).toHaveCount(0);
-  await page.getByLabel('Status').selectOption('active');
+  await choose(page.getByLabel('Status'), 'active');
   await expect(page.getByLabel('Released on', { exact: true })).toHaveValue('2024-05-01'); // back with its value
-  await page.getByLabel('Status').selectOption('draft');
+  await choose(page.getByLabel('Status'), 'draft');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/admin\/product$/);
 
@@ -657,7 +659,7 @@ test('phones: list.mobile cards, infinite scroll, sort in the drawer and select 
   await expect(brass.locator('[data-color="gray"]')).toHaveText('Archived');
 
   await page.getByRole('button', { name: 'Filters', exact: true }).click();
-  await page.getByLabel('Sort by').selectOption('-price');
+  await choose(page.getByLabel('Sort by'), '-price');
   await page.getByRole('button', { name: 'Show results' }).click();
   await expect(page).toHaveURL(/sort=-price/);
   await expect(cards.first()).toContainText('Brass lamp'); // a new sort starts over from the first page
@@ -859,7 +861,7 @@ test.describe('administration: users, groups and roles', () => {
     await page.getByRole('checkbox', { name: 'View Product' }).check();
     await page.getByRole('checkbox', { name: 'Change Product' }).check();
     await page.getByRole('button', { name: 'Fields and scopes of Product' }).click();
-    await page.getByLabel('Access to Price').selectOption('readonly');
+    await choose(page.getByLabel('Access to Price'), 'readonly');
     await page.getByRole('group', { name: 'Change:' }).getByRole('checkbox', { name: 'drafts' }).check();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page).toHaveURL(/\/admin\/-\/roles\/reviewer$/);
@@ -926,7 +928,7 @@ test.describe('permission debugger and view-as (M3-4)', () => {
     await page.goto('/admin/-/debugger');
     await page.getByLabel('User', { exact: true }).fill('editor');
     await page.getByRole('button', { name: /Demo Editor/ }).click();
-    await page.getByLabel('Resource', { exact: true }).selectOption('product');
+    await choose(page.getByLabel('Resource', { exact: true }), 'product');
     await page.getByRole('button', { name: 'Explain' }).click();
     const explanation = page.getByTestId('explanation');
     await expect(explanation.getByRole('heading', { name: 'Roles · Demo Editor' })).toBeVisible();
@@ -1044,7 +1046,7 @@ test.describe('two-factor sign-in (M3-4 Review Focus 3)', () => {
 
 test('Gregorian dates use the admin’s own calendar too (weeks from Monday)', async ({ page }) => {
   await page.goto('/admin/product/new');
-  await page.getByLabel('Status').selectOption('active');
+  await choose(page.getByLabel('Status'), 'active');
   await page.getByLabel('Released on', { exact: true }).fill('2024-05-01');
   await page.getByRole('button', { name: 'Choose Released on from a calendar' }).click();
   const calendar = page.getByRole('dialog', { name: 'Released on calendar' });

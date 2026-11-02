@@ -27,6 +27,7 @@ import { isRef } from '@/lib/form-values';
 import { encodeRecordId } from '@/lib/record-id';
 import { activeTab, hasActiveFilters, listQueryFromUrl, pageSizeOptions, paging, rangeText, tabChanges, withChanges, type ParamChanges } from '@/lib/list-state';
 import { useList, useSchema } from '@/lib/queries';
+import { Select } from '@/components/ui/select';
 
 export function ListPage() {
   const { resource = '' } = useParams();
@@ -427,20 +428,16 @@ export function ListPage() {
             <span>{rangeText(list.data, keyset ? 1 : page, items.length) || pager.summary}</span>
             <div className="ms-auto flex items-center gap-2">
               {!keyset && (
-                <label className="flex items-center gap-2">
-                  {t('list.rowsPerPage')}
-                  <select
-                    className="h-8 rounded-lg border border-input bg-card px-2 text-[12.5px] text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                    value={list.data?.pageSize ?? s.list.pageSize}
-                    onChange={(event) => updateParams({ pageSize: Number(event.target.value) === s.list.pageSize ? null : event.target.value })}
-                  >
-                    {pageSizeOptions(s.list.pageSize).map((size) => (
-                      <option key={size} value={size}>
-                        {formatNumber(size)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <div className="flex items-center gap-2">
+                  <span id="list-page-size-label">{t('list.rowsPerPage')}</span>
+                  <Select
+                    aria-label={t('list.rowsPerPage')}
+                    className="w-auto min-w-16"
+                    value={String(list.data?.pageSize ?? s.list.pageSize)}
+                    onValueChange={(value) => updateParams({ pageSize: Number(value) === s.list.pageSize ? null : value })}
+                    options={pageSizeOptions(s.list.pageSize).map((size) => ({ value: String(size), label: formatNumber(size) }))}
+                  />
+                </div>
               )}
               <span>{pager.label}</span>
               <Button variant="outline" size="icon-sm" aria-label={t('list.previousPage')} disabled={!hasPrevious} onClick={previousPage}>
