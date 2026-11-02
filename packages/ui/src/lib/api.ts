@@ -1,4 +1,5 @@
 import type {
+  ActionChoicesResponse,
   AccountSession,
   ActionRequest,
   ActionResult,
@@ -172,6 +173,8 @@ export const api = {
   /** `version` (the record's @VersionColumn value) makes the server refuse with 409 if the record changed since. */
   remove: (resource: string, id: string, version?: unknown) =>
     request<void>(`/resources/${enc(resource)}/${enc(id)}`, { method: 'DELETE', headers: ifMatch(version) }),
+  /** The dropdown of an action input (`@AdminAction({ choices })`). */
+  actionChoices: (resource: string, action: string, field: string) => request<ActionChoicesResponse>(`/resources/${enc(resource)}/actions/${enc(action)}/choices/${enc(field)}`),
   /** Picker options of a relation field: matching `search`, or the records with these `ids`. */
   options: (resource: string, field: string, query: { search?: string; ids?: Array<string | number>; values?: string; parent?: string }) => {
     const params = new URLSearchParams();

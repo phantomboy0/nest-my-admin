@@ -8,6 +8,8 @@ import { ColorInput, JsonInput, MoneyInput, PlainTextarea, RadioInput, SwitchInp
 import { Label } from '@/components/ui/label';
 import { useT } from '@/i18n';
 import type { FormValue } from '@/lib/form-values';
+import { describeError } from '@/lib/api';
+import { useActionChoices } from '@/lib/queries';
 import { enumLabel, widgetOf } from '@/lib/widgets';
 
 interface FieldInputProps {
@@ -29,6 +31,8 @@ interface FieldInputProps {
   parent?: string;
   /** The label is for screen readers only (a table inline names the column in its header). */
   hideLabel?: boolean;
+  /** In an action's dialog: the action, whose endpoint gives the options of `choices` fields. */
+  action?: string;
 }
 
 // Tiptap is only downloaded by forms that have a rich-text field.
@@ -48,7 +52,7 @@ const selectClass =
   'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive';
 
 /** One field of a form: its label, the widget (`field.widget`, else inferred from the type), help and errors. */
-export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange, onBusy, idPrefix = 'field', parent, hideLabel }: FieldInputProps) {
+export function FieldInput({ resource, field, value, required, errors, constraints, formValues, onChange, onBusy, idPrefix = 'field', parent, hideLabel, action }: FieldInputProps) {
   const id = `${idPrefix}-${field.name}`;
   const errorId = `${id}-error`;
   const helpId = `${id}-help`;
@@ -105,7 +109,9 @@ export function FieldInput({ resource, field, value, required, errors, constrain
   }
 
   let control: ReactNode;
-  if (field.type === 'relation') {
+  if (field.choices && action) {
+    control = <ChoicesSelect id={id} resource={resource} action={action} field={field} value={text} onChange={onChange} aria={aria} />;
+  } else if (field.type === 'relation') {
     control = (
       <RelationInput
         id={id}
@@ -205,5 +211,36 @@ function FieldErrors({ id, errors }: { id: string; errors?: string[] }) {
     <p id={id} className="text-sm text-destructive">
       {errors.join(' ')}
     </p>
+  );
+}
+
+/**
+ * A dropdown whose options the server lists when the dialog opens (`@AdminAction({ choices })`). The value it
+ * starts with (a default) is kept as an option while the list loads, so it is never silently dropped.
+ */
+function ChoicesSelect({ id, resource, action, field, value, onChange, aria }: { id: string; resource: string; action: string; field: FieldSchema; value: string; onChange: (value: FormValue) => void; aria: Record<string, unknown> }) {
+  const t = useT();
+  const choices = useActionChoices(resource, action, field.name);
+  const items = choices.data?.items ?? [];
+  const shown = value !== '' && !items.some((item) => item.value === value) ? [{ value, label: value }, ...items] : items;
+  return (
+    <div className="flex flex-col gap-1">
+      <select id={id} className={selectClass} value={value} disabled={choices.isPending} aria-busy={choices.isPending || undefined} onChange={(e) => onChange(e.target.value)} {...aria}>
+        <option value="">{choices.isPending ? t('common.loading') : (field.placeholder ?? '—')}</option>
+        {shown.map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+      {choices.isError && (
+        <p role="alert" className="text-xs text-destructive">
+          {t('action.choicesFailed', { error: describeError(choices.error) })}{' '}
+          <button type="button" className="underline" onClick={() => void choices.refetch()}>
+            {t('action.choicesRetry')}
+          </button>
+        </p>
+      )}
+    </div>
   );
 }

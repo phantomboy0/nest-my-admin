@@ -35,6 +35,15 @@ test('a source resource: list, search, filter, create, edit, action, delete', as
   await page.getByRole('dialog').getByLabel('Weight (kg)').fill('3');
   await page.getByRole('dialog').getByRole('button', { name: 'Quote' }).click();
   await expect(page.getByText('Snapp Box: 90,000 for 3 kg')).toBeVisible();
+  // Its speed is a dropdown the provider fills when the dialog opens (choices).
+  await page.getByRole('button', { name: 'Quote' }).click();
+  await page.getByRole('dialog').getByLabel('Weight (kg)').fill('3');
+  const speed = page.getByRole('dialog').getByLabel('Speed');
+  await expect(speed).toHaveValue('standard');
+  await expect(speed.getByRole('option', { name: 'Express (×2)' })).toBeAttached();
+  await speed.selectOption('express');
+  await page.getByRole('dialog').getByRole('button', { name: 'Quote' }).click();
+  await expect(page.getByText('Snapp Box: 180,000 for 3 kg (express)')).toBeVisible();
 
   // Edit, through update().
   await page.goto('/admin/courier/SNP');

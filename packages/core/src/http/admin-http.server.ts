@@ -266,6 +266,9 @@ export class AdminHttpServer implements OnModuleInit {
         sendJson(res, 200, await this.api.restore(p.resource, p.id, ctx)),
       )
       // After the restore route: `restore` is not an action name, and a record whose id is "actions" stays restorable.
+      .add('GET', '/api/resources/:resource/actions/:action/choices/:field', async ({ res, ctx }, p) =>
+        sendJson(res, 200, await this.api.actionChoices(p.resource, p.action, p.field, ctx)),
+      )
       .add('POST', '/api/resources/:resource/actions/:action', async ({ req, res, ctx }, p) =>
         sendJson(res, 200, await this.api.runAction(p.resource, p.action, await readJsonBody(req), ctx)),
       )

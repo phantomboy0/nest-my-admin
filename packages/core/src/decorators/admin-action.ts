@@ -47,6 +47,12 @@ export interface AdminActionOptions {
    * the action takes no input, where the parameter types cannot be read.
    */
   input?: DtoClass | false;
+  /**
+   * Input fields whose values come from a list made when the dialog opens (a dropdown): `{ field: 'methodName' }`.
+   * The method `(ctx)` of the resource returns the choices, `string`s or `{ value, label }`s (sync or async); a run
+   * re-reads them and refuses a value that is no longer one of them (422).
+   */
+  choices?: Record<string, string>;
   icon?: string;
 }
 
@@ -78,6 +84,8 @@ export interface RegisteredAction {
   icon?: string;
   input?: DtoClass;
   form?: DtoForm;
+  /** Input fields whose choices a resource method gives: field → method name. */
+  choices?: Map<string, string>;
 }
 
 /**
@@ -89,11 +97,11 @@ export interface RegisteredAction {
  * `AdminFieldError` for input fields) to refuse.
  */
 export function AdminAction<I extends object>(
-  options: AdminActionOptions & { target: 'resource'; input: new (...args: any[]) => I },
+  options: AdminActionOptions & { target: 'resource'; input: new (...args: any[]) => I; choices?: { [K in keyof I & string]?: string } },
 ): TypedMethodDecorator<(input: I, ctx: AdminContext) => Awaitable<ActionReturn>>;
 export function AdminAction(options: AdminActionOptions & { target: 'resource' }): TypedMethodDecorator<(input: any, ctx: AdminContext) => Awaitable<ActionReturn>>;
 export function AdminAction<I extends object>(
-  options: AdminActionOptions & { target?: 'record'; input: new (...args: any[]) => I },
+  options: AdminActionOptions & { target?: 'record'; input: new (...args: any[]) => I; choices?: { [K in keyof I & string]?: string } },
 ): RecordMethodDecorator<[input: I, ctx: AdminContext], Awaitable<ActionReturn>>;
 export function AdminAction(options?: AdminActionOptions & { target?: 'record' }): RecordMethodDecorator<[input: any, ctx: AdminContext], Awaitable<ActionReturn>>;
 export function AdminAction(options?: AdminActionOptions): TypedMethodDecorator<(...args: any[]) => Awaitable<ActionReturn>>;
@@ -184,12 +192,27 @@ export function resolveActions(resourceClass: Function, reserved: readonly strin
     if (primary && input !== undefined) fail(`${where}: a primary action runs in one click, so it takes no \`input\``);
     if (icon !== undefined && typeof icon !== 'string') fail(`${where}: icon must be an icon name`);
     let form: DtoForm | undefined;
+    let choices: Map<string, string> | undefined;
     if (input !== undefined) {
       if (typeof input !== 'function') fail(`${where}: input must be a DTO class`);
       form = buildDtoForm(input, undefined, (message) => fail(`${where}: input ${input.name}: ${message}`));
       // There is nowhere to keep an action's uploads, and nothing sanitizes its HTML.
       for (const [field, options] of form.config) {
         if (UPLOAD_WIDGETS.includes(options.widget ?? '')) fail(`${where}: input field "${field}" uses the "${options.widget}" widget; action inputs cannot take files or rich text`);
+      }
+    }
+    if (definition.choices !== undefined) {
+      if (typeof definition.choices !== 'object' || definition.choices === null || Array.isArray(definition.choices)) fail(`${where}: choices must be { field: 'methodName' }`);
+      if (!form) fail(`${where}: choices need an input form`);
+      choices = new Map();
+      for (const [field, method] of Object.entries(definition.choices)) {
+        const schema = form.fields.find((candidate) => candidate.name === field);
+        if (!schema) fail(`${where}: choices: unknown input field "${field}"${didYouMean(field, form.fields.map((candidate) => candidate.name))}`);
+        if (schema.type !== 'string' && schema.type !== 'number' && schema.type !== 'enum') fail(`${where}: choices: "${field}" is a ${schema.type} field; choices are for text and number fields`);
+        if (typeof method !== 'string' || typeof (resourceClass.prototype as Record<string, unknown>)[method] !== 'function') {
+          fail(`${where}: choices: "${field}" names ${typeof method === 'string' ? `"${method}", which is not a method of ${resourceClass.name}` : 'no method'}; give the name of a method (ctx) => choices`);
+        }
+        choices.set(field, method);
       }
     }
     actions.set(name, {
@@ -204,6 +227,7 @@ export function resolveActions(resourceClass: Function, reserved: readonly strin
       variant,
       ...(icon ? { icon } : {}),
       ...(input ? { input, form } : {}),
+      ...(choices ? { choices } : {}),
     });
   }
   const primaries = [...actions.values()].filter((action) => action.primary);
@@ -237,8 +261,14 @@ export function toActionSchema(action: RegisteredAction, text: ScopedText): Acti
     variant: action.variant,
     ...(action.primary ? { primary: true } : {}),
     ...(action.icon ? { icon: action.icon } : {}),
-    ...(action.form ? { input: localizeDtoForm(action.form, (value, path) => text(value, `${at}.fields.${path}`)) } : {}),
+    ...(action.form ? { input: withChoices(localizeDtoForm(action.form, (value, path) => text(value, `${at}.fields.${path}`)), action.choices) } : {}),
   };
+}
+
+/** Marks the fields whose options come from `GET …/actions/:action/choices/:field`. */
+function withChoices<F extends { fields: Array<{ name: string }> }>(form: F, choices: Map<string, string> | undefined): F {
+  if (!choices) return form;
+  return { ...form, fields: form.fields.map((field) => (choices.has(field.name) ? { ...field, choices: true as const } : field)) };
 }
 
 /** `label.for` as called: a text, or `null` (not on this record); anything else (a Promise of an `async` one) fails loudly. */

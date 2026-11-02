@@ -92,6 +92,10 @@ export const fa: Messages = {
   'list.editCell': 'ویرایش {name}: {value}',
 
   'action.running': 'در حال اجرا…',
+
+  'action.choicesFailed': 'گزینه‌ها بارگذاری نشدند: {error}',
+
+  'action.choicesRetry': 'دوباره',
   'action.confirm': '«{action}» اجرا شود؟',
   'action.confirmRecord': '«{action}» روی {name} اجرا شود؟',
   'action.confirmSelected': '«{action}» روی {count} رکورد اجرا شود؟',

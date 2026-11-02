@@ -2,7 +2,7 @@ import { HtmlString } from '../print/html.js';
 import { checkFindMany, checkFoundRecord, checkQueryBuilder, checkWriteResult, describeValue, HostContractError, isLocalizedText, isPlainObject as isPlainRecord, isRecordObject, isThenable } from '../host-contract.js';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
-import type { ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, TabCounts, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
+import type { ActionChoicesResponse, ActionResult, AdminRecord, BulkResult, FieldSchema, ListResponse, MenuBadges, TabCounts, AdminFileRef, ComputedValue, MetaPageSummary, MetaResourceSummary, MetaResponse, OptionsResponse, PageResponse, RecordLink, ResourceSchema, SearchResponse } from '../contract.js';
 import { applyFieldConfig, localizeLayout, mainLayout } from '../schema/field-config.js';
 import { inlineOf, toLayoutInline } from '../inlines/inline-config.js';
 import { InlineReader } from '../inlines/inline-reader.js';
@@ -828,6 +828,11 @@ export class AdminApiService {
    */
   runAction(name: string, action: string, body: unknown, ctx: AdminContext): Promise<ActionResult> {
     return this.actions.run(this.registry.get(name), action, body, ctx);
+  }
+
+  /** `GET /resources/:name/actions/:action/choices/:field`: an action input's dropdown (`@AdminAction({ choices })`). */
+  actionChoices(name: string, action: string, field: string, ctx: AdminContext): Promise<ActionChoicesResponse> {
+    return this.actions.choices(this.registry.get(name), action, field, ctx);
   }
 
   /**
