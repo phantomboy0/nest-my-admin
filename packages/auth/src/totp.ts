@@ -83,9 +83,10 @@ export function newTotpSecret(): Buffer {
 }
 
 /** The `otpauth://` URL authenticator apps scan. */
-export function otpauthUrl(issuer: string, account: string, secret: Uint8Array): string {
+export function otpauthUrl(issuer: string, account: string, secret: Uint8Array, image?: string): string {
   const label = `${encodeURIComponent(issuer)}:${encodeURIComponent(account)}`;
   const params = new URLSearchParams({ secret: base32Encode(secret), issuer, algorithm: 'SHA1', digits: '6', period: String(TOTP_PERIOD) });
+  if (image) params.set('image', image);
   return `otpauth://totp/${label}?${params.toString()}`;
 }
 

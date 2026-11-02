@@ -47,5 +47,8 @@ describe('totp', () => {
 
   test('otpauth URLs', () => {
     expect(otpauthUrl('My Admin', 'ada@x', Buffer.from('foobar'))).toBe('otpauth://totp/My%20Admin:ada%40x?secret=MZXW6YTBOI&issuer=My+Admin&algorithm=SHA1&digits=6&period=30');
+    const withImage = new URL(otpauthUrl('My Admin', 'ada@x', Buffer.from('foobar'), 'https://x.test/logo.png?v=1'));
+    expect(withImage.searchParams.get('image')).toBe('https://x.test/logo.png?v=1');
+    expect(withImage.searchParams.get('issuer')).toBe('My Admin');
   });
 });

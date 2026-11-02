@@ -412,3 +412,21 @@ describe(`built-in auth with the audit log (${TEST_DB})`, () => {
     }
   });
 });
+
+describe(`built-in auth: issuerImage (${TEST_DB})`, () => {
+  test('the QR code carries the image; a URL that is not http(s) fails at boot', async () => {
+    const app = await authApp({ issuerImage: 'https://x.test/logo.png' });
+    try {
+      await createAdminUser(app.get(getDataSourceToken()), { username: 'img', password: 'img-password-1' }, { scrypt: FAST });
+      tick(1);
+      const login = await request(app.getHttpServer()).post('/admin/api/session').send({ username: 'img', password: 'img-password-1' });
+      const setup = await request(app.getHttpServer()).post('/admin/api/account/2fa/setup').set('Cookie', cookieOf(login)).set('X-CSRF-Token', login.body.csrfToken).send({});
+      expect(new URL(setup.body.otpauthUrl).searchParams.get('image')).toBe('https://x.test/logo.png');
+    } finally {
+      await app.close();
+    }
+    for (const bad of ['logo.png', 'javascript:alert(1)']) {
+      await expect(authApp({ issuerImage: bad })).rejects.toThrow('issuerImage must be an absolute http(s) URL');
+    }
+  });
+});

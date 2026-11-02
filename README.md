@@ -768,7 +768,7 @@ AdminModule.forRoot({
   - Five wrong passwords lock an account for 15 minutes. Sign-in attempts are limited to 20 per minute per IP, with 429 and `Retry-After`.
   - Unknown users, wrong passwords and locked accounts get the same answer.
   - The account page changes the password (which signs out every other session), lists signed-in devices, and signs out one or all others.
-  - **Two-factor sign-in** (TOTP, any authenticator app). A user turns it on from the account page by scanning a QR code and confirming a code, and gets 10 one-time recovery codes. After the password, sign-in answers 401 `TWO_FACTOR_REQUIRED` until the request also carries `otp` (a code or a recovery code). Each code works once, wrong codes count toward the lockout, and turning it on signs out every other session. Turning it off or issuing new recovery codes needs the password; an admin can reset a lost second factor from the Users page. Set `secretKey` (32 bytes, base64: `openssl rand -base64 32`) to encrypt the keys at rest with AES-256-GCM. `issuer` names the app in authenticators. Upgrading from 0.0.x adds four nullable columns to `nma_user` (`totpSecret`, `totpPending`, `totpLastStep`, `recoveryCodes`).
+  - **Two-factor sign-in** (TOTP, any authenticator app). A user turns it on from the account page by scanning a QR code and confirming a code, and gets 10 one-time recovery codes. After the password, sign-in answers 401 `TWO_FACTOR_REQUIRED` until the request also carries `otp` (a code or a recovery code). Each code works once, wrong codes count toward the lockout, and turning it on signs out every other session. Turning it off or issuing new recovery codes needs the password; an admin can reset a lost second factor from the Users page. Set `secretKey` (32 bytes, base64: `openssl rand -base64 32`) to encrypt the keys at rest with AES-256-GCM. `issuer` names the app in authenticators. `issuerImage` (an http(s) URL) adds `image=` to the QR code for the apps that read it; others, Ente Auth among them, show their own icons, matched on `issuer`. Upgrading from 0.0.x adds four nullable columns to `nma_user` (`totpSecret`, `totpPending`, `totpLastStep`, `recoveryCodes`).
   - `bootstrapSuperuser` creates the first user when `nma_user` is empty (it runs in module init, so call `app.init()` before seeding other users). `createAdminUser(dataSource, { … })` adds more.
 - **CSRF.** Every POST, PATCH and DELETE of a cookie session must send the session's token as `X-CSRF-Token` (the UI does). The API also accepts only `application/json` bodies.
 - **Your own users:**
@@ -975,6 +975,10 @@ Things hosts tend to write by hand that the admin already does:
 - **A shared base class with services.** Inject them as properties (`@Inject(CatalogOwnership) protected readonly ownership: CatalogOwnership`): Nest injects properties of a base class into every subclass, so subclasses need no constructor of their own just to pass a service up.
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
+
+## Upgrading to 0.10.2
+
+Nothing to change. New: `builtinAuth({ issuerImage })`, an http(s) URL of your logo, sent as `image=` in the two-factor QR code. Only some authenticator apps read it; others, Ente Auth among them, show their own icons, matched on `issuer`. A value that is not an absolute http(s) URL fails at boot.
 
 ## Upgrading to 0.9.1
 
