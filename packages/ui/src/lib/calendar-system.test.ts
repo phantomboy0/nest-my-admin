@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { GREGORIAN, JALALI } from './calendar-system';
+import { GREGORIAN, JALALI, monthCells } from './calendar-system';
 
 describe('calendar systems', () => {
   test('Gregorian: typed in any separator and digits, months and leap years', () => {
@@ -21,5 +21,16 @@ describe('calendar systems', () => {
     expect(JALALI.parse('۱۴۰۳/۱/۱۵')).toBe('2024-04-03');
     expect(JALALI.weekStart).toBe(6);
     expect(GREGORIAN.weekStart).toBe(1);
+  });
+});
+
+describe('monthCells', () => {
+  test('every month is six rows, whatever day it starts on', () => {
+    for (const [offset, days] of [[0, 28], [0, 31], [3, 30], [6, 31], [5, 30]] as const) {
+      const cells = monthCells(offset, days, '1405-08-01', (from, step) => `${from}+${step}`);
+      expect(cells).toHaveLength(42);
+      expect(cells.filter((cell) => cell !== null)).toHaveLength(days);
+      expect(cells.slice(0, offset).every((cell) => cell === null)).toBe(true);
+    }
   });
 });

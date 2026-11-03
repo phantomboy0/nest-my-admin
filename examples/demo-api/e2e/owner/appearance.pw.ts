@@ -70,8 +70,10 @@ test('a superuser uploads a logo and a tab icon for everyone, and removes them',
 
   for (let i = 0; i < 2; i++) {
     await openAccountMenu(page);
+    // Removing reloads the page: wait for that reload, since the load state is still "load" when the click returns.
+    const reloaded = page.waitForEvent('load');
     await page.getByRole('button', { name: 'Remove' }).first().click();
-    await page.waitForLoadState('load');
+    await reloaded;
   }
   await expect(mark).toHaveAttribute('src', 'favicon.svg');
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', 'favicon.svg');

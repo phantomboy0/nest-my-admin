@@ -512,9 +512,7 @@ export class AdminApiService {
         .list()
         .filter((candidate) => entry.metadata.childEntityMetadatas.some((child) => child.target === candidate.entity))
         .map((candidate) => candidate.schema.label);
-      throw new AdminBadRequestError(
-        `${schema.label} records are created as one of their kinds${children.length > 0 ? `: ${children.join(', ')}` : ''}`,
-      );
+      throw new AdminBadRequestError(children.length > 0 ? `${schema.label} records are created as one of their kinds: ${children.join(', ')}` : `${schema.label} records are not created here`);
     }
     const { own, inlines } = splitInlines(entry, body);
     this.policy.checkWriteFields(entry, own, entry.schema.form.create, ctx);
@@ -535,6 +533,7 @@ export class AdminApiService {
         return result;
       });
       if (plan) await this.inlineWriter.apply(plan, checked!, created, tx);
+      await resource.afterInlines(created, dto as Record<string, unknown>, tx);
       return this.withInlineRows(entry, created, tx);
     });
   }
@@ -608,6 +607,7 @@ export class AdminApiService {
             return this.reloadIfEmpty(entry, await resource.update(id, dto, tx), id, tx);
           });
       if (plan) await this.inlineWriter.apply(plan, checked!, updated, tx);
+      await resource.afterInlines(updated, dto as Record<string, unknown>, tx);
       return this.withInlineRows(entry, updated, tx);
     });
   }

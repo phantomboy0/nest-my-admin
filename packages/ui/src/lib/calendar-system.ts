@@ -59,3 +59,9 @@ export const GREGORIAN: CalendarSystem = {
 };
 
 export const calendarSystem = (calendar: string): CalendarSystem => (calendar === 'persian' ? JALALI : GREGORIAN);
+
+/** A month grid's cells: always six rows, so the calendar keeps its height from one month to the next. */
+export function monthCells(offset: number, days: number, first: string, addDays: (iso: string, days: number) => string): Array<string | null> {
+  const cells: Array<string | null> = [...Array.from({ length: offset }, () => null), ...Array.from({ length: days }, (_, i) => addDays(first, i))];
+  return [...cells, ...Array.from({ length: 42 - cells.length }, () => null)];
+}

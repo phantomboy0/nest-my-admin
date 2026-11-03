@@ -1,10 +1,10 @@
-import { useState, type ComponentProps, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import type { FieldSchema } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/i18n';
-import { formatMoney, groupMoney } from '@/lib/money';
+import { formatMoney, groupMoney, groupTyped } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { enumLabel } from '@/lib/widgets';
 
@@ -17,15 +17,24 @@ export interface WidgetProps {
   aria: { 'aria-invalid'?: true; 'aria-describedby'?: string };
 }
 
-/** A decimal as text with thousands grouped when the input is left (the payload drops the commas again). */
+/** A decimal as text with thousands grouped as it is typed (the payload drops the commas again); leaving the input pads the fraction. */
 export function MoneyInput({ id, field, value, onChange, aria }: WidgetProps) {
   // The field's unit, else the host's global one (spec §4).
   const { unit, position } = formatMoney('0', { currency: field.currency });
   const addon = unit && <span className="shrink-0 text-[13px] text-muted-foreground">{unit}</span>;
+  const input = useRef<HTMLInputElement>(null);
+  const caret = useRef<number | null>(null);
+  // A comma that came or went moves the digits: the caret stays after the digit it was after.
+  useLayoutEffect(() => {
+    if (caret.current === null) return;
+    input.current?.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  });
   return (
     <div className="flex items-center gap-2">
       {position === 'before' && addon}
       <Input
+        ref={input}
         id={id}
         type="text"
         inputMode="decimal"
@@ -33,7 +42,11 @@ export function MoneyInput({ id, field, value, onChange, aria }: WidgetProps) {
         className="text-end"
         value={value}
         placeholder={field.placeholder}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          const typed = groupTyped(event.target.value, event.target.selectionStart ?? event.target.value.length);
+          caret.current = typed.caret;
+          onChange(typed.text);
+        }}
         onBlur={() => onChange(groupMoney(value, field.scale))}
         {...aria}
       />
@@ -43,7 +56,7 @@ export function MoneyInput({ id, field, value, onChange, aria }: WidgetProps) {
 }
 
 /** An on/off switch: a button with `role="switch"`, so Space toggles it and screen readers say on or off. */
-export function SwitchInput({ id, checked, onChange, aria }: { id: string; checked: boolean; onChange: (value: boolean) => void; aria: WidgetProps['aria'] }) {
+export function SwitchInput({ id, checked, onChange, aria }: { id: string; checked: boolean; onChange: (value: boolean) => void; aria: WidgetProps['aria'] & { 'aria-label'?: string } }) {
   return (
     <button
       id={id}

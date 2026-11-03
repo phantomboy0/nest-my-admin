@@ -144,6 +144,8 @@ export interface FormLayoutInline {
   computed?: string[];
   /** A marker on the first card by `order` («Main picture»). */
   markFirst?: string;
+  /** Not on the form of a new record (rows are added once the parent exists). */
+  existingOnly?: true;
 }
 
 /** Label and value rows in a card (an order's totals): a field of the record, or one of its computed columns (`_computed`). */
@@ -506,6 +508,8 @@ export interface ResourceSchema {
     aside?: AsideCardSchema[];
     /** `view`: an existing record opens as text until «Edit». */
     mode?: 'view';
+    /** `edit`: saving a new record opens it instead of going back to the list. */
+    afterCreate?: 'edit';
     /** The record's header: badge fields, and a subtitle of field values and computed columns (`_computed`). */
     header?: { badges?: string[]; subtitle?: Array<{ field: string } | { computed: string }>; stepper?: string };
     constraints: { create: Record<string, FieldConstraints>; update: Record<string, FieldConstraints> };

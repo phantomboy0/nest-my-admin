@@ -80,6 +80,7 @@ export function toLayoutInline(inline: RegisteredInline, label: string | undefin
     link: inline.link,
     ...(inline.readonly ? { readonly: true as const } : {}),
     ...(inline.computed.length > 0 ? { computed: [...inline.computed] } : {}),
+    ...(inline.node.existingOnly ? { existingOnly: true as const } : {}),
     ...(inline.node.cards?.markFirst !== undefined ? { markFirst: text(inline.node.cards.markFirst, inline.node.key === undefined ? undefined : `form.${inline.node.key}.markFirst`) } : {}),
   };
 }

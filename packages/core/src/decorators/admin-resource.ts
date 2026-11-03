@@ -43,6 +43,8 @@ export interface AdminResourceOptions {
    * records only the host's own code writes.
    */
   readonly?: boolean;
+  /** `false`: records of this resource come from elsewhere (no «New», a create is refused); they can still be edited. */
+  creatable?: boolean;
   /** Custom permission codes of this resource: `['view_all']` declares `<name>.view_all` for roles and `ctx.can()`. */
   permissions?: string[];
 }

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatDate, formatNumberText, isRtl, useLocale } from '@/i18n';
 import { toLatinDigits } from '@/lib/digits';
-import { calendarSystem, type CalendarSystem } from '@/lib/calendar-system';
+import { calendarSystem, type CalendarSystem, monthCells } from '@/lib/calendar-system';
 import { addDays, todayIso } from '@/lib/jalali';
 import { cn } from '@/lib/utils';
 
@@ -147,7 +147,7 @@ function CalendarGrid({ system, value, onPick, onClear }: { system: CalendarSyst
   const first = system.fromParts(jy, jm, 1);
   const offset = (new Date(`${first}T00:00:00Z`).getUTCDay() - system.weekStart + 7) % 7;
   const days = system.monthLength(jy, jm);
-  const cells: Array<string | null> = [...Array.from({ length: offset }, () => null), ...Array.from({ length: days }, (_, i) => addDays(first, i))];
+  const cells = monthCells(offset, days, first, addDays);
 
   function onGridKey(event: KeyboardEvent) {
     const steps: Record<string, number> = { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1, ArrowDown: 7, ArrowUp: -7 };
@@ -259,7 +259,7 @@ function CalendarGrid({ system, value, onPick, onClear }: { system: CalendarSyst
                     </button>
                   </div>
                 ) : (
-                  <div key={`empty-${row}-${i}`} role="gridcell" />
+                  <div key={`empty-${row}-${i}`} role="gridcell" className="h-8" />
                 ),
               )}
             </div>

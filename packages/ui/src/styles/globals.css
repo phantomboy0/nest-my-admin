@@ -58,6 +58,7 @@
 }
 
 :root {
+  color-scheme: light;
   /* The owner-admin design (docs/superpowers/specs/2026-10-25-owner-admin-design.md §4): Vazirmatn for every locale. */
   --nma-font: 'Vazirmatn Variable', ui-sans-serif, system-ui, sans-serif;
   --background: #fafafa; --foreground: #0a0a0a;
@@ -86,6 +87,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #0a0a0a; --foreground: #f4f4f4;
   --card: #151515; --card-foreground: #f4f4f4;
   --popover: #151515; --popover-foreground: #f4f4f4;

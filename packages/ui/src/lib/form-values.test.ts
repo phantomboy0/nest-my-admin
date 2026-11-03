@@ -221,3 +221,11 @@ describe('withoutImages (Duplicate)', () => {
     expect(withoutImages('')).toBe('');
   });
 });
+
+describe('an amount held as text', () => {
+  test('a money widget on a string field sends plain digits', () => {
+    const field = { name: 'price', label: 'Price', type: 'string', widget: 'money', nullable: false } as unknown as FieldSchema;
+    expect(toPayload([field], { price: '1,500,000' }).payload).toEqual({ price: '1500000' });
+    expect(toPayload([field], { price: '۱۵۰۰' }).payload).toEqual({ price: '1500' });
+  });
+});

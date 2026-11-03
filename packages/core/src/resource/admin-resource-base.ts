@@ -162,6 +162,8 @@ export interface FormConfig {
   layout?: LayoutConfig | { main: LayoutConfig; aside: AsideCardConfig[] };
   /** `view`: an existing record opens as text, and «Edit» turns its editable fields into inputs. Default `edit`. */
   mode?: 'edit' | 'view';
+  /** `edit`: saving a new record opens it, for what can only be added once it exists. Default: back to the list. */
+  afterCreate?: 'list' | 'edit';
   /**
    * The record's header: `badges` (fields shown as badges next to the title; default: every badge-widget field) and a
    * `subtitle` line of field values and computed list columns (`{ computed: '<list.computed key>' }`), joined by «·».
@@ -361,6 +363,12 @@ export abstract class AdminResourceBase<T extends ObjectLiteral = ObjectLiteral,
   relationOptions(_field: string, qb: SelectQueryBuilder<any>, _ctx: AdminContext, _values: Record<string, unknown>): SelectQueryBuilder<any> | Promise<SelectQueryBuilder<any>> {
     return qb;
   }
+
+  /**
+   * After a create or update and its inline rows, inside the same transaction: for a rule about the record and its
+   * rows together (a product may be published only with its required values). A throw undoes the whole save.
+   */
+  async afterInlines(_record: T, _dto: Record<string, unknown>, _ctx: AdminContext): Promise<void> {}
 
   /**
    * Overriding this skips the @BeforeSave/@AfterSave hooks; call `this.runHooks(...)` yourself to keep them.
