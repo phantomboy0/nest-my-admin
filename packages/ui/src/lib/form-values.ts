@@ -1,7 +1,7 @@
 import type { AdminFileRef, AdminRecord, FieldSchema, RelationRef } from '@nest-my-admin/core/contract';
 import { translate as tr } from '@/i18n';
 import { toLatinDigits, toLatinNumber } from '@/lib/digits';
-import { groupMoney } from '@/lib/money';
+import { groupMoney, ungroupMoney } from '@/lib/money';
 
 /**
  * A file in a form: one the record already has (`key`, from `_files`) or a finished upload (`token`). `url` is where
@@ -180,6 +180,10 @@ export function toPayload(fields: FieldSchema[], values: FormValues, initial?: F
     const trimmed = text.trim();
     if (trimmed === '') {
       if (field.nullable || initial) payload[field.name] = null;
+      continue;
+    }
+    if (field.widget === 'money' && field.type === 'string') {
+      payload[field.name] = ungroupMoney(trimmed);
       continue;
     }
     switch (field.type) {

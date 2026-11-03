@@ -54,6 +54,8 @@ export interface LayoutInlineConfig {
   max?: number;
   /** Shown, never edited here (a write to it is refused with 422): an order's lines once it is placed. */
   readonly?: boolean;
+  /** Only on an existing parent: a new record's form leaves it out and a create refuses its rows (422). */
+  existingOnly?: boolean;
   /** Computed columns of the child (`list.computed` keys) shown in the table, before its fields (a line's product thumbnail). */
   computed?: string[];
   /** Cards: a marker on the first card in `order` (the product's «main picture»). */
@@ -99,7 +101,8 @@ const WIDGET_TYPES: Record<WidgetName, readonly FieldType[]> = {
   text: ['string', 'text', 'uuid', 'other'],
   textarea: ['string', 'text'],
   number: ['number'],
-  money: ['decimal', 'number', 'bigint'],
+  // A string too: a DTO property holding an amount as text (toman as a bigint string).
+  money: ['decimal', 'number', 'bigint', 'string'],
   switch: ['boolean'],
   checkbox: ['boolean'],
   select: ['enum'],

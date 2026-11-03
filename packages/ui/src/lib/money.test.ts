@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { applyDisplay, applyLocale } from '@/i18n';
-import { formatMoney, groupMoney, setGlobalCurrency, ungroupMoney } from './money';
+import { formatMoney, groupMoney, setGlobalCurrency, ungroupMoney, groupTyped } from './money';
 
 describe('money', () => {
   test('groups thousands and pads the fraction to the scale', () => {
@@ -50,5 +50,31 @@ describe('formatMoney', () => {
   test('previous is formatted the same way', () => {
     applyDisplay({ calendar: 'persian', digits: 'arabext' });
     expect(formatMoney('2890000', { previous: '3250000' })).toEqual({ main: '۲٬۸۹۰٬۰۰۰', previous: '۳٬۲۵۰٬۰۰۰' });
+  });
+});
+
+describe('grouping while typing', () => {
+  test('groups as digits arrive and keeps the caret after the same digit', () => {
+    expect(groupTyped('1500', 4)).toEqual({ text: '1,500', caret: 5 });
+    expect(groupTyped('1,5000', 6)).toEqual({ text: '15,000', caret: 6 });
+    expect(groupTyped('1500000', 7)).toEqual({ text: '1,500,000', caret: 9 });
+  });
+  test('an edit in the middle leaves the caret where it was typed', () => {
+    // "1,500" with a 9 typed after the 1.
+    expect(groupTyped('19,500', 2)).toEqual({ text: '19,500', caret: 2 });
+    // "1,500,000" with the 5 deleted.
+    expect(groupTyped('1,00,000', 2)).toEqual({ text: '100,000', caret: 1 });
+  });
+  test('Persian and Arabic digits become Latin ones', () => {
+    expect(groupTyped('۱۵۰۰', 4)).toEqual({ text: '1,500', caret: 5 });
+  });
+  test('a fraction, a sign and nothing at all stay as typed', () => {
+    expect(groupTyped('1234.5', 6)).toEqual({ text: '1,234.5', caret: 7 });
+    expect(groupTyped('1234.', 5)).toEqual({ text: '1,234.', caret: 6 });
+    expect(groupTyped('-', 1)).toEqual({ text: '-', caret: 1 });
+    expect(groupTyped('', 0)).toEqual({ text: '', caret: 0 });
+  });
+  test('what is not a number is left for the form to report', () => {
+    expect(groupTyped('12a', 3)).toEqual({ text: '12a', caret: 3 });
   });
 });

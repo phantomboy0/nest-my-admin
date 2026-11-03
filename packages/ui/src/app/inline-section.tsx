@@ -119,15 +119,17 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
         onBusy={(busy) => onBusy(`${child.name}:${row.key}:${field.name}`, busy)}
       />
     );
-    // A soft warning (`warnIf`, an image without alt text): shown, never blocking the save.
-    if (!warning) return input;
+    // A soft warning (`warnIf`, an image without alt text): shown, never blocking the save. The wrapper is always there:
+    // the warning going away as someone types must not remount the input, which would take the focus from it.
     return (
       <div className="flex flex-col gap-1">
         {input}
-        <p className="flex items-center gap-1 text-xs text-warn">
-          <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
-          {warning}
-        </p>
+        {warning && (
+          <p className="flex items-center gap-1 text-xs text-warn">
+            <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+            {warning}
+          </p>
+        )}
       </div>
     );
   }
@@ -184,7 +186,7 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
 
   const rowAlert = (row: InlineRow) => {
     const messages = Object.entries(errors?.rows[row.key] ?? {}).filter(([path]) => !fields.some((field) => field.name === path.split('.')[0]));
-    return messages.length > 0 ? <p className="text-sm text-destructive">{messages.map(([path, list]) => `${path}: ${list.join(', ')}`).join(' — ')}</p> : null;
+    return messages.length > 0 ? <p role="alert" className="text-sm text-destructive">{messages.flatMap(([, list]) => list).join(' — ')}</p> : null;
   };
   const showControls = ordered || rows.some(canRemove);
 
@@ -249,7 +251,7 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
                     </td>
                   ))}
                   {fields.map((field) => (
-                    <td key={field.name} className="min-w-32 px-3.5 py-2">
+                    <td key={field.name} className={cn('px-3.5 py-2', field.widget === 'money' ? 'min-w-56' : field.type === 'relation' ? 'min-w-52' : 'min-w-36')}>
                       {cell(row, field, true)}
                     </td>
                   ))}

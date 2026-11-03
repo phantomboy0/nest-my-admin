@@ -227,7 +227,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
       release();
       queryClient.removeQueries({ queryKey: ['record', schema.name] });
       if (then === 'new') navigate(`/${schema.name}/new`, { state: { saved: title } });
-      else if (then === 'stay') navigate(`/${schema.name}/${encodeURIComponent(String(stored._id))}`, { replace: true, state: { saved: title } });
+      else if (then === 'stay' || (mode === 'create' && schema.form.afterCreate === 'edit')) navigate(`/${schema.name}/${encodeURIComponent(String(stored._id))}`, { replace: true, state: { saved: title } });
       else navigate(`/${schema.name}`);
     },
     onError: (error) => {
@@ -319,7 +319,7 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
 
   function renderInline(inline: FormLayoutInline): ReactNode | null {
     const child = schema.inlines?.[inline.inline];
-    if (!child) return null;
+    if (!child || (mode === 'create' && inline.existingOnly)) return null;
     const read = (record?._inlines as Record<string, InlineRows> | undefined)?.[inline.inline];
     const truncated = read?.truncated && id !== undefined ? { total: read.total, href: `/${child.name}?${new URLSearchParams({ [`filter[${inline.link}]`]: String(record?.[schema.primaryKeys[0]!] ?? id) })}` } : undefined;
     return (
@@ -361,17 +361,19 @@ function RecordForm({ schema, mode, id, record, source, saved, onChanged, tab: o
 
   function renderField(name: string): ReactNode | null {
     const input = renderInput(name);
-    // A soft warning (`warnIf`) under the input; the save still goes through.
-    return input && warnings[name] ? (
+    if (!input) return null;
+    // A soft warning (`warnIf`) under the input; the save still goes through. The wrapper is always there: the warning
+    // going away as someone types must not remount the input, which would take the focus from it.
+    return (
       <div className="flex flex-col gap-1">
         {input}
-        <p className="flex items-center gap-1 text-xs text-warn">
-          <TriangleAlert className="size-3.5" aria-hidden />
-          {warnings[name]}
-        </p>
+        {warnings[name] && (
+          <p className="flex items-center gap-1 text-xs text-warn">
+            <TriangleAlert className="size-3.5" aria-hidden />
+            {warnings[name]}
+          </p>
+        )}
       </div>
-    ) : (
-      input
     );
   }
 

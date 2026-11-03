@@ -1,6 +1,6 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { OVERLAY_ANIMATED_CLASS } from '@/components/ui/overlay';
-import { ArrowDownUp, Check, ChevronDown, CirclePlus, ListFilter, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowDownUp, Check, ChevronDown, ListFilter, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Checkbox, Dialog, Popover } from 'radix-ui';
 import type { FieldSchema, FilterOperator, ResourceSchema } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
@@ -59,6 +59,11 @@ export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps
         {/* One list in schema order: a chip that moved when set would remount and close its popover mid-choice. */}
         {filters.length > 0 && (
           <ul aria-label={t('filters.filters')} className="contents">
+            <li className="contents">
+              <span className="text-[12.5px] text-muted-foreground" aria-hidden>
+                {t('filters.filter')}
+              </span>
+            </li>
             {filters.map(({ field, operators }) => (
               <li key={field.name} className="contents">
                 <FilterChipButton resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} chip={chips.get(`filter:${field.name}`)} />
@@ -529,31 +534,63 @@ function SearchBox({ label, placeholder, value, className, onChange, onSubmit }:
 /** One filter on the desktop row: a dashed chip that opens the field's control; when set, solid with its value. */
 function FilterChipButton({ chip, ...props }: FilterControlProps & { chip?: FilterChip }) {
   const t = useT();
-  const { field, onChange } = props;
+  const { field, operators, params, onChange } = props;
   const remove = chip && (() => onChange(Object.fromEntries(chip.remove.map((key) => [key, null]))));
+  // A yes/no filter is a switch: one click turns it on and off. «No» stays a choice behind the arrow.
+  const toggle = field.type === 'boolean' && operators.includes('eq');
+  const key = filterKey(field.name, 'eq');
+  const on = toggle && params.get(key) === 'true';
+  // Only the other choices need a way to clear them: the switch clears its own.
+  const clearable = remove && !on;
   return (
     <Popover.Root>
-      <span className={cn('inline-flex h-8 items-center rounded-lg border border-dashed border-input', chip && 'border-solid bg-card')}>
-        <Popover.Trigger asChild>
+      <span className={cn('inline-flex h-8 items-center rounded-lg border border-input', chip && 'bg-card')} data-filter={field.name}>
+        {toggle ? (
           <button
             type="button"
-            className="inline-flex h-full items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+            role="switch"
+            aria-checked={on}
+            aria-label={t('filters.onlyThese', { field: field.label })}
+            onClick={() => onChange({ [key]: on ? null : 'true' })}
+            className="inline-flex h-full items-center gap-1.5 rounded-lg ps-2.5 pe-1.5 text-[12.5px] font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            {chip ? <ListFilter className="size-3.5 text-muted-foreground" aria-hidden /> : <CirclePlus className="size-3.5 text-muted-foreground" aria-hidden />}
+            <span aria-hidden className={cn('relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors', on ? 'bg-primary' : 'bg-input')}>
+              <span className={cn('block size-2.5 rounded-full bg-background shadow transition-transform', on ? 'translate-x-3 rtl:-translate-x-3' : 'translate-x-0.5 rtl:-translate-x-0.5')} />
+            </span>
             {field.label}
-            {chip && (
-              <>
-                <span className="sr-only">:</span>
-                <span className="h-4 w-px bg-border" aria-hidden />
-                <span className="max-w-48 truncate rounded-[5px] bg-muted px-1.5 text-xs font-medium">
-                  {chip.ref ? <RefTitles resource={props.resource} chip={chip} /> : chip.value}
-                </span>
-              </>
-            )}
+            {chip && !on && <span className="max-w-48 truncate rounded-[5px] bg-muted px-1.5 text-xs font-medium">{chip.value}</span>}
           </button>
-        </Popover.Trigger>
-        {remove && (
-          <button type="button" className="-ms-1 me-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" aria-label={t('filters.removeChip', { label: field.label })} onClick={remove}>
+        ) : (
+          <Popover.Trigger asChild>
+            <button
+              type="button"
+              className="inline-flex h-full items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <ListFilter className="size-3.5 text-muted-foreground" aria-hidden />
+              {field.label}
+              {chip ? (
+                <>
+                  <span className="sr-only">:</span>
+                  <span className="h-4 w-px bg-border" aria-hidden />
+                  <span className="max-w-48 truncate rounded-[5px] bg-muted px-1.5 text-xs font-medium">
+                    {chip.ref ? <RefTitles resource={props.resource} chip={chip} /> : chip.value}
+                  </span>
+                </>
+              ) : (
+                <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
+              )}
+            </button>
+          </Popover.Trigger>
+        )}
+        {toggle && (
+          <Popover.Trigger asChild>
+            <button type="button" className="me-0.5 rounded p-0.5 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={t('filters.moreChoices', { field: field.label })}>
+              <ChevronDown className="size-3.5" aria-hidden />
+            </button>
+          </Popover.Trigger>
+        )}
+        {clearable && (
+          <button type="button" className={cn('me-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground', !toggle && '-ms-1')} aria-label={t('filters.removeChip', { label: field.label })} onClick={remove}>
             <X className="size-3.5" />
           </button>
         )}
@@ -562,9 +599,17 @@ function FilterChipButton({ chip, ...props }: FilterControlProps & { chip?: Filt
         <Popover.Content
           align="start"
           sideOffset={6}
+          collisionPadding={8}
           // A focused relation input opens its options and shows its value as a placeholder: let the user focus it.
           onOpenAutoFocus={field.type === 'relation' ? (event) => event.preventDefault() : undefined}
-          className="z-50 flex w-72 flex-col gap-3 rounded-[10px] border bg-popover p-3 text-popover-foreground shadow-lg outline-none">
+          className={cn(
+            'z-50 flex w-72 flex-col gap-3 rounded-[10px] border bg-popover p-3 text-popover-foreground shadow-lg outline-none',
+            // Long choice lists scroll; a relation's own list hangs below its input, so that popover is left unclipped.
+            field.type !== 'relation' && 'max-h-[var(--radix-popover-content-available-height)] overflow-y-auto',
+          )}
+        >
+          <p className="text-[12.5px] font-semibold">{t('filters.filterBy', { field: field.label })}</p>
+          {field.type === 'relation' && <p className="-mt-2 text-xs text-muted-foreground">{t('filters.relationHint', { field: field.label })}</p>}
           <FilterControl {...props} inline />
         </Popover.Content>
       </Popover.Portal>

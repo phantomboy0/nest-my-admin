@@ -5,6 +5,7 @@ import { useT } from '@/i18n';
 import { ApiError, api } from '@/lib/api';
 import { DateInput } from '@/app/date-input';
 import { DisplayValue } from '@/app/widgets/badge';
+import { SwitchInput } from '@/app/widgets/inputs';
 import { formatCell } from '@/lib/format';
 import { toFormValues, toPayload } from '@/lib/form-values';
 import { validatePayload } from '@/lib/validate';
@@ -93,7 +94,17 @@ export function EditableCell({ schema, item, field }: EditableCellProps) {
   };
 
   let control;
-  if (!editing) {
+  if (field.type === 'boolean') {
+    // A yes/no cell is a switch: one click saves it.
+    control = (
+      <SwitchInput
+        id={`cell-${schema.name}-${String(item._id)}-${field.name}`}
+        checked={item[field.name] === true}
+        onChange={(next) => commit(next)}
+        aria={{ 'aria-label': field.label, 'aria-invalid': error ? true : undefined, 'aria-describedby': error ? errorId : undefined }}
+      />
+    );
+  } else if (!editing) {
     control = (
       <button
         type="button"
@@ -107,9 +118,8 @@ export function EditableCell({ schema, item, field }: EditableCellProps) {
         <DisplayValue value={item[field.name]} field={field} />
       </button>
     );
-  } else if (field.type === 'enum' || field.type === 'boolean') {
-    const options: Array<[string, string]> =
-      field.type === 'boolean' ? [['true', t('common.yes')], ['false', t('common.no')]] : (field.enumValues ?? []).map((value) => [value, enumLabel(field, value)]);
+  } else if (field.type === 'enum') {
+    const options: Array<[string, string]> = (field.enumValues ?? []).map((value) => [value, enumLabel(field, value)]);
     control = (
       <Select
         aria-label={field.label}

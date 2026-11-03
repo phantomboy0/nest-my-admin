@@ -23,8 +23,9 @@ export function ColumnMenu({ schema, prefs }: { schema: ResourceSchema; prefs: C
         </Button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content align="end" sideOffset={4} className="z-50 flex w-72 flex-col gap-3 rounded-[10px] border bg-popover p-3 text-popover-foreground shadow-lg">
-          <ul aria-label={t('list.columns')} className="flex flex-col gap-0.5">
+        {/* As tall as the window allows: the columns scroll, density and reset stay in view. */}
+        <Popover.Content align="end" sideOffset={4} collisionPadding={8} className="z-50 flex max-h-[var(--radix-popover-content-available-height)] w-72 flex-col gap-3 rounded-[10px] border bg-popover p-3 text-popover-foreground shadow-lg">
+          <ul aria-label={t('list.columns')} className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
             {all.map((name, index) => {
               const shown = !prefs.hidden.includes(name);
               return (

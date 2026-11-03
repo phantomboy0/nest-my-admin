@@ -347,7 +347,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
     group: definition.group ?? moduleGroup,
     ...(definition.icon ? { icon: definition.icon } : {}),
     primaryKeys,
-    creatable: children.length === 0 && !definition.readonly,
+    creatable: children.length === 0 && !definition.readonly && definition.creatable !== false,
     ...(definition.readonly ? { readonly: true } : {}),
     related: [], // filled in by the registry once every resource is known
     actions: [], // filled in by the registry from the resource's @AdminAction methods
@@ -408,6 +408,7 @@ export function buildResourceSchema(input: BuildResourceSchemaInput): ResourceSc
       ...(layout ? { layout: localizeLayout(layout, bootLayoutText) } : {}),
       ...(aside ? { aside } : {}),
       ...(mode === 'view' ? { mode: 'view' as const } : {}),
+      ...(resource.form?.afterCreate === 'edit' ? { afterCreate: 'edit' as const } : {}),
       ...(headerConfig
         ? {
             header: {

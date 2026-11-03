@@ -56,6 +56,7 @@ cd packages/ui && bun run dev                   # UI dev server :5173, proxies /
   - Theme and branding are applied in `main.tsx` before render (`lib/theme.ts`).
   - Sidebar state lives in `lib/nav-state.ts`, and icons come from a curated map (`lib/icons.ts`).
   - `/g/:group` is a group landing page, and `/` shows every group with counts.
+- Writing inline rows: `InlineWriter.apply` runs each row in a savepoint and collects what the host or the database refused (`isRowRefusal`): one refusal keeps its status, several are one 422; the whole save still fails. `existingOnly` inlines are left out of a new record's form and refused on create; `resource.afterInlines` runs after the rows, inside the transaction. `@AdminResource({ creatable: false })` removes «New» and refuses a create.
 - List page (M2-2):
   - `lib/filter-chips.ts` derives chips from the URL.
   - `lib/column-prefs.ts` stores columns and density per resource in localStorage.

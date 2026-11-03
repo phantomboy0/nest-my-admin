@@ -113,11 +113,12 @@ export class InlineWriter {
     for (const name of Object.keys(sent)) {
       // An inline the user cannot view is not there for them (as in the schema).
       if (!viewable.some((inline) => inline.name === name)) shape[`_inlines.${name}`] = [`is not an inline of ${parent.schema.label}`];
+      if (creating && viewable.find((inline) => inline.name === name)?.node.existingOnly) shape[`_inlines.${name}`] = ['can be added once the record exists'];
     }
     if (Object.keys(shape).length > 0) throw new AdminValidationError(shape);
 
     // A new parent checks every inline it shows (`min` counts rows that will exist); an update only those it changes.
-    const inlines = viewable.filter((inline) => creating || Object.hasOwn(sent, inline.name));
+    const inlines = viewable.filter((inline) => (creating ? !inline.node.existingOnly : Object.hasOwn(sent, inline.name)));
     const parsed = inlines.map((inline) => parseChanges(inline, sent[inline.name] ?? {}, shape));
     if (Object.keys(shape).length > 0) throw new AdminValidationError(shape, 'The inline changes are malformed');
 
@@ -358,6 +359,7 @@ export class InlineWriter {
     // The parent's values as the user sees them, body over stored (`values._parent` of relationOptions()).
     const withParent = async (values: Record<string, unknown>) => ({ ...values, _parent: (parentValues ??= { _resource: parent.schema.name, ...(await this.deps.values(parent, parentEntity, tx)) }) });
     const hasIds = (ids: Map<string, RelationId[]>) => [...ids.values()].some((list) => list.length > 0);
+    const refusals: AdminError[] = [];
 
     for (const { planned, rows, moves, positions } of checked) {
       const { inline, creates, updates, deletes } = planned;
@@ -367,11 +369,19 @@ export class InlineWriter {
       // `@AdminCan('create')` judges the parent as this save leaves it (created, or with its changes): the save is one
       // transaction, so a refusal here undoes the parent too.
       if (creates.length > 0 && !this.deps.policy.createRule(child, parentEntity, tx)) throw new AdminForbiddenError(`You may not add ${child.schema.label} rows here`);
-      const run = async <T>(path: string, change: WriteChange, method: () => Promise<T>): Promise<T> => {
+      // Each row in a savepoint, so one refused row (a unique violation included) does not end the others' checks: the
+      // user sees what is wrong with all of them at once. Any failure still fails the whole save, below.
+      const run = async (path: string, change: WriteChange, method: () => Promise<unknown>): Promise<void> => {
+        const runner = tx.manager?.queryRunner;
+        await runner?.startTransaction();
         try {
-          return await this.deps.change({ ...change, parent: parentRef }, tx, method);
+          await this.deps.change({ ...change, parent: parentRef }, tx, method);
+          await runner?.commitTransaction();
         } catch (error) {
-          throw atRow(error, path, child, this.deps.errorMapper);
+          await runner?.rollbackTransaction();
+          const placed = atRow(error, path, child, this.deps.errorMapper);
+          if (!isRowRefusal(placed)) throw placed;
+          refusals.push(placed);
         }
       };
 
@@ -410,7 +420,15 @@ export class InlineWriter {
         });
       }
     }
+    // One refusal keeps its own status and message; several are one answer with every row's fields.
+    if (refusals.length === 1) throw refusals[0]!;
+    if (refusals.length > 1) throw new AdminValidationError(Object.assign({}, ...refusals.map((refusal) => refusal.fields)) as Record<string, string[]>);
   }
+}
+
+/** A row the host or the database refused for its values: worth telling together with the other rows' problems. */
+function isRowRefusal(error: unknown): error is AdminError {
+  return error instanceof AdminError && (error.status === 422 || error.status === 409 || error.status === 400) && Object.keys(error.fields ?? {}).length > 0;
 }
 
 interface ParsedInline {

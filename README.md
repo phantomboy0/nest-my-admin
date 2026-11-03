@@ -976,6 +976,18 @@ Things hosts tend to write by hand that the admin already does:
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
 
+## Upgrading to 0.10.3
+
+Nothing to change. What you may notice:
+
+- A save with inline rows now answers with every refused row at once: each row runs in a savepoint, and the save still fails as a whole. One refused row keeps its own status and message; several are one 422 with every row's `fields`.
+- Filter chips are no longer dashed «+» buttons (they read as "add"): a funnel and an arrow, after a «Filter:» caption, and a title in the popover. A yes/no filter is a switch on the chip (one click on, one click off); «No» is behind its arrow. An editable yes/no list cell is a switch that saves on click.
+- Money inputs group digits as they are typed, and a `money` widget also fits a string DTO property.
+- Calendars are always six rows, the column menu scrolls inside the window, a field's `warnIf` no longer remounts its input (the input lost its focus after the first letter), and native controls follow the dark theme (`color-scheme`).
+- In Persian, the server's own texts are translated by the UI, class-validator's default messages included («must not be greater than 5»), without the property's name. English shows them exactly as sent, and a host's own words are never touched. A field the form does not show gives its message without its name.
+
+New: `@AdminResource({ creatable: false })` (no «New», a create is refused, records can still be edited), `{ inline, existingOnly: true }` (rows only on an existing parent), `form.afterCreate: 'edit'` (saving a new record opens it), and `afterInlines(record, dto, ctx)` on a resource (a rule about a record and its rows, after both are written, inside the transaction).
+
 ## Upgrading to 0.10.2
 
 Nothing to change. New: `builtinAuth({ issuerImage })`, an http(s) URL of your logo, sent as `image=` in the two-factor QR code. Only some authenticator apps read it; others, Ente Auth among them, show their own icons, matched on `issuer`. A value that is not an absolute http(s) URL fails at boot.

@@ -19,6 +19,27 @@ export function groupMoney(text: string, scale?: number): string {
   return `${sign}${grouped}${digits ? `.${digits}` : ''}`;
 }
 
+/**
+ * What a money input shows after a keystroke: the digits grouped, the caret still after the same digit. Persian and
+ * Arabic digits become Latin ones. What is not a number stays as typed, for the form to report.
+ */
+export function groupTyped(text: string, caret: number): { text: string; caret: number } {
+  const latin = toLatinNumber(text);
+  const plain = latin.replace(/,/g, '');
+  const match = /^(-?)(\d*)(\.\d*)?$/.exec(plain);
+  if (!match) return { text, caret };
+  const [, sign, whole, fraction = ''] = match;
+  const grouped = `${sign}${whole!.replace(/\B(?=(\d{3})+$)/g, ',')}${fraction}`;
+  const before = latin.slice(0, caret).replace(/,/g, '').length;
+  let seen = 0;
+  let at = 0;
+  while (at < grouped.length && seen < before) {
+    if (grouped[at] !== ',') seen++;
+    at++;
+  }
+  return { text: grouped, caret: at };
+}
+
 /** "1,234.5" → "1234.5" when the commas group thousands correctly; otherwise the text as it is (the form reports it). */
 export function ungroupMoney(text: string): string {
   const trimmed = toLatinNumber(text).trim();

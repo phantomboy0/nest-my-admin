@@ -16,6 +16,7 @@ export function shownErrors(error: Error, names: string[]): ShownErrors {
   const entries = Object.entries(error.fields);
   const onForm = (name: string) => names.includes(name.split('.')[0]!);
   const fields = Object.fromEntries(entries.filter(([name]) => onForm(name)));
-  const hidden = entries.filter(([name]) => !onForm(name)).map(([name, messages]) => `${name}: ${messages.join(', ')}`);
+  // The name of a field the form does not show says nothing to the person reading it.
+  const hidden = entries.filter(([name]) => !onForm(name)).flatMap(([, messages]) => messages);
   return { fields, form: Object.keys(fields).length > 0 && hidden.length === 0 ? null : [error.message, ...hidden].join(' — ') };
 }
