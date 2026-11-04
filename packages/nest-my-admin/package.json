@@ -1,6 +1,6 @@
 {
   "name": "nest-my-admin",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "description": "An admin panel for NestJS + TypeORM in the spirit of Django admin: lists, forms, roles, audit log and a prebuilt UI, served by your own app",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/phantomboy0/nest-my-admin.git", "directory": "packages/nest-my-admin" },
