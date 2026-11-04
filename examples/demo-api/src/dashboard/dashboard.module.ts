@@ -10,6 +10,11 @@ const SOLD = In(['paid', 'shipped']);
 const sum = (orders: Order[]) => orders.reduce((total, order) => total + Number(order.total), 0);
 const percent = (now: number, before: number) => (before === 0 ? (now === 0 ? 0 : 100) : Math.round(((now - before) / before) * 1000) / 10);
 const fa = (ctx: AdminContext) => ctx.locale === 'fa';
+/** The showcase shop sells in dollars; the E2E demo in toman. */
+const showcase = process.env.NMA_DEMO_SHOWCASE === '1';
+/** Whole dollars with separators in the showcase; the E2E baselines keep their plain amounts. */
+const amount = (value: number) => (showcase ? value.toLocaleString('en-US', { maximumFractionDigits: 0 }) : value.toFixed(2));
+const unit = (ctx: AdminContext) => (showcase ? (fa(ctx) ? 'دلار' : 'USD') : fa(ctx) ? 'تومان' : 'Toman');
 
 @AdminWidget('sales', { type: 'stat', title: { en: 'Sales', fa: 'فروش' }, order: 10 })
 class SalesWidget implements AdminWidgetSource {
@@ -17,7 +22,7 @@ class SalesWidget implements AdminWidgetSource {
   async load(params: { from: string; to: string; previousFrom: string; previousTo: string }, ctx: AdminContext) {
     const now = sum(await this.orders.findBy({ status: SOLD, createdAt: Between(new Date(params.from), new Date(params.to)) }));
     const before = sum(await this.orders.findBy({ status: SOLD, createdAt: Between(new Date(params.previousFrom), new Date(params.previousTo)) }));
-    return { value: now.toFixed(2), unit: fa(ctx) ? 'تومان' : 'Toman', change: percent(now, before), previousLabel: fa(ctx) ? 'نسبت به دوره قبل' : 'vs the previous period' };
+    return { value: amount(now), unit: unit(ctx), change: percent(now, before), previousLabel: fa(ctx) ? 'نسبت به دوره قبل' : 'vs the previous period' };
   }
 }
 
@@ -43,13 +48,13 @@ class LowStockWidget implements AdminWidgetSource {
 class GoalWidget implements AdminWidgetSource {
   constructor(@InjectRepository(Order) private readonly orders: Repository<Order>) {}
   async load(_params: unknown, ctx: AdminContext) {
-    const goal = 5000;
+    const goal = showcase ? 30_000 : 5000;
     const start = new Date();
     start.setDate(1);
     start.setHours(0, 0, 0, 0);
     const sold = sum(await this.orders.findBy({ status: SOLD, createdAt: Between(start, new Date()) }));
     const share = Math.min(100, Math.round((sold / goal) * 100));
-    return { percent: share, value: `${share}%`, caption: fa(ctx) ? `${sold.toFixed(0)} از ${goal} تومان` : `${sold.toFixed(0)} of ${goal} Toman` };
+    return { percent: share, value: `${share}%`, caption: fa(ctx) ? `${sold.toFixed(0)} از ${goal} ${unit(ctx)}` : showcase ? `${amount(sold)} of ${amount(goal)} ${unit(ctx)}` : `${sold.toFixed(0)} of ${goal} ${unit(ctx)}` };
   }
 }
 
@@ -102,7 +107,7 @@ class RestockWidget implements AdminWidgetSource {
   constructor(@InjectRepository(Product) private readonly products: Repository<Product>) {}
   async load(_params: unknown, ctx: AdminContext) {
     const rows = await this.products.find({ where: { stock: LessThanOrEqual(5) }, order: { stock: 'ASC' }, take: 5 });
-    return { items: rows.map((product) => ({ icon: 'package', text: `${product.name} · ${product.stock} ${fa(ctx) ? 'عدد' : 'left'}`, status: product.stock === 0 ? ('bad' as const) : ('warn' as const), link: `/product/${product.id}` })) };
+    return { items: rows.map((product) => ({ icon: 'package', text: `${showcase ? `\u2068${product.name}\u2069` : product.name} · ${product.stock} ${fa(ctx) ? 'عدد' : 'left'}`, status: product.stock === 0 ? ('bad' as const) : ('warn' as const), link: `/product/${product.id}` })) };
   }
 }
 

@@ -1,10 +1,13 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
+import { seedShowcase } from './showcase/seed.js';
 import { seedContent, seedProducts, seedRbac, seedSales, seedSettings, seedStaff, seedUsers } from './seed.js';
 
 const app = await NestFactory.create(AppModule);
 await app.init(); // module init first: the built-in auth creates its bootstrap superuser there, before other users exist
+// NMA_DEMO_SHOWCASE=1: the Lumen & Oak shop of the README's screenshots, in place of the E2E data below.
+if (process.env.NMA_DEMO_SHOWCASE === '1') await seedShowcase(app);
 await seedProducts(app);
 await seedContent(app);
 await seedSales(app);
