@@ -6,7 +6,7 @@ describe('resolveAdminOptions', () => {
     const { texts, ...rest } = resolveAdminOptions();
     expect(texts('Orders', 'en')).toBe('Orders');
     expect(rest).toEqual({
-      path: '/admin', title: 'Admin', locale: 'en', locales: ['en'], branding: {}, uiDistPath: undefined, autoRegister: [], transactions: true, errorMapper: undefined,
+      path: '/admin', rootRedirect: false, title: 'Admin', locale: 'en', locales: ['en'], branding: {}, uiDistPath: undefined, autoRegister: [], transactions: true, errorMapper: undefined,
       translate: undefined, auth: undefined, roles: [], resolveRoles: undefined, globalScopes: [], permissions: [], rbac: undefined,
     });
   });

@@ -1,49 +1,197 @@
-# nest-my-admin
+<h1 align="center">nest-my-admin</h1>
 
-A Django-admin-class admin panel for **NestJS + TypeORM**: declarative resources, forms from your DTOs,
-admin writes that go through your own services, and a prebuilt shadcn UI served by Nest itself.
+<p align="center">
+  An admin panel for <b>NestJS + TypeORM</b>, in the spirit of Django admin.<br>
+  Describe your entities once; get lists, forms, permissions, an audit log and a polished UI, served by your own Nest app.
+</p>
 
-> Status: pre-alpha, version 0.2.1 (lists and forms, sign-in, permissions, files and rich text, actions, settings pages, audit log). APIs will change.
->
-> **Upgrading from 0.2.0:** nothing breaks; see [Upgrading to 0.2.1](#upgrading-to-021) for what is new and what you may notice.
->
-> **Upgrading from 0.1:** boot can now fail for an app that booted before, and a few behaviours changed. See [Upgrading to 0.2](#upgrading-to-02).
+<p align="center">
+  <a href="https://www.npmjs.com/package/nest-my-admin"><img alt="npm" src="https://img.shields.io/npm/v/nest-my-admin?color=0f766e"></a>
+  <a href="https://github.com/phantomboy0/nest-my-admin/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/npm/l/nest-my-admin?color=0f766e"></a>
+  <img alt="NestJS 11 and 12" src="https://img.shields.io/badge/NestJS-11%20%7C%2012-0f766e">
+  <img alt="TypeORM 0.3.20+ and 1.x" src="https://img.shields.io/badge/TypeORM-0.3.20%2B%20%7C%201.x-0f766e">
+</p>
 
-Requires NestJS 11 or 12, TypeORM 0.3.20+ or 1.x, Node 20.19+ (or Bun), and Postgres, MySQL 8 or SQLite.
-The package is ESM; CommonJS apps load it through Node's `require(esm)`. A CommonJS app compiled with
-`"module": "nodenext"` (the `nest new` default since Nest 11) needs TypeScript 5.8+; with `"module": "commonjs"` any 5.x works.
-
-```bash
-npm install nest-my-admin                # the admin, its UI, the built-in sign-in and the test helpers, at one version
-npm install -D @nestjs/testing           # only if you use the test helpers
-```
-
-```ts
-import { AdminModule, AdminResource } from 'nest-my-admin';
-import { builtinAuth } from 'nest-my-admin/auth';            // the built-in sign-in
-import { createAdminTestingModule } from 'nest-my-admin/testing'; // in your tests
-```
-
-`nest-my-admin`, `nest-my-admin/auth` and `nest-my-admin/testing` are `@nest-my-admin/core`, `@nest-my-admin/auth` and `@nest-my-admin/testing` under one name: the same objects, always at one version, so they cannot drift apart. The scoped packages still work on their own (`npm install @nest-my-admin/core @nest-my-admin/auth`, then keep them at one exact version); the examples below use the scoped names, and either import works.
+<p align="center">
+  <img alt="The dashboard of a demo shop: sales, orders, low stock, a sales goal, sales by day and the latest orders" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/dashboard.png" width="900">
+</p>
 
 ```ts
 @AdminResource(Product, { icon: 'package' })
 export class ProductAdmin extends AdminResourceBase<Product> {
-  constructor(private readonly products: ProductsService) { super(); }
-  list: ListConfig<Product> = { columns: ['id', 'name', 'sku', 'price'] };
-  form: FormConfig = { create: CreateProductDto, update: UpdateProductDto };
-  create(dto: CreateProductDto) { return this.products.create(dto); }   // your business rules run
+  list: ListConfig<Product> = { columns: ['name', 'price', 'stock'], search: ['name'], filters: ['stock'] };
 }
+```
 
-@AdminGroup({ label: 'Catalog' })
-@Module({ providers: [ProductsService, ProductAdmin] })
-export class CatalogModule {}
+That class is a working admin page for `Product`: a searchable, filterable list, a create and edit form built from the
+entity's columns, and the REST API behind them. Everything else is opt-in, and every write can go through your own
+services, so the rules your app already enforces still apply.
 
-@Module({ imports: [TypeOrmModule.forRoot({ ... }), AdminModule.forRoot({ title: 'My shop' }), CatalogModule] })
+- **No frontend to build.** The UI (React, shadcn) ships prebuilt inside the package and is served by Nest at the path
+  you choose. Your app stays a plain Nest app.
+- **Your code stays in charge.** Override `create`, `update` or `delete` to call your services; the admin validates
+  with your class-validator DTOs and runs inside a transaction you can join.
+- **Built for real operators.** Roles with field- and row-level rules, a permission debugger, two-factor sign-in, an
+  audit log with per-record history, a command palette, a phone layout, dark mode, and right-to-left Persian with the
+  Jalali calendar.
+
+**Status.** Version 0.10. Before 1.0 a minor version may change an API; each release says what to change in
+[UPGRADING.md](https://github.com/phantomboy0/nest-my-admin/blob/main/UPGRADING.md).
+
+## A closer look
+
+Every screenshot is the demo app in this repository ([run it yourself](#try-the-demo)).
+
+<table>
+  <tr>
+    <td width="50%"><img alt="The product list with pictures, tabs, filter chips, price and stock badges" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/products.png"><br><b>Lists.</b> Tabs with live counts, filter chips, computed columns (pictures, badges, a price over the old one, on/off switches) and cells you edit in place.</td>
+    <td width="50%"><img alt="An order page with a fulfilment stepper, order lines, a payment card and record actions" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/order.png"><br><b>Record pages.</b> Sections and side cards, a stepper with the time of each step, child rows edited inline, and your own actions in the header.</td>
+  </tr>
+  <tr>
+    <td><img alt="The status filter open over a product list filtered by category" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/filters.png"><br><b>Filters that live in the URL.</b> Share a link and the other person sees the same list.</td>
+    <td><img alt="The quick view sheet of a product over the list" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/quick-view.png"><br><b>Quick view.</b> Click a row to read a record without leaving the list.</td>
+  </tr>
+  <tr>
+    <td><img alt="The command palette finding three lamps" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/command-palette.png"><br><b>Command palette.</b> <kbd>⌘K</kbd> goes to any page, creates a record or finds one by its title.</td>
+    <td><img alt="The permission debugger explaining what the catalog editor may do with products" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/debugger.png"><br><b>Permission debugger.</b> Why a user can or cannot view, change or delete something, field by field.</td>
+  </tr>
+  <tr>
+    <td><img alt="A role's permissions as a grid of resources and operations" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/permissions.png"><br><b>Roles, groups and users.</b> Define roles in code, or let administrators manage them in the admin.</td>
+    <td><img alt="The dashboard in Persian, right to left, with Persian digits and Jalali dates" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/rtl.png"><br><b>English and Persian.</b> Right to left, Persian digits, the Jalali calendar; any other language through your own translations.</td>
+  </tr>
+  <tr>
+    <td><img alt="The product list in dark mode" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/products-dark.png"><br><b>Dark mode</b>, and an accent colour each person or the whole team can choose.</td>
+    <td><img alt="The product form with its sections, a locked SKU and a floating save bar" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/product-form.png"><br><b>Forms from your DTOs.</b> Sections, tabs, widgets, read-only rules and a save bar that follows you (<kbd>⌘S</kbd>).</td>
+  </tr>
+  <tr>
+    <td align="center"><img alt="The product list on a phone, as cards" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/mobile-list.png" width="260"> <img alt="An order page on a phone" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/mobile-order.png" width="260"><br><b>Phones.</b> Lists turn into cards; filters and sorting move to a drawer.</td>
+    <td><img alt="A settings page with sections, a switch, an image field and a secret" src="https://raw.githubusercontent.com/phantomboy0/nest-my-admin/main/docs/images/settings.png"><br><b>Settings pages</b> for the values that are not rows: the shop's name, a logo, an API key that is never shown again.</td>
+  </tr>
+</table>
+
+## Quick start
+
+Requirements: NestJS 11 or 12, TypeORM 0.3.20+ or 1.x, Node 20.19+ (or Bun), and Postgres, MySQL 8 or SQLite.
+
+```bash
+npm install nest-my-admin
+```
+
+**1. An entity** (you probably have one already):
+
+```ts
+@Entity()
+export class Product {
+  @PrimaryGeneratedColumn() id: number;
+  @Column() name: string;
+  @Column({ type: 'decimal', precision: 10, scale: 2 }) price: string;
+  @Column({ default: 0 }) stock: number;
+}
+```
+
+**2. A resource** that says how the admin shows it:
+
+```ts
+import { AdminResource, AdminResourceBase, type ListConfig } from 'nest-my-admin';
+
+@AdminResource(Product, { icon: 'package' })
+export class ProductAdmin extends AdminResourceBase<Product> {
+  list: ListConfig<Product> = { columns: ['name', 'price', 'stock'], search: ['name'], filters: ['stock'] };
+}
+```
+
+**3. The module**, with the built-in sign-in. Its tables come from `ADMIN_AUTH_ENTITIES`:
+
+```ts
+import { AdminModule } from 'nest-my-admin';
+import { ADMIN_AUTH_ENTITIES, builtinAuth } from 'nest-my-admin/auth';
+
+@Module({
+  imports: [
+    TypeOrmModule.forRoot({ type: 'postgres', url: process.env.DATABASE_URL, entities: [Product, ...ADMIN_AUTH_ENTITIES], synchronize: true }),
+    AdminModule.forRoot({
+      title: 'My shop',
+      auth: builtinAuth({ bootstrapSuperuser: { username: 'admin', password: process.env.ADMIN_PASSWORD! } }),
+    }),
+  ],
+  providers: [ProductAdmin],
+})
 export class AppModule {}
 ```
 
-Open `http://localhost:3000/admin`.
+**4. Start your app** and open `http://localhost:3000/admin`. Sign in as `admin` with `ADMIN_PASSWORD`; the user is
+created on the first boot, when the users table is empty.
+
+From here, the usual next steps:
+
+- Put a resource in a module of its own: the module becomes its sidebar group ([Sidebar groups and order](#sidebar-groups-and-order)).
+- Give it a create and an update DTO, and override `create`/`update` to call your service ([Fields and forms](#fields-and-forms)).
+- Add roles for people who are not superusers ([Permissions](#permissions)).
+
+`synchronize: true` is for trying it out. In production, generate migrations as usual: the admin's tables are
+ordinary entities.
+
+### One package or four
+
+`nest-my-admin` is the admin, its UI, the built-in sign-in and the test helpers at one version, so they cannot drift
+apart:
+
+```ts
+import { AdminModule, AdminResource } from 'nest-my-admin';
+import { builtinAuth } from 'nest-my-admin/auth';                 // the built-in sign-in
+import { createAdminTestingModule } from 'nest-my-admin/testing'; // in your tests (npm install -D @nestjs/testing)
+```
+
+They are `@nest-my-admin/core`, `@nest-my-admin/auth` and `@nest-my-admin/testing` under one name: the same objects.
+The scoped packages still work on their own (keep them at one exact version). The rest of this page uses the scoped
+names; either import works.
+
+The package is ESM. CommonJS apps load it through Node's `require(esm)`; one compiled with `"module": "nodenext"`
+(the `nest new` default since Nest 11) needs TypeScript 5.8+, and with `"module": "commonjs"` any 5.x works.
+
+## Try the demo
+
+The screenshots above come from `examples/demo-api`, a small shop with two months of orders:
+
+```bash
+git clone https://github.com/phantomboy0/nest-my-admin && cd nest-my-admin
+bun install && bun run build
+cd examples/demo-api && NMA_DEMO_SHOWCASE=1 bun src/main.ts
+```
+
+Open `http://localhost:3000/admin` and sign in as `admin` / `admin-demo-pass` (a superuser) or `editor` /
+`editor-demo-pass` (the catalog editor role: a good way to see permissions at work). The data lives in memory and
+starts fresh on every run. Without `NMA_DEMO_SHOWCASE` the demo starts with the small data set the end-to-end tests
+use.
+
+## How it fits into your app
+
+- **Resources.** `@AdminResource(Entity)` on a provider registers one page. The admin reads the entity's TypeORM
+  metadata and your DTOs' class-validator rules, and builds the list, the form and the API from them.
+- **Writes go through you.** The base class creates, updates and deletes through the repository. Override any of them
+  to call your service instead: the DTO is already validated and you get a transactional `ctx.manager`.
+- **Its own HTTP surface.** The admin is mounted as one handler on Nest's Express adapter at `path` (default
+  `/admin`). Your global guards, interceptors, pipes, filters and `setGlobalPrefix` do not touch it, and it does not
+  touch your routes.
+- **Its own tables, only when you ask.** Sign-in, roles, files, the audit log and admin-wide settings each come with
+  entities you add to your DataSource (`ADMIN_AUTH_ENTITIES`, `ADMIN_RBAC_ENTITIES`, `ADMIN_FILE_ENTITIES`,
+  `ADMIN_AUDIT_ENTITIES`, `ADMIN_SETTING_ENTITIES`).
+
+## Contents
+
+- [Resources, lists and forms](#resources-lists-and-forms): [querying lists](#querying-lists), [sidebar and menu](#sidebar-groups-and-order), [list page](#the-list-page), [tabs and computed columns](#tabs-and-computed-columns), [lists at scale](#lists-at-scale), [relations](#relations-and-record-titles), [entity shapes](#entity-shapes), [languages and branding](#languages-theme-and-branding), [Persian](#persian-dates-and-phones), [fields and forms](#fields-and-forms), [files and rich text](#files-images-and-rich-text), [actions](#actions), [printing](#printing-records), [Excel](#exporting-a-list-to-excel), [settings pages](#settings-pages), [source resources](#source-resources), [inlines](#inlines), [the record page](#the-record-page)
+- [Dashboard](#dashboard)
+- [Transactions, context and errors](#transactions-context-and-errors)
+- [Sign-in](#sign-in)
+- [Permissions](#permissions)
+- [Audit log](#audit-log)
+- [Writing less](#writing-less)
+- [Upgrading](#upgrading)
+- [Develop](#develop)
+
+## Resources, lists and forms
+
+### Querying lists
 
 Lists support filters and search with a URL syntax you can bookmark:
 
@@ -129,6 +277,34 @@ For joins or aggregates, override `findMany` and start from `this.buildListQuery
 ```ts
 list: ListConfig<Product> = { columns: ['name', 'status', 'stock'], editable: ['status', 'stock'] };
 ```
+
+### Tabs and computed columns
+
+```ts
+list: ListConfig<Product> = {
+  columns: ['picture', 'product', 'money', 'stockBadge', 'specCount', 'active'],
+  tabs: [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active', filter: { 'filter[status][eq]': 'active' } },
+    { key: 'out', label: 'Out of stock', where: (qb) => void qb.andWhere(`${qb.alias}.stock = 0`) },
+  ],
+  computed: {
+    picture: { label: 'Picture', kind: 'image', source: { first: 'media', field: 'image', by: 'sort' } },
+    product: { label: 'Product', kind: 'title', source: 'name', subline: 'sku' },
+    money: { label: 'Price', kind: 'money', source: 'price', previous: 'compareAtPrice' },
+    stockBadge: { label: 'Stock', kind: 'badge', source: 'stock', map: (stock) => (Number(stock) === 0 ? { label: 'Out of stock', tone: 'bad' } : { label: `In stock · ${stock}`, tone: 'ok' }) },
+    specCount: { label: 'Specs', kind: 'count', source: { aggregate: 'count', relation: 'specs' }, sortable: true },
+    active: { label: 'Active', kind: 'toggle', source: { toggle: 'status', on: 'active', off: 'archived' } },
+  },
+};
+```
+
+- **Tabs** sit above the list, at most six, each with its count for the person looking (`GET /api/resources/:r/tab-counts`). A tab is a set of filters (`filter`, the URL syntax) or a condition of your own (`where`), for what the filter bar does not offer.
+- **Computed columns** are named in `list.columns` like fields.
+  - Kinds: `image`, `title` (with a `subline`), `money` (with the `previous` price struck through), `badge` (with `map` returning a label and a tone: `ok`, `warn`, `bad`, `info`, `neutral` or `primary`), `count`, `toggle` (an on/off switch over an enum).
+  - Sources: a field or a path (`category.name`), an aggregate (`count`, `sum`, `min`, `max`) or the first row of a one-to-many relation, an enum toggle, or `{ compute: (rows, ctx) => …, fields }`, called once per page.
+  - Aggregates and first rows count only the rows the viewer may see, and a column that reads something the viewer cannot see is left out.
+- **Phones** show each row as a card: `list.mobile: { title, subtitle, badge, meta: [...] }` chooses what goes where.
 
 ### Lists at scale
 
@@ -264,6 +440,12 @@ AdminModule.forRoot({
   - Anything else fails at boot, so no value can inject CSS.
 - **Theme.** Light, dark or system, from the header. It is applied before the page renders, so nothing flashes.
 - **Icons** for groups and resources: bell, book, box, boxes, briefcase, building, calendar, cart, chart, clock, credit-card, database, dollar, file, file-text, folder, globe, heart, history, home, image, inbox, key, layers, link, list, lock, mail, map, map-pin, message, package, phone, printer, receipt, server, settings, shield, shopping-bag, shopping-cart, star, store, tag, tags, ticket, truck, user, users, video, wallet, wrench, zap.
+
+#### The accent colour, in the admin
+
+`forRoot({ appearance: {} })` (add `ADMIN_SETTING_ENTITIES` to the DataSource) lets people choose the accent colour
+in their account menu (Display). Each person's choice is kept in their browser; people with `appearance.manage` can
+also set it for everyone. What applies: the person's own, then the admin-wide one, then `branding.primaryColor`.
 
 ### Persian, dates and phones
 
@@ -708,6 +890,92 @@ The parent's records carry `_perm.inlines.<child>.create`, and the inline hides 
 
 **Duplicate** copies the parent only, not its children (the copied form says so).
 
+### The record page
+
+The order page in the screenshots, from `examples/demo-api/src/sales/order.admin.ts`:
+
+```ts
+form: FormConfig = {
+  create: CreateOrderDto,
+  update: UpdateOrderDto,
+  mode: 'view',                                    // opens as text; «Edit» turns it into the form
+  header: { badges: ['status'], subtitle: ['customer', 'createdAt', { computed: 'lineCount' }], stepper: 'fulfillment' },
+  layout: {
+    main: [
+      { section: 'Order', fields: ['number', 'customer', 'total', 'tracking'], columns: 2 },
+      { section: 'Lines', inline: OrderLineAdmin, display: 'table', order: 'position', max: 50, readonly: true },
+      { section: 'Totals', summary: [{ label: 'Items', value: { computed: 'lineCount' } }, { label: 'Total', value: 'total' }] },
+    ],
+    aside: [
+      { title: 'Payment', icon: 'credit-card', fields: ['status', 'total', 'tracking'] },
+      { title: 'Handled by', icon: 'user', fields: { relation: 'handledById', fields: ['position'] }, link: true },
+    ],
+  },
+};
+
+fields: FieldsConfig<Order> = {
+  fulfillment: {
+    widget: 'stepper',
+    exclude: ['cancelled'],
+    history: { inline: OrderStatusLogAdmin, value: 'value', at: 'at', where: { field: 'fulfillment' } },
+  },
+};
+```
+
+- **`layout.main`** is the form's sections; **`layout.aside`** puts cards beside them, with the record's own fields or a related record's (`relation`), linked to it with `link: true`.
+- **`header`**: badges next to the title, a subtitle of fields and computed values, and a `stepper` across the page.
+- **A stepper** shows an ordered enum as steps. With `history` it reads when each step was reached from a log of the record (a child resource), and `exclude` leaves out values that are not steps.
+- **`summary`** is a section of label and value lines (totals), from fields or the list's computed columns (`list.computed`), like `lineCount` here.
+- **`mode: 'view'`** opens records as text; people who may edit get «Edit».
+- **A primary action** is the filled button last in the header, with a label per record, or hidden on records where it does not apply (`null`):
+
+```ts
+@AdminAction({
+  primary: true,
+  label: { static: 'Next step', for: (order: Order) => (order.status === 'draft' ? 'Move to «paid»' : order.status === 'paid' ? 'Move to «shipped»' : null) },
+})
+async advance(order: Order, _input: unknown, ctx: AdminContext) { /* … */ }
+```
+
+- **A soft warning** on a field never blocks a save: `fields: { caption: { warnIf: { empty: true, message: 'No alt text: screen readers will not know what the picture shows.' } } }`.
+
+## Dashboard
+
+A widget is a provider with `@AdminWidget` and a `load` method. With at least one widget the person may see, the
+dashboard replaces the home page.
+
+```ts
+@AdminWidget('sales', { type: 'stat', title: 'Sales', order: 10 })
+export class SalesWidget implements AdminWidgetSource {
+  constructor(@InjectRepository(Order) private readonly orders: Repository<Order>) {}
+
+  async load(params: { from: string; to: string; previousFrom: string; previousTo: string }) {
+    const now = await this.total(params.from, params.to);
+    const before = await this.total(params.previousFrom, params.previousTo);
+    return { value: now.toLocaleString('en-US'), unit: 'USD', change: before ? Math.round(((now - before) / before) * 100) : 0, previousLabel: 'vs the previous period' };
+  }
+  // …
+}
+
+@Module({ imports: [TypeOrmModule.forFeature([Order])], providers: [SalesWidget] })
+export class DashboardModule {}
+```
+
+- **The period** (today, this week, this month, this year, or a range from the calendar, Jalali in Persian) is chosen on the page. The UI sends `from`, `to` and the period before it (`previousFrom`, `previousTo`); the server checks them (in order, at most 366 days).
+- **Types** and what `load` returns:
+
+  | `type` | Returns |
+  | --- | --- |
+  | `stat` | `{ value, unit?, change?, previousLabel? }`: `value` is text you format; `change` is a percent against the previous period |
+  | `progress` | `{ percent, value, caption }`: a ring |
+  | `chart` | `{ kind: 'line' \| 'bar', labels, series: [{ label, values, dashed? }], total?, subtitle? }`: one or two series, the second often the previous period, dashed |
+  | `table` | `{ columns: [{ key, label }], rows, link? }`: a cell may be `{ label, tone }` (a badge); `link: { resource }` adds «View all» |
+  | `list` | `{ items: [{ text, icon?, status?, link? }] }`: `status` is a coloured dot (a tone: `ok`, `warn`, `bad`, …) |
+
+- **Layout.** `order` sorts widgets; `size` (1 to 4) is how many of the four desktop columns one takes. Phones show one column. Each widget loads on its own, with its own placeholder and error.
+- **Permissions.** A widget needs `dashboard.<name>`, or the code in its `permission` option; `dashboard.*` grants them all. Superusers see every widget.
+- `examples/demo-api/src/dashboard/dashboard.module.ts` has one widget of each type.
+
 ## Transactions, context and errors
 
 Every create, update and delete runs in one database transaction. Pass `ctx.manager` to your services so their writes
@@ -976,185 +1244,9 @@ Things hosts tend to write by hand that the admin already does:
 - **Inline children stay out of the sidebar** by default (`nav: false` unless they set `nav`): no extra group to hide them in.
 - **Labels in one language** are plain strings; other languages can come from `translate` (see Languages, theme and branding).
 
-## Upgrading to 0.10.3
+## Upgrading
 
-Nothing to change. What you may notice:
-
-- A save with inline rows now answers with every refused row at once: each row runs in a savepoint, and the save still fails as a whole. One refused row keeps its own status and message; several are one 422 with every row's `fields`.
-- Filter chips are no longer dashed «+» buttons (they read as "add"): a funnel and an arrow, after a «Filter:» caption, and a title in the popover. A yes/no filter is a switch on the chip (one click on, one click off); «No» is behind its arrow. An editable yes/no list cell is a switch that saves on click.
-- Money inputs group digits as they are typed, and a `money` widget also fits a string DTO property.
-- Calendars are always six rows, the column menu scrolls inside the window, a field's `warnIf` no longer remounts its input (the input lost its focus after the first letter), and native controls follow the dark theme (`color-scheme`).
-- In Persian, the server's own texts are translated by the UI, class-validator's default messages included («must not be greater than 5»), without the property's name. English shows them exactly as sent, and a host's own words are never touched. A field the form does not show gives its message without its name.
-
-New: `@AdminResource({ creatable: false })` (no «New», a create is refused, records can still be edited), `{ inline, existingOnly: true }` (rows only on an existing parent), `form.afterCreate: 'edit'` (saving a new record opens it), and `afterInlines(record, dto, ctx)` on a resource (a rule about a record and its rows, after both are written, inside the transaction).
-
-## Upgrading to 0.10.2
-
-Nothing to change. New: `builtinAuth({ issuerImage })`, an http(s) URL of your logo, sent as `image=` in the two-factor QR code. Only some authenticator apps read it; others, Ente Auth among them, show their own icons, matched on `issuer`. A value that is not an absolute http(s) URL fails at boot.
-
-## Upgrading to 0.9.1
-
-Nothing to change. New: `@AdminAction({ choices })` (see Actions): an input field whose dropdown a resource method fills when the dialog opens, re-checked when the action runs. Every dropdown in the dashboard (forms, filters, sort, page size, inline cell edits, language, roles, audit, debugger, the editor's heading level) is now the dashboard's own list, styled like the rest and right to left in Persian, instead of the browser's native `<select>`. Tests that drove a native select (`selectOption`) click the field, then the option (`getByRole('option', { name })`).
-
-## Upgrading to 0.9.0
-
-The contracts between the admin and your code are now enforced: the decorators' types refuse a method or class of the wrong shape at compile time, and the admin refuses a wrong value at run time (a 500 with `nest-my-admin: …` in the log, or a boot error) instead of reading it as something else. Code that already followed the docs keeps working; code that compiled only through `any` or plain JavaScript may now fail. What to check:
-
-- **Resource classes.** `@AdminResource(Entity)` needs a class that extends `AdminResourceBase<Entity>`, and `@AdminSource(Row)` one that extends `AdminSourceBase<Row>` (compile errors now, as well as the boot errors before).
-- **Actions.** A method returns nothing or `{ message }` (`ActionOutcome`), sync or async. Anything else (the record, a string, `{ mesage }`) fails the run and its writes are rolled back. The first parameter of a record action is one of the resource's rows (typed: `extend(inst: Instance, …)` on an `AdminResourceBase<Instance>`). The next parameter is the input: give it the type of `input`, or leave `input` out and the parameter's class becomes the form. `input` that is not the parameter's class (or a parent of it), and a record parameter of another class, fail at boot. `label.for` returns a text or `null`, never a Promise.
-- **Parameter types need `emitDecoratorMetadata`** (as Nest's own injection does; tsc, SWC and Bun emit it, esbuild, Vite and tsx do not). Without it, an action whose method takes an input parameter and sets no `input` fails at boot: set `input: SomeDto`, or `input: false` for an action that takes none.
-- **`@AdminScope`** returns a column map or a callback at once, never a Promise: an async scope used to mean «no restriction»; now it is an error.
-- **`@AdminCan`** returns `true` or `false` at once. A Promise or another value is an error (a rule that throws still means «no», with a warning).
-- **`@AdminPrint`** returns `` html`…` `` (or a Promise of it). A plain string is refused: it was not escaped.
-- **`readonlyIf`** returns a boolean, and `readonlyFields()` an array of names.
-- **`findMany`** of a resource, a source or an inline child returns `{ items, total }` (`total` may be left out); an array is refused.
-- **Computed columns:** `compute()` returns an object of values by id, and a badge's `map()` a `{ label, tone }` with a known tone.
-- **Widgets** return the data of their `type` (a stat's `value` is text); `@AdminWidget` needs a class with `load()` and `@AdminSettingsPage` one with `load()` and `save()`.
-- **Hooks:** `@BeforeSave`/`@AfterSave` take `(dto | entity, ctx, mode: 'create' | 'update')`, `@BeforeDelete` `(entity, ctx, mode: 'soft' | 'hard')`, and return nothing: a hook that returns a value (`return dto` in a `@BeforeSave` that meant to change it) is a compile error and fails the save. Change `dto` in place.
-- **Resource methods:** `query()` returns the query builder it was given, at once (an `async query()` is an error); a list tab's `where(qb, ctx)` adds to `qb` at once; `relationOptions()` returns the query builder (or a Promise of it); `findOne()` a record or `null`; `create()`/`update()`/`restore()` the record or nothing (then it is reloaded); `links()` an array of `{ label, href }` (a link that is not http(s) or relative is still left out, now with a warning).
-- **Module options and adapters:** `resolveRoles` (option or adapter) returns an array of role names (a string used to be read letter by letter); a thrown error still means «no roles». `authenticate()` returns `{ user }` or `null`; `getUser()` a user or `null`; a global scope's `appliesTo()` a boolean; `translate` a string or `undefined` at once (an async `translate` used to show the declared texts silently; a throw still falls back). An `errorMapper` that returns something other than an `AdminError` or `undefined` is logged as an error. `files.storage.publicUrl()` returns a URL or `undefined` at once, and `get()` `{ body, contentType, size }` or `null`.
-- **What the types cannot see:** two DTO classes with the same properties are the same type to TypeScript; the boot check (with the parameter types) tells them apart.
-
-New types: `ActionReturn` (what an action may return), `Awaitable<T>`, `RowOf<P>`, `TypedMethodDecorator<M>` and `TypedClassDecorator<I>` (for your own wrappers around the decorators).
-
-## Upgrading to 0.8.1
-
-Nothing to change. New: with `appearance` on, whoever holds `appearance.manage` uploads the **logo** (sidebar and sign-in page) and the **tab icon** (favicon) from the account menu, for everyone (PNG, JPEG, GIF, WebP, ICO or SVG, up to 512 KB; stored in `nma_setting`, served at `<path>/appearance/logo` and `/appearance/favicon`). An uploaded logo wins over `branding.logo`. Without a logo the sidebar shows the admin's own mark instead of the first letter of the title, and it is the default tab icon.
-
-## Upgrading to 0.8.0
-
-Nothing to change. New: [source resources](#source-resources): `@AdminSource(RowClass, …)` and `AdminSourceBase` give rows that are not database rows (an HTTP API, files, live state) the list, record page, forms and actions of a table; `inMemoryList` searches, filters, sorts and pages rows fetched whole.
-
-## Upgrading to 0.7.4
-
-Nothing to change. New: `@AdminField({ default })` starts action input forms and create forms at a value (checked at boot to fit the field), and `@AdminField({ fillFrom: '{crm}.example.com' })` fills a text field from other fields of the same form until someone types in it, in action dialogs too (see Field config).
-
-## Upgrading to 0.7.3
-
-Nothing to change. Smaller packages: `@nest-my-admin/core`, `/auth` and `/testing` no longer ship source maps (they pointed at sources the packages do not include), so core is about 1.2 MB instead of 1.9 MB; core no longer asks for `rxjs` and `@nest-my-admin/testing` no longer asks for `@nestjs/core`, neither of which they import.
-
-## Upgrading to 0.7.2
-
-Nothing to change. Fixed: 0.7 typed the context of `AdminSettingsSource.save` as `AdminWriteContext`, so code that calls a page's `save()` with an `AdminContext` stopped compiling; it takes an `AdminContext` again. Your own `save` may still declare `ctx: AdminWriteContext` to use `ctx.manager` without `!`.
-
-## Upgrading to 0.7.1
-
-Nothing to change. New: install `nest-my-admin` alone and import `nest-my-admin/auth` and `nest-my-admin/testing` (see the top of this page). To move to it, replace `@nest-my-admin/core`, `@nest-my-admin/auth` and `@nest-my-admin/testing` in your dependencies with `nest-my-admin`, keep `@nestjs/testing` among your dev dependencies, and change the imports (`@nest-my-admin/core` → `nest-my-admin`, `@nest-my-admin/auth` → `nest-my-admin/auth`, `@nest-my-admin/testing` → `nest-my-admin/testing`). `@nest-my-admin/testing` now marks `@nestjs/testing` an optional peer.
-
-## Upgrading to 0.7
-
-Nothing needs changing in an app on 0.6, except two type-only cases:
-
-- an override that returns `super.relationOptions(...)` under an explicit `: SelectQueryBuilder<any>` return type: drop the annotation (`relationOptions` may now be async);
-- code that names `AdminMenuSection['items']` as a type: wrap it in `NonNullable<…>` (a `{ group }` section's items are optional);
-- code that reads `item.resource` or `item.page` of its own menu items as a string: they may now be classes too (`string | Function`), so narrow with `typeof item.resource === 'string'`.
-
-New:
-
-- `translate` (Languages, theme and branding): your own i18n for every text you declare and for the UI's own texts, by key; UI languages the admin does not ship.
-- `readonlyFields(record, ctx)` and `this.updateFields` (Fields and forms): lock a record's fields from one place.
-- `AdminWriteContext` and `AdminResourceBase<T, Id>` (Transactions, context and errors); with `transactions: false` writes now get the DataSource's own `ctx.manager`.
-- `relationOptions` may be async, and relation ids in its `values` (and `values._parent`) have the key's type.
-- `@AdminCan('create')` on an inline child (Inlines): whether rows may be added under a parent; `_perm.inlines` on the parent's records.
-- Menu sections from groups (`{ group: 'settings' }`) and menu items by class (The menu).
-- Layout nodes and aside cards take an optional `key`, for `translate`.
-
-## Upgrading to 0.4
-
-0.4 gives the admin a new look (the owner-admin design) and the features a shop owner's panel needs. All five packages are 0.4.0; upgrade them together. Every new feature is an option: an app that sets none of them gets the new look and today's behaviour, except for the points under "What a 0.3 app will notice".
-
-**What a 0.3 app will notice**
-
-- **The look.** New design tokens: the Vazirmatn font for every language (bundled), 12px cards, pill badges, a 256px sidebar with sections, a floating save bar with ⌘S, filter chips over lists, cards on phones. The default accent is `#5B5BD6`; to keep the old neutral one, set it back: `branding: { primaryColor: 'oklch(0.205 0 0)' }`.
-- **Persian digits by default in `fa`** (۱۲۳ and ٬ thousands separators). People switch back to Latin digits in their account menu (Display); the choice is kept per browser.
-- **Inline children leave navigation.** A resource another resource edits inline (`{ inline: ChildAdmin }`) is no longer in the sidebar, home, group pages, palette or global search; it keeps its URLs, permissions, history and audit entries. To keep it listed: `@AdminResource(Child, { nav: true })`.
-- **Contract changes** for code that reads the JSON API itself: `FieldSchema.currency` is `{ unit, position }` (a `currency: 'USD'` option still works), and a record's `_perm.actions` maps each record action to its label on that record, or `false` where it may not run (it was a list of names).
-- **The e2e/screenshot baselines of your own app**, if you keep any, change with the look.
-
-**New options**
-
-- **Currency**: `forRoot({ currency: { unit: { en: 'Toman', fa: 'تومان' } } })` labels every `money` field without a unit of its own; a field's `currency` (a code, or `{ unit, position }`) wins.
-- **A curated menu**: `forRoot({ menu: { sections: [{ key: 'sales', label: { fa: 'فروش' }, icon: 'shopping-cart', items: [{ resource: 'order', badge: { 'filter[status][eq]': 'paid' } }, { page: 'shop' }, { href: 'https://shop.example', label: 'Shop' }] }] } })`. Sections replace module groups in the sidebar, home, group pages, breadcrumbs and the palette; everything not placed goes into «Advanced», collapsed. Badges are counted for each user through the list's scoped count (`GET /api/menu/badges`, refreshed every minute).
-- **`nav: false`** on `@AdminResource` takes any resource out of navigation.
-- **Computed list columns**: `list.computed: { picture: { label, kind: 'image', source: { first: 'media', field: 'image', by: 'sort' } }, stock: { label, kind: 'badge', source: 'stock', map: (value, row) => ({ label, tone }) }, variants: { label, kind: 'count', source: { aggregate: 'count', relation: 'variants' }, sortable: true }, active: { label, kind: 'toggle', source: { toggle: 'status', on: 'active', off: 'archived' } } }`, named in `list.columns`. Kinds: image, title (with `subline`), money (with `previous`), badge, count, toggle; sources: a field or path, an aggregate or first row of a one-to-many relation (only the rows the viewer sees), an enum toggle, or `{ compute: (rows, ctx) => …, fields }` called once per page. A column reading something the viewer cannot see is cut.
-- **List tabs**: `list.tabs: [{ key: 'all', label }, { key: 'active', label, filter: { 'filter[status][eq]': 'active' } }, { key: 'out', label, where: (qb) => qb.andWhere(qb.alias + '.stock = 0') }]` (at most six), counted per user (`GET /api/resources/:r/tab-counts`).
-- **Primary record actions with per-record labels**: `@AdminAction({ primary: true, label: { static: 'Next step', for: (order) => (order.status === 'draft' ? 'Mark paid' : null) } })`: a filled button last in the record's header; `null` hides it on that record (and a run is refused).
-- **The record page**: `form.layout: { main: [...sections], aside: [{ title, fields: ['status', 'total'] }, { title, fields: { relation: 'customerId', fields: ['phone'] }, link: true }] }`, `form.mode: 'view'` (opens as text until «Edit»), `form.header: { badges, subtitle: ['customer', { computed: 'items' }], stepper: 'fulfillment' }`.
-- **Inline presentation**: an inline's `readonly`, `computed` (child computed columns as table columns) and `cards: { markFirst }`; a `{ summary: [{ label, value: 'total' | { computed } }] }` layout node; a field's `warnIf: { empty: true, message }` (a soft warning that never blocks a save).
-- **A stepper**: `fields: { fulfillment: { widget: 'stepper', exclude: ['cancelled'], history: { inline: StatusLogAdmin, value: 'value', at: 'at', where: { field: 'fulfillment' } } } }` shows an ordered enum as steps with the time each was reached.
-- **The accent colour, in the admin**: `forRoot({ appearance: {} })` (add `ADMIN_SETTING_ENTITIES` to the DataSource) lets people with `appearance.manage` set the accent for everyone (account menu → Display → «Use for everyone»); everyone may pick their own, kept in their browser. Order: their own, the admin-wide one, `branding.primaryColor`.
-- **A dashboard**: `@AdminWidget('sales', { type: 'stat' | 'chart' | 'table' | 'progress' | 'list', title, order, size, permission })` providers with `load(params, ctx)`; the period (today, week, month, year, a range; Jalali-aware) is computed by the UI and checked by the server. Codes `dashboard.<name>` (or the widget's `permission`); `dashboard.*` grants every widget. With a widget to show, the dashboard replaces the home page.
-- **`@nest-my-admin/testing`**: `expectNoLeaks` also crawls menu badges, tab counts, computed cells and the dashboard.
-
-Still missing (planned): printing a record (an invoice, a shipping label) and exporting a list to Excel.
-
-## Upgrading to 0.3.2
-
-Nothing to change in an app on 0.3.1. New: `@AdminResource(Entity, { readonly: true })` for records only your own code writes (logs, orders, snapshots): the admin offers no New, Save, Delete, editable cell or inline add and remove, and its API answers 403 to every write, whatever the roles say; the resource's `@AdminAction`s still run with their usual permissions. The schema says `readonly: true`. Before, the way to get this was to throw from `create`/`update`/`delete`, and a superuser still saw the buttons.
-
-## Upgrading to 0.3.1
-
-A fix, nothing to change in an app on 0.3.0. A property of a create DTO that is not a column (a value your `create()` uses, such as the price of a first variant) is no longer shown on the edit form as an empty read-only field; a create-only column (a number fixed once saved) still is. `form.readonly` in the schema changes accordingly.
-
-## Upgrading to 0.3.0
-
-Nothing in 0.3.0 breaks an app that runs on 0.2.1: no option or export was removed or changed, no table or stored key changed, and a resource without inlines answers exactly as before (responses only gain fields). All five packages are 0.3.0; upgrade them together, as before.
-
-**New**
-
-- **Inlines**: child resources edited in the parent's form and saved with it in one transaction. See [Inlines](#inlines).
-- **`AdminFiles.register()` and `release()`**: files a host stored itself become files of a record's field. See "Registering files yourself" under [Files](#files-images-and-rich-text).
-- **A key column named `id` without a label is "شناسه" in Persian** (still "Id" in English).
-
-**What a 0.2.1 app may notice**
-
-- `relationOptions(field, qb, ctx, values)`: a key named `_parent` in `values` now has a meaning when the picker belongs to an inline (`?parent=` on the options route); without `?parent=` it is passed through as before.
-- The UI's lists, sidebar and header: the sidebar and the header stay in place while the page scrolls, and in right-to-left languages table headers start on the right like their cells.
-
-## Upgrading to 0.2.1
-
-Nothing in 0.2.1 breaks an app that runs on 0.2.0: no option or export was removed or changed, no table or stored key changed, and permissions decide as before. All five packages (`@nest-my-admin/core`, `ui`, `auth`, `testing` and `nest-my-admin`) are 0.2.1. Upgrade them together: `@nest-my-admin/auth` and `@nest-my-admin/testing` peer on the exact core version (0.2.1 of either does not install next to core 0.2.0), and core brings the UI of its own version.
-
-**New**
-
-- **`@AdminGroup` by key, for any members.** A module's `@AdminGroup` now configures the group of its key whoever the members are, also when they are only settings pages that say `group: '<key>'`, and also when the module provides nothing. See [Sidebar groups and order](#sidebar-groups-and-order).
-- **`order`** on `@AdminResource` and `@AdminSettingsPage`: the place inside the group (lower first, default 100, then by label).
-- **`AdminFiles`** (`publicFile(key)`, `openPublic(key)`): which keys are public files, for a host that serves them itself. See "Serving public files yourself" under [Files](#files-images-and-rich-text).
-- **The page is in the admin's language**: `GET <path>/` answers `<html lang dir>`, `<title>` and `Content-Language` for the default `locale` and your `title`.
-- **Documented:** the storage key of a settings page's file, `page/<name>/<field>/<yyyy>/<mm>/<uuid><ext>` (unchanged; it was only in the source).
-
-**What a 0.2.0 app may notice**
-
-- **A sidebar group can change its label, icon and place.** In 0.2.0 an `@AdminGroup` was read only when its module provided a resource, or a page without `group`. A group reached only through `group: '<key>'` therefore showed the key as its label ("Settings"), with no icon and order 100, even though a module carried `@AdminGroup({ key: '<key>', … })` (or was named like the key and carried `@AdminGroup` without a `key`). In 0.2.1 that module's label, icon and order apply. Group keys, URLs (`/g/<key>`) and permissions are unchanged. If you worked around it by leaving `group` off some pages, both spellings now give the same group.
-  - A module that carries `@AdminGroup` now also wins over a module without the decorator whose name gives the same key, whichever is imported first (in 0.2.0, the one whose resource was registered first).
-  - Two modules that configure one key differently: the first in import order wins (in 0.2.0, the first that had a resource or a page registered, which is nearly always the same), and 0.2.1 logs a warning at boot that names both.
-- **The served HTML.** `GET <path>/` used to answer `<html lang="en" dir="ltr">` and `<title>Admin</title>` whatever the admin's language. It now answers with the default `locale` (`lang`, `dir`, `Content-Language`) and your `title` in it. The page is still one page for every request (it does not vary by `Accept-Language`, and there is no `Vary` header), and `Cache-Control` is still `no-cache`. An admin with `locale: 'en'` and no `title` gets byte-for-byte what it got before, plus `Content-Language: en`. The UI behaves as before once it runs. If you serve your own UI build (`uiDistPath`), the `lang` and `dir` of its `<html>` and the `<title>` of its `<head>` are replaced the same way.
-- **Boot fails for `order` that is not a finite number** on a resource or a settings page. TypeScript did not accept the option in 0.2.0, so only untyped code that already passed one can be hit.
-
-## Upgrading to 0.2
-
-**Boot can now fail.** Each of these stops the app at start, with a message that names the class:
-
-- An app that ran on 0.1 can be hit by one of them without using anything new: `widget: 'password'` (and the new `sensitive` and `secret`) on a property inside a group, that is a nested DTO or an embedded entity. Nothing applied those options there. Move the field to the top level.
-- The others come with the features of 0.2, as you adopt them:
-  - a settings page whose name is reserved (`view`, `create`, `update`, `delete`, `purge`, `field`, `action`), a resource's name, or a custom permission of a resource (`order.export` and a page named `export`); a `permissions` entry that is a page's code (`page.<name>`, `page.<name>.update`); a resource named `page`, or whose name starts with `page:`, in an admin that has settings pages;
-  - an action's input DTO with a `file`, `image` or `richtext` widget;
-  - `atomic` on an action without `bulk: true`, on a resource action, or with `transactions: false`;
-  - an action method named like a built-in operation (`view`, `create`, `update`, `delete`, `restore`, `purge`) or like a method of `AdminResourceBase`;
-  - `@AdminCan('<name>')` whose name is not `update`, `delete` or a record action of that resource (a typo, or the name of a resource action);
-  - `files` without `ADMIN_FILE_ENTITIES`, or `audit` without `ADMIN_AUDIT_ENTITIES`, in the entities of the DataSource they name.
-
-**Behaviour that changed**
-
-- **Core and UI go together.** `@nest-my-admin/ui` 0.2.0 is installed with `@nest-my-admin/core` 0.2.0; if you pin or override either, keep both on 0.2.0. `GET /api/session` now always carries `audit: { enabled, view }` (`SessionResponse.audit`), which the 0.2 UI reads.
-- **A 401 thrown by your code inside a write or a settings page's `load()` is answered as 400** with your message. The UI reads every 401 as "signed out"; the admin's own 401 is unchanged.
-- **Deleting a record releases its files only when the row is really gone** (read again inside the write). A `delete()` override that keeps the row keeps the files; a purge always releases them. A row that goes where the write cannot see it (MySQL and a service that ignores `ctx.manager`, or a delete queued for later) leaves its files as orphans. See [Files, images and rich text](#files-images-and-rich-text).
-- **With `audit` on:**
-  - every admin write reads the stored row before and after your method, and inserts one row into `nma_audit` in the same transaction. If that insert fails, the write fails (500);
-  - entry ids are 32-bit integers on Postgres and MySQL (2.1 billion entries); set `retentionDays` on a busy admin;
-  - a purge always closes the record's history, even when your `purge()` keeps the row;
-  - **not in the log:** changes made outside the admin, changes to `select: false` columns, and, on MySQL, a relation changed by a service that ignores `ctx.manager`;
-  - **whatever is typed into the username box of a failed sign-in is stored** as typed, cut to 200 characters: a password typed there by mistake ends up in the log. Failed sign-ins are capped per address and username, per address, and per process.
+What to change, and what you may notice, for every release: [UPGRADING.md](https://github.com/phantomboy0/nest-my-admin/blob/main/UPGRADING.md).
 
 ## Develop
 
@@ -1169,4 +1261,18 @@ bun run e2e                          # Playwright (run `bunx playwright install 
 cd examples/demo-api && bun src/main.ts   # DATABASE_URL=postgres://… or mysql://… to use a real database
 ```
 
+The README's screenshots are taken from the showcase shop in the Chrome installed on your machine (nothing is
+downloaded):
+
+```bash
+cd examples/demo-api
+NMA_DEMO_SHOWCASE=1 NMA_UPLOAD_DIR=$(mktemp -d) PORT=3100 bun src/main.ts &
+bun scripts/showcase-shots.ts               # all of docs/images, or name some: bun scripts/showcase-shots.ts order rtl
+bun scripts/render-product-images.ts        # only after changing the catalog: redraws the product pictures
+```
+
 Design: `docs/superpowers/specs/2026-09-29-nest-my-admin-design.md`.
+
+## License
+
+MIT

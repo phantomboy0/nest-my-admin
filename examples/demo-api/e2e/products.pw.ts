@@ -97,6 +97,17 @@ test('filters and search narrow the list', async ({ page, isMobile }) => {
   await page.getByLabel('Search', { exact: true }).press('Enter');
   await expect(page.getByText('DEMO-2', { exact: true }).filter({ visible: true })).toBeVisible();
   await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
+
+  // Typing searches on its own after a short pause, no Enter; emptying the box brings every row back.
+  const search = page.getByLabel('Search', { exact: true });
+  await search.fill('');
+  await expect(page).not.toHaveURL(/[?&]search=/);
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toBeVisible();
+  await search.pressSequentially('notebo', { delay: 60 });
+  await expect(page).toHaveURL(/[?&]search=notebo(&|$)/);
+  await expect(search).toHaveValue('notebo'); // what was typed while the list loaded is kept
+  await expect(page.getByText('DEMO-2', { exact: true }).filter({ visible: true })).toBeVisible();
+  await expect(page.getByText('DEMO-1', { exact: true }).filter({ visible: true })).toHaveCount(0);
 });
 
 test('moves a draft product to the trash and refuses to delete an active one', async ({ page }, testInfo) => {

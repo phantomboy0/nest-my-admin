@@ -1,6 +1,6 @@
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { OVERLAY_ANIMATED_CLASS } from '@/components/ui/overlay';
-import { ArrowDownUp, Check, ChevronDown, ListFilter, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowDownUp, Check, ChevronDown, Funnel, Search, SlidersHorizontal, X } from 'lucide-react';
 import { Checkbox, Dialog, Popover } from 'radix-ui';
 import type { FieldSchema, FilterOperator, ResourceSchema } from '@nest-my-admin/core/contract';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,8 @@ interface FilterBarProps {
 }
 
 const RANGE_TYPES = new Set(['number', 'decimal', 'bigint', 'date', 'datetime']);
+/** How long typing pauses before the list searches on its own. */
+const SEARCH_DEBOUNCE_MS = 300;
 
 export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps) {
   const t = useT();
@@ -36,9 +38,28 @@ export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps
   const [snapshot, setSnapshot] = useState<URLSearchParams>();
   const urlSearch = params.get('search') ?? '';
   const [search, setSearch] = useState(urlSearch);
+  // The term this bar last put in the address. The address catching up to it must not overwrite what was typed since;
+  // any other change (back, a link, «Clear filters») replaces the box's text.
+  const sent = useRef(urlSearch);
   useEffect(() => {
+    if (urlSearch === sent.current) return;
+    sent.current = urlSearch;
     setSearch(urlSearch);
   }, [urlSearch]);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  function applySearch(text: string) {
+    const term = text.trim();
+    if (term === sent.current) return;
+    sent.current = term;
+    onChangeRef.current({ search: term || null });
+  }
+  // Typing searches on its own after a pause; Enter still searches at once.
+  useEffect(() => {
+    if (search.trim() === sent.current) return;
+    const timer = setTimeout(() => applySearch(search), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const filters = schema.list.filters
     .map((filter) => ({ operators: filter.operators, field: schema.fields.find((field) => field.name === filter.field) }))
@@ -54,16 +75,11 @@ export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps
     return (
       <div className="flex flex-wrap items-center gap-2">
         {searchable && (
-          <SearchBox label={t('filters.search')} placeholder={t('filters.searchIn', { fields: searchLabels.join(', ') })} value={search} onChange={setSearch} onSubmit={() => onChange({ search: search.trim() || null })} />
+          <SearchBox label={t('filters.search')} placeholder={t('filters.searchIn', { fields: searchLabels.join(', ') })} value={search} onChange={setSearch} onSubmit={() => applySearch(search)} />
         )}
         {/* One list in schema order: a chip that moved when set would remount and close its popover mid-choice. */}
         {filters.length > 0 && (
           <ul aria-label={t('filters.filters')} className="contents">
-            <li className="contents">
-              <span className="text-[12.5px] text-muted-foreground" aria-hidden>
-                {t('filters.filter')}
-              </span>
-            </li>
             {filters.map(({ field, operators }) => (
               <li key={field.name} className="contents">
                 <FilterChipButton resource={schema.name} field={field} operators={operators} params={params} onChange={onChange} chip={chips.get(`filter:${field.name}`)} />
@@ -100,7 +116,7 @@ export function FilterBar({ schema, params, onChange, trailing }: FilterBarProps
             placeholder={t('filters.searchIn', { fields: searchLabels.join(', ') })}
             value={search}
             onChange={setSearch}
-            onSubmit={() => onChange({ search: search.trim() || null })}
+            onSubmit={() => applySearch(search)}
           />
         )}
         {drawer && (
@@ -514,7 +530,7 @@ interface SearchBoxProps {
   onSubmit: () => void;
 }
 
-/** The list search: applied on Enter. */
+/** The list search: applied after a pause in typing, or at once on Enter. */
 function SearchBox({ label, placeholder, value, className, onChange, onSubmit }: SearchBoxProps) {
   return (
     <form
@@ -566,7 +582,7 @@ function FilterChipButton({ chip, ...props }: FilterControlProps & { chip?: Filt
               type="button"
               className="inline-flex h-full items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              <ListFilter className="size-3.5 text-muted-foreground" aria-hidden />
+              <Funnel className="size-3.5 text-muted-foreground" aria-hidden />
               {field.label}
               {chip ? (
                 <>

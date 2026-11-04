@@ -10,12 +10,15 @@ import { SalesModule } from './sales/sales.module.js';
 import { SettingsModule } from './settings/settings.module.js';
 import { StaffModule } from './staff/staff.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
+import { SHOP_NAME } from './showcase/catalog.js';
 
 /**
  * `NMA_DEMO_PLAIN=1` starts the demo as a host that sets none of the owner-admin options (menu, …): the screenshot
  * matrix keeps it so "a host that configures nothing new" stays pinned.
  */
 const plain = process.env.NMA_DEMO_PLAIN === '1';
+/** `NMA_DEMO_SHOWCASE=1`: the showcase shop (src/showcase), priced in dollars. */
+const showcase = process.env.NMA_DEMO_SHOWCASE === '1';
 
 @Module({
   imports: [
@@ -23,12 +26,12 @@ const plain = process.env.NMA_DEMO_PLAIN === '1';
     TypeOrmModule.forRootAsync({ useFactory: () => databaseOptions() }),
     AdminModule.forRoot({
       path: '/admin',
-      title: { en: 'Demo shop', fa: 'فروشگاه نمونه' },
+      title: showcase ? SHOP_NAME : { en: 'Demo shop', fa: 'فروشگاه نمونه' },
       locale: 'en',
       locales: ['en', 'fa'],
       branding: { primaryColor: '#0f766e' },
       // Money fields without a unit of their own (the invoice total) show this one.
-      currency: { unit: { en: 'Toman', fa: 'تومان' } },
+      currency: { unit: showcase ? { en: 'USD', fa: 'دلار' } : { en: 'Toman', fa: 'تومان' } },
       // The sidebar in the shop's words; employees (and anything added later) land in «Advanced».
       ...(plain
         ? {}
@@ -86,12 +89,12 @@ const plain = process.env.NMA_DEMO_PLAIN === '1';
       // temporary directory. Downloads go through the admin, which checks permissions for every file.
       files: { storage: localStorage({ dir: process.env.NMA_UPLOAD_DIR ?? 'var/uploads' }) },
       auth: builtinAuth({
-        bootstrapSuperuser: { username: 'admin', password: process.env.NMA_DEMO_PASSWORD ?? 'admin-demo-pass', displayName: 'Demo Admin' },
+        bootstrapSuperuser: { username: 'admin', password: process.env.NMA_DEMO_PASSWORD ?? 'admin-demo-pass', displayName: showcase ? 'Ava Moradi' : 'Demo Admin' },
         // Encrypts two-factor keys at rest: `openssl rand -base64 32`, kept out of the repository.
         ...(process.env.NMA_SECRET_KEY ? { secretKey: process.env.NMA_SECRET_KEY } : {}),
         // The E2E run signs in many times from one address within a minute (the default allows 20).
         ...(process.env.NMA_LOGIN_ATTEMPTS_PER_MINUTE ? { loginAttemptsPerMinute: Number(process.env.NMA_LOGIN_ATTEMPTS_PER_MINUTE) } : {}),
-        issuer: 'Demo shop',
+        issuer: showcase ? SHOP_NAME.en : 'Demo shop',
         ...(process.env.NMA_ISSUER_IMAGE ? { issuerImage: process.env.NMA_ISSUER_IMAGE } : {}),
       }),
     }),

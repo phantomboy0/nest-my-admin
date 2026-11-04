@@ -120,7 +120,6 @@ export const en = {
   'secret.willClear': 'Will be cleared when you save.',
   'secret.undo': 'Undo',
 
-  'filters.filter': 'Filter:',
   'filters.filterBy': 'Filter by {field}',
   'filters.relationHint': 'Shows only the rows whose «{field}» is what you pick. Remove the filter to see every row again.',
   'filters.moreChoices': 'More choices for {field}',

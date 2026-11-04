@@ -122,7 +122,6 @@ export const fa: Messages = {
   'secret.willClear': 'هنگام ذخیره پاک می‌شود.',
   'secret.undo': 'بازگردانی',
 
-  'filters.filter': 'فیلتر:',
   'filters.filterBy': 'فیلتر بر اساس {field}',
   'filters.relationHint': 'فقط ردیف‌هایی را نشان می‌دهد که «{field}» آن‌ها همان انتخاب شما باشد. با برداشتن فیلتر همه‌ی ردیف‌ها برمی‌گردند.',
   'filters.moreChoices': 'گزینه‌های بیشتر برای {field}',

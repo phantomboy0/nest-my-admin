@@ -90,7 +90,8 @@ export function Header({ meta, onOpenMenu }: { meta: MetaResponse | undefined; o
         <ol className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
           {crumbs.map((crumb, index) => (
             <Fragment key={`${index}:${crumb.label}`}>
-              {index > 0 && <ChevronLeft className="size-3.5 shrink-0 ltr:rotate-180" aria-hidden />}
+              {/* Phones show only the last crumb: no separators either. */}
+              {index > 0 && <ChevronLeft className="hidden size-3.5 shrink-0 ltr:rotate-180 sm:block" aria-hidden />}
               <li className={index === last ? 'truncate font-medium text-foreground' : 'hidden truncate sm:block'}>
                 {crumb.to && index !== last ? (
                   <Link to={crumb.to} className="hover:text-foreground">
