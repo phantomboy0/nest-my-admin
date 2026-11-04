@@ -77,6 +77,12 @@ function earlyError(error: unknown): { status: number; code: AdminErrorCode; mes
   return undefined;
 }
 
+/** Whether the Express application has a route of its own for `GET /` (`router` in Express 5, `_router` in 4). */
+export function hasRootRoute(app: { router?: { stack?: unknown[] }; _router?: { stack?: unknown[] } }): boolean {
+  const stack = (app.router?.stack ?? app._router?.stack ?? []) as Array<{ route?: { path?: unknown; methods?: Record<string, boolean> } }>;
+  return stack.some(({ route }) => (route?.path === '/' || route?.path === '') && (route.methods?.get === true || route.methods?._all === true));
+}
+
 /**
  * Mounts one handler on the host's HTTP adapter (spec D12). Registered during onModuleInit, which runs
  * after host middleware added in main.ts and before Nest's 404 handler. Host guards, interceptors,
@@ -413,7 +419,29 @@ export class AdminHttpServer implements OnModuleInit {
       const { status, body } = toErrorResponse(error, correlationId, this.logger, { errorMapper: this.options.errorMapper });
       sendJson(res, status, body);
     });
+    if (this.options.rootRedirect) this.redirectRoot(adapter);
     this.logger.log(`Admin mounted at ${this.options.path}`);
+  }
+
+  /** The bare address goes to the admin. Only GET and HEAD of exactly `/`: every other address keeps its own answer. */
+  private redirectRoot(adapter: NonNullable<HttpAdapterHost['httpAdapter']>): void {
+    // Nest adds the host's routes after this hook, so whether one answers `/` is only known once a request comes.
+    let hostAnswers: boolean | undefined;
+    const target = `${this.options.path}/`;
+    adapter.use((req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void) => {
+      const isRoot = (req.method === 'GET' || req.method === 'HEAD') && (req.url ?? '').split('?')[0] === '/';
+      if (!isRoot) {
+        next();
+        return;
+      }
+      hostAnswers ??= hasRootRoute(adapter.getInstance());
+      if (hostAnswers) {
+        next();
+        return;
+      }
+      res.writeHead(302, { Location: target });
+      res.end();
+    });
   }
 
   private async handle(req: AdminRequest, res: ServerResponse, next: (error?: unknown) => void): Promise<void> {

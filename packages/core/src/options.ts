@@ -111,6 +111,12 @@ export interface AdminAuditOptions {
 export interface AdminModuleOptions {
   /** Mount path of the admin UI and API. Default `/admin`. */
   path?: string;
+  /**
+   * Send a browser that opens the bare address (`GET /`) to the admin, with a temporary redirect. Default `false`:
+   * the redirect would show anyone where the admin lives. A route of the host's own at `/` keeps answering; a file
+   * served at `/` by a middleware does not, because the admin's check sees routes only.
+   */
+  rootRedirect?: boolean;
   /** Title shown in the UI, in one or several languages. Default `Admin`. */
   title?: LocalizedText;
   /** Default UI language. Default `en`. */
@@ -182,6 +188,7 @@ export interface AdminModuleOptions {
 
 export interface ResolvedAdminOptions {
   path: string;
+  rootRedirect: boolean;
   title: LocalizedText;
   locale: string;
   locales: string[];
@@ -208,6 +215,9 @@ export interface ResolvedAdminOptions {
 }
 
 export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedAdminOptions {
+  if (options.rootRedirect !== undefined && typeof options.rootRedirect !== 'boolean') {
+    throw new Error('nest-my-admin: `rootRedirect` must be true or false');
+  }
   const raw = (options.path ?? '/admin').trim();
   const path = '/' + raw.replace(/^\/+|\/+$/g, '');
   if (path === '/') {
@@ -225,6 +235,7 @@ export function resolveAdminOptions(options: AdminModuleOptions = {}): ResolvedA
   if (!locales.includes(locale)) throw new Error(`nest-my-admin: locale "${locale}" must be one of locales (${locales.join(', ')})`);
   return {
     path,
+    rootRedirect: options.rootRedirect === true,
     title: options.title ?? 'Admin',
     locale,
     locales,
