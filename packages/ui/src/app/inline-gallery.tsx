@@ -109,7 +109,8 @@ export function InlineGallery({ inline, child, rows, onChange, fields, errors, c
                 className={cn(
                   'relative aspect-square overflow-hidden rounded-lg border bg-muted',
                   ordered && 'cursor-grab',
-                  openKey === row.key && 'border-primary ring-2 ring-primary/40',
+                  // The picture whose details are open below: a clear outline, apart from the others.
+                  openKey === row.key && 'border-primary outline-3 outline-offset-2 outline-primary',
                   hasErrors(row) && 'border-destructive ring-2 ring-destructive/40',
                   reorder.dragging === index && 'opacity-50',
                   reorder.over === index && reorder.dragging !== index && 'border-primary',
