@@ -861,7 +861,11 @@ export class OrderAdmin extends AdminResourceBase<Order> {
 ```
 
 - **`inline`**: the child resource class. Its entity needs exactly one many-to-one (or owning one-to-one) relation to the parent's entity: that relation's field is the **link** (`orderId`). With several candidates, name it with `link: 'orderId'`. The server sets the link; a client that sends it is refused (422), and an update cannot change it.
-- **`display`**: `cards` (default; each child is a card with the child's own form layout) or `table` (one row per child, one cell per field: for short rows like order lines; on phones the table scrolls sideways).
+- **`display`**: `cards` (default; each child is a card with the child's own form layout) or `table` (one row per child, one cell per field: for short rows like order lines; on phones the table scrolls sideways), or `gallery` (a product's pictures: one box of thumbnails, one child per picture). A gallery needs `order`, and its picture is the first single-file `image` field in `fields`. Several files can be chosen or dropped at once (a new row each, up to `max`), each thumbnail has × (remove) and ☆ (make it the first by `order`; `cards.markFirst` labels it), thumbnails reorder by dragging, and the other fields of the thumbnail chosen (alt text, a variant) are edited below the box:
+
+  ```ts
+  { section: 'Pictures', inline: ProductPictureAdmin, display: 'gallery', fields: ['path', 'alt'], order: 'sort', max: 40, cards: { markFirst: 'Main picture' } }
+  ```
 - **`fields`**: which of the child's form fields the inline shows, in order (default: the child's update form fields without the link). Fields it does not show keep their stored values, and their DTO defaults on create.
 - **`order`**: a number field of the child. Rows are read sorted by it (then by key), and dragging or the up/down buttons write 0, 1, 2… into it on save. Without it rows go by key and cannot be reordered.
 - **`min`**, **`max`** (default 100, at most 500): how many rows a save may leave, checked on the server after the changes (422 on the inline). `max` is also how many rows are read: a record with more shows them read-only, with a link to the child's list filtered by the parent.

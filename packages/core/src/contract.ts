@@ -126,8 +126,13 @@ export interface FormLayoutInline {
   inline: string;
   /** The section's title, else the child resource's label. */
   label: string;
-  /** `cards`: one card per row with the child's fields; `table`: one row per child, one cell per field. */
-  display: 'cards' | 'table';
+  /**
+   * `cards`: one card per row with the child's fields; `table`: one row per child, one cell per field; `gallery`: one
+   * box of thumbnails, one row per picture (several uploaded at once), the other fields of the picture chosen below it.
+   */
+  display: 'cards' | 'table' | 'gallery';
+  /** `gallery`: the child's image field each row's picture is in. */
+  image?: string;
   /** The child's fields the inline shows, in order (never the link field; only fields this user may see). */
   fields: string[];
   /** A number field of the child that orders the rows (written 0, 1, 2… on reorder); without it rows go by key. */
