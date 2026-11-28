@@ -18,7 +18,9 @@ export interface RegisteredInline {
   relation: RelationMetadataLike;
   /** The parent's property the link holds (the relation's referenced column, normally the primary key). */
   referenced: string;
-  display: 'cards' | 'table';
+  display: 'cards' | 'table' | 'gallery';
+  /** `gallery`: the child's image field each row's picture is in. */
+  image?: string;
   /** The child's fields the inline shows, in order (never `link`). */
   fields: string[];
   order?: string;
@@ -73,6 +75,7 @@ export function toLayoutInline(inline: RegisteredInline, label: string | undefin
     inline: inline.name,
     label: label ?? childLabel,
     display: inline.display,
+    ...(inline.image !== undefined ? { image: inline.image } : {}),
     fields: [...inline.fields],
     ...(inline.order !== undefined ? { order: inline.order } : {}),
     ...(inline.min !== undefined ? { min: inline.min } : {}),
@@ -126,6 +129,10 @@ function resolveInline(entry: RegisteredResource, node: LayoutInlineConfig, entr
     if (!formNames.includes(name)) fail(`${where}: fields: "${name}" is not on the ${childName} form${didYouMean(name, formNames)}`);
   }
   for (const key of node.computed ?? []) if (!child.computed.has(key)) fail(`${where}: computed: "${key}" is not a list.computed column of ${childName}${didYouMean(key, [...child.computed.keys()])}`);
+  const fields = node.fields ? [...node.fields] : child.schema.form.update.filter((name) => name !== link);
+  // A gallery's picture: the first image field it shows that holds one file (a `many` field is already a gallery).
+  const image = node.display === 'gallery' ? fields.find((name) => { const field = fieldOf(name); return field?.widget === 'image' && field.file?.many !== true; }) : undefined;
+  if (node.display === 'gallery' && image === undefined) fail(`${where}: a gallery shows its rows as pictures: list a single-file image field of ${childName} in fields`);
   const referenced = (relation.joinColumns[0] as { referencedColumn?: { propertyName: string } }).referencedColumn?.propertyName ?? entry.schema.primaryKeys[0]!;
   return {
     name: child.schema.name,
@@ -134,7 +141,8 @@ function resolveInline(entry: RegisteredResource, node: LayoutInlineConfig, entr
     relation,
     referenced,
     display: node.display ?? 'cards',
-    fields: node.fields ? [...node.fields] : child.schema.form.update.filter((name) => name !== link),
+    ...(image !== undefined ? { image } : {}),
+    fields,
     ...(node.order !== undefined ? { order: node.order } : {}),
     ...(node.min !== undefined ? { min: node.min } : {}),
     max: node.max ?? DEFAULT_INLINE_MAX,

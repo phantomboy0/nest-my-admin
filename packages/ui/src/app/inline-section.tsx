@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import type { FieldSchema, FormLayoutInline, ResourceSchema } from '@nest-my-admin/core/contract';
 import { FieldInput } from '@/app/field-input';
 import { FormLayout } from '@/app/form-layout';
+import { InlineGallery } from '@/app/inline-gallery';
 import { ObjectInput } from '@/app/object-input';
 import { DisplayValue } from '@/app/widgets/badge';
 import { ComputedCell } from '@/app/computed-cell';
@@ -11,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { fieldWarnings } from '@/lib/record-layout';
 import { useT } from '@/i18n';
-import { dependencyValues, type FormValue } from '@/lib/form-values';
+import { dependencyValues, type FormValue, type FormValues } from '@/lib/form-values';
 import { inlineFields, lockedFields, newInlineRow, type InlineErrors, type InlineRow } from '@/lib/inline-changes';
 import { cn } from '@/lib/utils';
 
@@ -52,12 +53,20 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
   // The child's pickers see the parent's form as `_parent`, next to the row's own values.
   const valuesFor = (row: InlineRow) => (parentValues === undefined ? undefined : JSON.stringify({ ...JSON.parse(dependencyValues(fields, row.values) ?? '{}'), _parent: JSON.parse(parentValues) }));
 
-  function add() {
-    let key: string;
-    do key = `n${++next.current}`;
-    while (rows.some((row) => row.key === key));
-    onChange([...rows, newInlineRow(inline, child, key)]);
+  /** `current` with a new row per set of values (fresh keys; the child's defaults under the values). */
+  function append(current: InlineRow[], values: FormValues[]): InlineRow[] {
+    const out = [...current];
+    for (const set of values) {
+      let key: string;
+      do key = `n${++next.current}`;
+      while (out.some((row) => row.key === key));
+      const row = newInlineRow(inline, child, key);
+      out.push({ ...row, values: { ...row.values, ...set } });
+    }
+    return out;
   }
+  const add = () => onChange(append(rows, [{}]));
+  const gallery = inline.display === 'gallery';
   const update = (key: string, name: string, value: FormValue) => onChange(rows.map((row) => (row.key === key ? { ...row, values: { ...row.values, [name]: value } } : row)));
   const remove = (key: string) => onChange(rows.filter((row) => row.key !== key));
   function move(from: number, to: number) {
@@ -197,7 +206,7 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
           {inline.label}
         </h2>
         <span className="inline-flex h-5 items-center rounded-full bg-muted px-2 text-[11px] text-muted-foreground">{limits(t, inline, rows.length)}</span>
-        {canCreate && (
+        {canCreate && !gallery && (
           <Button type="button" variant="outline" size="sm" className="ms-auto" onClick={add}>
             <Plus />
             {t('form.add', { name: inline.label })}
@@ -213,7 +222,23 @@ export function InlineSection({ inline, child, rows, onChange, readOnly, errors,
           </Link>
         </p>
       )}
-      {rows.length === 0 && <p className="text-sm text-muted-foreground">{t('inline.empty')}</p>}
+      {rows.length === 0 && !(gallery && canCreate) && <p className="text-sm text-muted-foreground">{t('inline.empty')}</p>}
+      {gallery && (
+        <InlineGallery
+          inline={inline}
+          child={child}
+          rows={rows}
+          onChange={onChange}
+          fields={fields.filter((field) => field.name !== inline.image)}
+          errors={errors}
+          canCreate={canCreate}
+          canRemove={canRemove}
+          ordered={!readOnly && inline.order !== undefined && child.form.update.includes(inline.order)}
+          append={append}
+          renderField={(row, field) => cell(row, field, false)}
+          onBusy={onBusy}
+        />
+      )}
       {rows.length > 0 && inline.display === 'table' && (
         // Flush with the card's edges, like a list table; phones scroll it sideways, the page itself never does.
         <div className="relative -mx-5 overflow-x-auto border-y first:-mt-5 first:border-t-0 last:-mb-5 last:border-b-0">

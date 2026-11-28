@@ -158,7 +158,9 @@ describe('layout', () => {
     expect(() => checkLayout(ok, names, fail)).toThrow('form.layout: inlines belong in the form of a resource');
     const bad = (node: Partial<LayoutInlineConfig>) => () => checkLayout([{ inline, ...node } as LayoutInlineConfig], names, fail, { inlines: true });
     expect(bad({ inline: 'Child' as unknown as LayoutInlineConfig['inline'] })).toThrow('form.layout: `inline` must be a resource class');
-    expect(bad({ display: 'grid' as 'table' })).toThrow('inline ChildAdmin: display must be "cards" or "table"');
+    expect(bad({ display: 'grid' as 'table' })).toThrow('inline ChildAdmin: display must be "cards", "table" or "gallery"');
+    expect(bad({ display: 'gallery' })).toThrow('inline ChildAdmin: a gallery needs an order field: the main picture is the first by it');
+    expect(() => checkLayout([{ inline, display: 'gallery', order: 'pos', cards: { markFirst: 'Main' } }], names, fail, { inlines: true })).not.toThrow();
     expect(bad({ max: 501 })).toThrow('inline ChildAdmin: max: must be an integer from 1 to 500');
     expect(bad({ max: 0 })).toThrow('max: must be an integer from 1 to 500');
     expect(bad({ min: -1 })).toThrow('inline ChildAdmin: min: must be an integer from 0 to max (100)');

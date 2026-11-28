@@ -42,8 +42,13 @@ export interface LayoutInlineConfig {
   inline: abstract new (...args: any[]) => AdminResourceBase<any>;
   /** The child's field that points at the parent (`productId`), when there are several candidates. */
   link?: string;
-  /** `cards` (default): stacked cards with the child's form layout; `table`: one row per child, one cell per field. */
-  display?: 'cards' | 'table';
+  /**
+   * `cards` (default): stacked cards with the child's form layout; `table`: one row per child, one cell per field;
+   * `gallery`: a product's pictures. One box of thumbnails, one child per picture: several files are uploaded at once
+   * (a row each), each has a remove button and «make main» (moves it first by `order`, which a gallery needs), and the
+   * other fields of the chosen picture show below. The picture is the first single-file image field of `fields`.
+   */
+  display?: 'cards' | 'table' | 'gallery';
   /** Which of the child's form fields the inline shows, in order. Default: its update form fields but the link. */
   fields?: string[];
   /** A number field of the child: rows are read by it (then by key) and reordering writes 0, 1, 2… into it. */
@@ -395,7 +400,8 @@ const isFieldName = (value: unknown) => typeof value === 'string' && value.lengt
 function checkInlineShape(node: LayoutInlineConfig, fail: (message: string) => never): void {
   if (typeof node.inline !== 'function') fail('form.layout: `inline` must be a resource class (`inline: VariantAdmin`)');
   const where = `form.layout inline ${node.inline.name}`;
-  if (node.display !== undefined && node.display !== 'cards' && node.display !== 'table') fail(`${where}: display must be "cards" or "table"`);
+  if (node.display !== undefined && node.display !== 'cards' && node.display !== 'table' && node.display !== 'gallery') fail(`${where}: display must be "cards", "table" or "gallery"`);
+  if (node.display === 'gallery' && node.order === undefined) fail(`${where}: a gallery needs an order field: the main picture is the first by it`);
   const max = node.max ?? DEFAULT_INLINE_MAX;
   if (!Number.isInteger(max) || max < 1 || max > MAX_INLINE_ROWS) fail(`${where}: max: must be an integer from 1 to ${MAX_INLINE_ROWS}`);
   if (node.min !== undefined && (!Number.isInteger(node.min) || node.min < 0 || node.min > max)) fail(`${where}: min: must be an integer from 0 to max (${max})`);
