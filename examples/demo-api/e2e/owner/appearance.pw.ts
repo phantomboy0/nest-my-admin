@@ -44,6 +44,8 @@ test('the colour window keeps working after the menu closes and the page changes
   // The menu closes and another page opens while the browser's colour window is still up.
   await page.keyboard.press('Escape');
   await page.goto('/admin/product');
+  // The shell mounts the input after the page loads.
+  await page.locator('input[type=color]').waitFor({ state: 'attached' });
   // What the colour window does on each change: the always-mounted input gets the value and an `input` event.
   await page.evaluate("(() => { const input = document.querySelector('input[type=color]'); input.value = '#db2777'; input.dispatchEvent(new Event('input', { bubbles: true })); })()");
   expect((await primary(page)).toLowerCase()).toBe('#db2777');
