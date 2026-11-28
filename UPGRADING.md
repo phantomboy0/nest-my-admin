@@ -2,6 +2,10 @@
 
 Newest first. Upgrade all packages together (`nest-my-admin`, or every `@nest-my-admin/*` at one version).
 
+## Upgrading to 0.10.5
+
+Nothing to change. New: `display: 'gallery'` on an inline node, for a parent's pictures. It shows one box of thumbnails, with one child row per picture. It needs `order`, and the picture is the first single-file `image` field in `fields`. Several files chosen or dropped at once become a row each (up to `max`). Each thumbnail has × (remove) and ☆ (make it the first), thumbnails reorder by dragging, and the other fields of the chosen picture are edited below the box.
+
 ## Upgrading to 0.10.4
 
 Nothing to change. New: `AdminModule.forRoot({ rootRedirect: true })` sends a browser that opens the bare address to the admin, with a temporary redirect, wherever `path` puts it. It is off by default, because it shows anyone where the admin lives. A route of your own at `/` keeps answering, and every other address keeps its 404.
