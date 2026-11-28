@@ -21,8 +21,10 @@ test('a source resource: list, search, filter, create, edit, action, delete', as
 
   // New: the create form, then the record page.
   await page.getByRole('link', { name: 'New' }).click();
-  await page.getByLabel('Code').fill('snp');
-  await page.getByLabel('Name').fill('Snapp Box');
+  // The form's URL first, and textboxes by role: the list's column handles are named «Resize Code», «Resize Name».
+  await expect(page).toHaveURL(/\/admin\/courier\/new$/);
+  await page.getByRole('textbox', { name: 'Code', exact: true }).fill('snp');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Snapp Box');
   await choose(page.getByLabel('Zone'), 'domestic');
   await page.getByLabel('Price per kg').fill('30000');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
