@@ -25,7 +25,7 @@ jobs:
       - run: bunx playwright install --with-deps chromium
         working-directory: examples/demo-api
       - run: bun run e2e
-      - run: bun run --filter demo-api e2e:screens
+      # e2e:screens is a local check: its baselines are rendered on macOS, and Linux draws fonts differently.
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
